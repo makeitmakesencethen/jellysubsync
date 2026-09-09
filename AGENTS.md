@@ -20,9 +20,11 @@ No test runner exists. Deploy via the release zip (DLL + meta.json + bundled
 
 ```
 Plugin.cs                        — Entry point (BasePlugin<PluginConfiguration>, IHasWebPages).
-                                   On construction: sets static Instance, injects <script> tag
-                                   into Jellyfin's index.html (idempotent). On uninstall removes it.
-SubSyncServiceRegistrator.cs     — DI registration (IServerServiceRegistrator).
+                                   Sets static Instance. Does NOT inject scripts.
+SubSyncServiceRegistrator.cs     — DI registration (IServerServiceRegistrator): registers
+                                   SubSyncService (singleton) and app.UseMiddleware<SubSyncMiddleware>().
+Api/SubSyncMiddleware.cs         — Response middleware: injects <script src="/SubSync/ClientScript">
+                                   into index.html responses (idempotent, per-request).
 Configuration/PluginConfiguration.cs — Settings model (XML-serialized by Jellyfin).
 Api/SubSyncController.cs         — REST API at /SubSync/* ([ApiController], [Authorize]).
                                    Serves the client JS via GET /SubSync/ClientScript.
@@ -52,11 +54,16 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
 - **ffmpeg mapping**: Jellyfin's `MediaStream.Index` is the CONTAINER index; ffmpeg
   `-map 0:s:N` needs the ordinal WITHIN subtitle streams (derived server-side).
   Image-based embedded subs (PGS/DVD/VobSub) are rejected up front with a clear message.
+- **Video files are NEVER written**: only read (as ffsubsync reference audio) or analysed.
+  Embedded tracks are extracted and saved as new external sidecars
+  (`{videoNameNoExt}-SYNCED.{lang}.srt`) — the remux path was deleted; do not restore it.
 - **ffmpeg invocations use `ProcessStartInfo.ArgumentList`** (argv direct, no string
-  escaping). Do not regress to hand-escaped argument strings.
-- **Copy mode (default)**: output goes to a NEW sidecar (`{lang}.SYNCED.srt` for
-  pure-language originals so Jellyfin's filename parser keeps resolving the language;
-  `{stem}-SYNCED.srt` otherwise). Replace mode overwrites in place with backup+rollback.
+  escaping). The ffsubsync builder still hand-escapes (`EscapeArg`-joined string) —
+  migrate it to `ArgumentList`; do not regress the ffmpeg paths.
+- **Copy mode (default)**: output goes to a NEW sidecar — `{lang}.SYNCED.srt` for
+  pure-language external originals (keeps Jellyfin's parser resolving the language),
+  `{stem}-SYNCED.srt` otherwise, `{videoNameNoExt}-SYNCED.{lang}.srt` for embedded
+  tracks. Replace mode overwrites the original external file with backup+rollback.
 - **New sidecar discovery**: after a copy, the engine calls
   `ILibraryMonitor.ReportFileSystemChanged(dir)` (one-folder rescan) and refreshes the
   video item — no full library scan required.

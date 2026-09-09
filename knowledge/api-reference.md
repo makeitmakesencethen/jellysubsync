@@ -15,8 +15,8 @@ All endpoints are under the `SubSync` route prefix, require `[Authorize]`, and l
 | GET | `/SubSync/Batch/{batchId}` | `GetBatch` | `batchId` (route) | `BatchView` | Live per-task view used for progress + expanded history |
 | GET | `/SubSync/Batches` | `GetBatches` | — | `IEnumerable<BatchSummary>` | History list (newest first, shared by all viewers) |
 | POST | `/SubSync/Batch/{batchId}/Cancel` | `CancelBatch` | `batchId` (route) | `BatchView` | Cancels not-yet-started tasks of the batch |
-| GET | `/SubSync/InstallationStatus` | `GetInstallationStatus` | — | `FfSubSyncInstallationStatus` | Checks python3, managed venv, ffsubsync version |
-| POST | `/SubSync/Install` | `InstallFfSubSync` | — | `{ message: string }` | 503 if install already in progress, 400 on failure |
+| GET | `/SubSync/InstallationStatus` | `GetInstallationStatus` | — | `FfSubSyncInstallationStatus` | Reports bundled/custom/legacy-managed engine availability |
+| GET | `/SubSync/Install` | `InstallFfSubSync` | — | `{ message: string }` | Legacy: installs a managed venv (no-op path when a bundled binary exists) |
 | GET | `/SubSync/ClientScript` | `GetClientScript` | — | `application/javascript` | Serves embedded `subsync.js` |
 
 ## Request/Response Types
@@ -41,7 +41,7 @@ Source: `SubSyncController.cs:175-183`
 | `ExternalPath` | `string?` | `[JsonIgnore]` — not in API responses |
 | `HasSyncedVersion` | `bool` | Whether a completed sync exists for this stream |
 
-Source: `SubSyncService.cs:29-49`
+Source: `SubSyncService.cs:32-52`
 
 ### SyncJob
 
@@ -50,27 +50,35 @@ Source: `SubSyncService.cs:29-49`
 | `Id` | `string` | `Guid.NewGuid().ToString("N")` | 32-char hex, no hyphens |
 | `ItemId` | `Guid` | — | Jellyfin item ID |
 | `SubtitleIndex` | `int` | — | Stream index |
-| `Status` | `SyncJobStatus` | `Queued` | Queued/Running/Completed/Failed |
+| `Status` | `SyncJobStatus` | `Queued` | See enum below |
 | `Progress` | `double` | `0.0` | 0.0 to 1.0 |
 | `Phase` | `string` | `"Preparing"` | Human-readable phase label |
 | `Error` | `string?` | `null` | Error message if Failed |
 | `OutputPath` | `string?` | `null` | Output file path after success |
+| `CreatedAtUtc` | `DateTime` | `UtcNow` | Queue order |
+| `FinishedAtUtc` | `DateTime?` | `null` | Set on terminal state |
+| `BatchId` | `string?` | `null` | Owning batch, null for standalone jobs |
+| `BatchIndex` | `int` | `-1` | 0-based position inside the batch |
+| `BatchLabel` | `string?` | `null` | Batch scope label (e.g. "Series · Season 2") |
+| `Label` | `string?` | `null` | Human display label (subtitle/track title) |
 
-Source: `SubSyncService.cs:54-82`
+Source: `SubSyncService.cs:57-103`
 
 ### FfSubSyncInstallationStatus
 
 | Field | Type | Notes |
 |-------|------|-------|
-| `IsInstalled` | `bool` | Managed ffsubsync binary exists |
-| `ManagedBinaryPath` | `string?` | Path to venv ffsubsync |
-| `VenvPath` | `string?` | Path to managed virtualenv |
+| `IsInstalled` | `bool` | A usable engine is available (bundled, custom, or managed) |
+| `ManagedBinaryPath` | `string?` | Path to legacy managed venv ffsubsync |
+| `VenvPath` | `string?` | Path to legacy managed virtualenv |
 | `ResolvedBinaryPath` | `string?` | Actual binary that will be used |
 | `PythonAvailable` | `bool` | System python3 found |
 | `PythonVersion` | `string?` | Python version string |
-| `FfSubSyncVersion` | `string?` | ffsubsync version string |
+| `FfSubSyncVersion` | `string?` | Engine version string |
+| `BundledFfSubSyncVersion` | `string?` | Version of the plugin-shipped binary, if present |
+| `BundledRid` | `string?` | Runtime identifier the bundled binary targets (e.g. `linux-x64`) |
 
-Source: `SubSyncService.cs:87-109`
+Source: `SubSyncService.cs:108-136`
 
 ### SyncJobStatus Enum
 
@@ -80,8 +88,9 @@ Source: `SubSyncService.cs:87-109`
 | `Running` | Currently executing |
 | `Completed` | Finished successfully |
 | `Failed` | Errored out |
+| `Cancelled` | Cancelled before it ran (batch cancel) |
 
-Source: `SubSyncService.cs:14-24`
+Source: `SubSyncService.cs:15-27`
 
 ## Client-Side Integration
 

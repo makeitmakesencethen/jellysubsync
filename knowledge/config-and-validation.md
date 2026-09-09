@@ -105,14 +105,16 @@ See also: [architecture-and-gotchas.md](architecture-and-gotchas.md) for build c
 
 ## Job Cleanup Logic
 
-Source: `SubSyncService.cs:823-849`
+Source: `SubSyncService.cs:1123`
 
-The cleanup timer fires every 30 minutes. Actual eviction behavior:
+The cleanup timer fires every 30 minutes. Actual eviction behavior (from `CleanupOldJobs()`):
 
-- **Failed jobs**: always evicted on next cleanup run, regardless of age
-- **Completed jobs**: evicted only when `Progress >= 1.0` AND total job count exceeds 10
+- **Failed / Cancelled jobs**: always evicted on the next cleanup run, regardless of age
+- **Completed jobs**: evicted when either (a) finished more than 1 hour ago (`cutoff`,
+  `DateTime.UtcNow.AddHours(-1)`, **is** used — it is not dead code), or (b) total job
+  count exceeds 50 — in which case **all** completed jobs are evicted at once rather
+  than trimming down to a target size
 - **Queued/Running jobs**: never evicted
 
-Note: the `cutoff` variable (`DateTime.UtcNow.AddHours(-1)`) is computed at line 827
-but never referenced in the filter logic — it is dead code. The comment at line 151
-says "older than 1 hour" but the code does not use timestamp-based eviction.
+Jobs live only in memory (`_jobs`), so everything is lost on a Jellyfin restart; the
+cleanup rules only bound the lifetime of an otherwise unbounded in-memory list.
