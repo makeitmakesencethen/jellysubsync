@@ -613,13 +613,10 @@ public class SubSyncService : IDisposable
             throw new InvalidOperationException($"Subtitle stream index {subtitleIndex} not found.");
         }
 
-        // Jellyfin's MediaStream.Index IS the stream's CONTAINER-wide index
-        // (video/audio/subtitle all counted) — pass it straight to ffmpeg as
-        // "-map 0:{Index}". A subtitle-scoped "0:s:N" ordinal was previously
-        // derived by counting subtitle streams from MediaStreams, but that list
-        // also includes external sidecar tracks, so the count drifted from the
-        // real container and embedded extraction failed ("Failed to set value
-        // '0:s:N' for option 'map'") on files mixing embedded + external subs.
+        // Embedded extraction never trusts Jellyfin's stream numbering: the real
+        // container stream index is resolved at run time by probing the file with
+        // ffmpeg (see ResolveContainerSubtitleIndexAsync). Kept here only as a
+        // display/logging handle on the originally selected stream.
         var subtitleOrdinal = subtitleStream.Index;
 
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
@@ -1003,6 +1000,66 @@ public class SubSyncService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Locates the REAL container stream index of an embedded subtitle track by
+    /// probing the file with ffmpeg. Jellyfin's MediaStream.Index cannot be used
+    /// as a container index (values have been observed pointing past the file's
+    /// actual stream count when a video mixes embedded and external subtitles),
+    /// so the target is matched by position: the Nth embedded subtitle stream
+    /// Jellyfin reports corresponds to the Nth subtitle stream ffmpeg sees.
+    /// </summary>
+    /// <param name="video">The video item.</param>
+    /// <param name="target">The embedded subtitle stream to extract.</param>
+    /// <returns>The real container stream index (for ffmpeg "-map 0:N").</returns>
+    /// <exception cref="InvalidOperationException">The stream could not be mapped.</exception>
+    private async Task<int> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
+    {
+        var ffmpegPath = ResolveFfmpegPath();
+        var (_, stderr) = await RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
+        var containerSubs = ParseProbeSubtitleIndexes(stderr);
+
+        var mediaSources = video.GetMediaSources(true);
+        var jellyfinEmbedded = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
+            .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
+            .OrderBy(s => s.Index)
+            .ToList() ?? new List<MediaBrowser.Model.Entities.MediaStream>();
+
+        var pos = jellyfinEmbedded.FindIndex(s => s.Index == target.Index);
+        if (pos < 0 && jellyfinEmbedded.Count == 1)
+        {
+            pos = 0; // single embedded track — safe positional fallback
+        }
+
+        if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
+        {
+            return containerSubs[pos];
+        }
+
+        throw new InvalidOperationException(
+            $"Could not map the embedded subtitle to a real container stream: ffmpeg reports {containerSubs.Count} subtitle stream(s) " +
+            $"(container indexes [{string.Join(", ", containerSubs)}]) but Jellyfin reports {jellyfinEmbedded.Count} embedded subtitle stream(s) " +
+            $"for {video.Path}.");
+    }
+
+    /// <summary>
+    /// Parses ffmpeg's "-i" output for the container indexes of its subtitle
+    /// streams ("Stream #0:4(eng): Subtitle: ...").
+    /// </summary>
+    internal static List<int> ParseProbeSubtitleIndexes(string ffmpegOutput)
+    {
+        var result = new List<int>();
+        foreach (var line in ffmpegOutput.Split('\n'))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(line, @"Stream\s+#0:(\d+)[^:]*:\s*Subtitle:");
+            if (match.Success && int.TryParse(match.Groups[1].Value, out var idx))
+            {
+                result.Add(idx);
+            }
+        }
+
+        return result;
+    }
+
     private async Task RunSyncJob(
         SyncJob job,
         Video video,
@@ -1061,8 +1118,15 @@ public class SubSyncService : IDisposable
                 job.Phase = "Extracting subtitle";
                 job.Progress = 0.05;
                 subtitleInputPath = Path.Combine(tempDir, $"subtitle_{job.SubtitleIndex}.srt");
-                _logger.LogInformation("Extracting embedded subtitle stream {Index} (ordinal {Ordinal}) from {Video}", job.SubtitleIndex, subtitleOrdinal, videoPath);
-                await ExtractSubtitle(videoPath, subtitleOrdinal, subtitleInputPath).ConfigureAwait(false);
+
+                // Jellyfin's MediaStream.Index cannot be trusted as a container
+                // stream index (observed values pointing past the file's real
+                // stream count on files mixing embedded + external tracks), so
+                // the real stream is located by probing the file with ffmpeg
+                // and matching by position among embedded subtitle streams.
+                var containerIndex = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
+                _logger.LogInformation("Extracting embedded subtitle (container stream {Stream}) from {Video}", containerIndex, videoPath);
+                await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath).ConfigureAwait(false);
             }
 
             // Step 2: Run ffsubsync → temp output
@@ -1443,14 +1507,13 @@ public class SubSyncService : IDisposable
         // ArgumentList passes argv directly — no string-quoting/escaping layer
         // that can mangle paths into "Error opening output files: Invalid argument".
         //
-        // streamIndex is the CONTAINER-wide stream index from Jellyfin
-        // (MediaStream.Index counts video/audio/subtitle alike), so we map with
-        // "-map 0:{Index}" — NOT "0:s:N", which needs a subtitle-scoped ordinal.
-        // Deriving that ordinal by counting subtitle streams from Jellyfin's
-        // MediaStreams list was unreliable: the list also contains external
-        // sidecar tracks, so the count drifted from what ffmpeg sees inside the
-        // container and extraction failed with "Failed to set value '0:s:N' for
-        // option 'map': Invalid argument" on files that mix embedded + external.
+        // streamIndex is the REAL container stream index discovered by probing
+        // the file (ResolveContainerSubtitleIndexAsync) — mapped with plain
+        // "-map 0:N". Never derive it from Jellyfin's MediaStream.Index or from
+        // counting subtitle streams in Jellyfin's MediaStreams list: both have
+        // been observed to disagree with the actual container (external sidecar
+        // tracks and renumbered streams), producing "Failed to set value '0:N'
+        // for option 'map': Invalid argument".
         var args = new List<string>
         {
             "-y",

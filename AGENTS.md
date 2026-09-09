@@ -51,11 +51,12 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   for subsyncMain.html lives inside the body. Never move it back to head.
 - **`emby-select`/`emby-input` inject sibling `<label>` elements** — never lay them out
   side-by-side in a flex row; stack fields instead.
-- **ffmpeg mapping**: Jellyfin's `MediaStream.Index` IS the CONTAINER-wide stream
-  index (video/audio/subtitle all counted). Embedded extraction maps with
-  `-map 0:{Index}` — never `-map 0:s:N` (subtitle-scoped): deriving a subtitle
-  ordinal by counting subtitle streams from MediaStreams is unreliable because
-  that list also contains external sidecar tracks, skewing the count.
+- **Embedded stream mapping**: never trust Jellyfin's `MediaStream.Index` as a
+  container index — values have been observed pointing past the file's real stream
+  count when a video mixes embedded + external tracks. At extraction time the real
+  container stream is located by probing the file (`ffmpeg -i`, see
+  `ResolveContainerSubtitleIndexAsync`) and matching by position among embedded
+  subtitle streams, then mapped with plain `-map 0:N`.
   Image-based embedded subs (PGS/DVD/VobSub) are rejected up front with a clear message.
 - **Video files are NEVER written**: only read (as ffsubsync reference audio) or analysed.
   Embedded tracks are extracted and saved as new external sidecars
