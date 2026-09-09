@@ -499,8 +499,7 @@
                         } else {
                             html += '<div class="ss-row-actions">' +
                                 '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="series">Whole series</option></select>' +
-                                '<select is="emby-select" id="ss-langfilter" class="ss-compact" label="Language">' + seriesLangHtml() + '</select>' +
-                                '<select is="emby-select" id="ss-substrat" class="ss-compact" label="Subs"><option value="all">All subtitle tracks</option><option value="first">First track only</option></select>' +
+                                '<select is="emby-select" id="ss-langfilter" class="ss-compact" label="Subtitle">' + seriesLangHtml() + '</select>' +
                                 '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync series</span></button>' +
                                 '</div>';
                         }
@@ -673,7 +672,7 @@
                 var token = ++langDiscoverToken;
                 var prev = sel.getAttribute('data-value') || '*';
                 delete langFilterCache[scopeId];
-                sel.innerHTML = '<option value="*">Every language</option><option value="__scan" disabled>Scanning subtitles\u2026</option>';
+                sel.innerHTML = '<option value="*">All subtitles</option><option value="__scan" disabled>Scanning subtitles\u2026</option>';
                 episodesInScope(scopeId, seasonOnly).then(function (episodes) {
                     var counts = {};
                     var seq = Promise.resolve();
@@ -690,7 +689,7 @@
                     return seq.then(function () {
                         if (token !== langDiscoverToken) return; // scope changed meanwhile
                         var codes = Object.keys(counts).sort();
-                        var html = '<option value="*">Every language (' + episodes.length + ' ep)</option>';
+                        var html = '<option value="*">All subtitles (' + episodes.length + ' ep)</option>';
                         codes.forEach(function (c) {
                             var pretty = (LANG_NAMES[c] ? LANG_NAMES[c] + ' \u00b7 ' : '') + c;
                             html += '<option value="' + c + '">' + esc(pretty) + ' (' + counts[c] + ' tracks)</option>';
@@ -720,7 +719,7 @@
             // whole series' language list.
             function seriesLangHtml() {
                 var e = scopeTarget ? langFilterCache[scopeTarget] : null;
-                return e ? e.html : '<option value="*">Every language</option>';
+                return e ? e.html : '<option value="*">All subtitles</option>';
             }
 
             // Active run attached to a server batch (own start or reattached after reload).
@@ -930,17 +929,16 @@
             }
 
             function episodesInScopeChain(scopeId, seasonOnly) {
-                // Movie: fetch its tracks directly. Series/season: episodes -> tracks per strategy.
+                // Movie: fetch its tracks directly. Series/season: episodes -> one
+                // track per language per episode (external preferred when a
+                // language appears more than once, e.g. embedded + external).
                 var queue = [];
-                var strategy = 'all';
                 if (!scopeId) {
                     // movie with chosen track index
                     var chosen = $('ss-trackpick') ? parseInt($('ss-trackpick').value, 10) : -1;
                     return Promise.resolve({ episodeCount: 1, queue: movieTracks.filter(function (t) { return chosen === -1 || t.Index === chosen; })
                         .map(function (t) { return { itemId: selected.Id, index: t.Index, title: selected.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) }; }) });
                 }
-                var stratSel = $('ss-substrat');
-                if (stratSel) strategy = stratSel.value;
                 var lang = currentLangFilter();
                 return episodesInScope(scopeId, seasonOnly).then(function (episodes) {
                     var seq = Promise.resolve();
@@ -954,8 +952,18 @@
                                         return tl === lang;
                                     });
                                 }
-                                use = strategy === 'first' ? use.slice(0, 1) : use;
+                                // Collapse duplicate languages per episode: keep the
+                                // external track when one exists, else the first.
+                                var byLang = {};
                                 use.forEach(function (t) {
+                                    var key = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';
+                                    var cur = byLang[key];
+                                    if (!cur || (!cur.IsExternal && t.IsExternal)) {
+                                        byLang[key] = t;
+                                    }
+                                });
+                                Object.keys(byLang).sort().forEach(function (key) {
+                                    var t = byLang[key];
                                     queue.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
                                 });
                             });
