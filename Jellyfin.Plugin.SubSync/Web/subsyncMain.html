@@ -499,6 +499,7 @@
                         } else {
                             html += '<div class="ss-row-actions">' +
                                 '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="series">Whole series</option></select>' +
+                                '<select is="emby-select" id="ss-langfilter" class="ss-compact" label="Language">' + seriesLangHtml() + '</select>' +
                                 '<select is="emby-select" id="ss-substrat" class="ss-compact" label="Subs"><option value="all">All subtitle tracks</option><option value="first">First track only</option></select>' +
                                 '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync series</span></button>' +
                                 '</div>';
@@ -534,6 +535,10 @@
                             var name = opt ? (opt.getAttribute('data-name') || opt.textContent) : selected.Name;
                             var rowName = $('ss-list').querySelector('.ss-row.selected .ss-name');
                             if (rowName) rowName.textContent = name;
+                            var v = $('ss-scope').value;
+                            if (v && v !== 'series') {
+                                discoverLangOptions(v, v !== selected.Id);
+                            }
                         };
                     }
                     if ($('ss-syncbtn')) {
@@ -541,6 +546,13 @@
                             e.stopPropagation();
                             startBatch();
                         };
+                    }
+                    // Re-apply the chosen language filter after a row rebuild.
+                    if (selected && selected.Type === 'Series' && $('ss-langfilter') && scopeTarget) {
+                        var eL = langFilterCache[scopeTarget];
+                        if (eL && eL.value) {
+                            $('ss-langfilter').value = eL.value;
+                        }
                     }
                 }
             }
@@ -566,6 +578,9 @@
                         render();
                     });
                 } else {
+                    // Whole-series default: scan languages right away (unless a
+                    // saved season scope is being restored below, which rescans).
+                    if (!pendingScope) discoverLangOptions(item.Id, false);
                     var params = new URLSearchParams({
                         ParentId: item.Id,
                         IncludeItemTypes: 'Season',
@@ -595,7 +610,14 @@
                                 if (rowName2) rowName2.textContent = opt2.getAttribute('data-name') || opt2.textContent;
                             }
                         }
+                        var hadPending = pendingScope;
                         pendingScope = null;
+                        // Refresh the language list only when the scope actually
+                        // differs from the whole-series default already scanned.
+                        var cur = scope.value && scope.value !== 'series' ? scope.value : item.Id;
+                        if (hadPending || cur !== item.Id) {
+                            discoverLangOptions(cur, cur !== item.Id);
+                        }
                     }).catch(function (e) { diag('Could not load seasons: ' + (e.message || e), true); });
                     render();
                 }
@@ -628,6 +650,77 @@
                 return api('SubSync/Subtitles/' + itemId).then(function (tracks) {
                     return (tracks || []).filter(function (t) { return t && typeof t.Index === 'number'; });
                 });
+            }
+
+            // Common 3-letter codes → friendly names for the language filter.
+            var LANG_NAMES = { eng: 'English', swe: 'Swedish', nor: 'Norwegian', dan: 'Danish', fin: 'Finnish',
+                deu: 'German', fra: 'French', spa: 'Spanish', ita: 'Italian', nld: 'Dutch', por: 'Portuguese',
+                rus: 'Russian', pol: 'Polish', tur: 'Turkish', uzb: 'Uzbek', ara: 'Arabic', heb: 'Hebrew',
+                zho: 'Chinese', chi: 'Chinese', jpn: 'Japanese', kor: 'Korean', ces: 'Czech', hun: 'Hungarian',
+                srp: 'Serbian', hr: 'Croatian', ell: 'Greek', rum: 'Romanian', ukr: 'Ukrainian', und: 'Unknown' };
+
+            var langDiscoverToken = 0;
+
+            // Populated language-filter options per scope, so re-renders of the
+            // row (search typing, state restore) do not wipe a finished scan.
+            var langFilterCache = {};
+
+            // Scans the episodes of the current scope and fills the language
+            // dropdown with the languages actually present (with track counts).
+            function discoverLangOptions(scopeId, seasonOnly) {
+                var sel = $('ss-langfilter');
+                if (!sel || !scopeId) return;
+                var token = ++langDiscoverToken;
+                var prev = sel.getAttribute('data-value') || '*';
+                delete langFilterCache[scopeId];
+                sel.innerHTML = '<option value="*">Every language</option><option value="__scan" disabled>Scanning subtitles\u2026</option>';
+                episodesInScope(scopeId, seasonOnly).then(function (episodes) {
+                    var counts = {};
+                    var seq = Promise.resolve();
+                    episodes.forEach(function (ep) {
+                        seq = seq.then(function () {
+                            return listTracks(ep.id).then(function (tracks) {
+                                tracks.forEach(function (t) {
+                                    var lang = t.Language && t.Language !== 'und' ? t.Language : 'und';
+                                    counts[lang] = (counts[lang] || 0) + 1;
+                                });
+                            });
+                        });
+                    });
+                    return seq.then(function () {
+                        if (token !== langDiscoverToken) return; // scope changed meanwhile
+                        var codes = Object.keys(counts).sort();
+                        var html = '<option value="*">Every language (' + episodes.length + ' ep)</option>';
+                        codes.forEach(function (c) {
+                            var pretty = (LANG_NAMES[c] ? LANG_NAMES[c] + ' \u00b7 ' : '') + c;
+                            html += '<option value="' + c + '">' + esc(pretty) + ' (' + counts[c] + ' tracks)</option>';
+                        });
+                        sel.innerHTML = html;
+                        if (prev && prev !== '*' && prev !== '__scan' && codes.indexOf(prev) !== -1) {
+                            sel.value = prev;
+                        }
+                        sel.setAttribute('data-value', sel.value);
+                        langFilterCache[scopeId] = { html: sel.innerHTML, value: sel.value };
+                    });
+                }).catch(function () {
+                    if (token === langDiscoverToken) {
+                        sel.innerHTML = '<option value="*">Every language</option>';
+                    }
+                });
+            }
+
+            function currentLangFilter() {
+                var sel = $('ss-langfilter');
+                return sel ? (sel.value || '*') : '*';
+            }
+
+            // Cached language-filter dropdown markup for the currently scoped
+            // series/season (so re-renders keep a finished scan instead of
+            // wiping it). No cross-scope fallback: a season must never show the
+            // whole series' language list.
+            function seriesLangHtml() {
+                var e = scopeTarget ? langFilterCache[scopeTarget] : null;
+                return e ? e.html : '<option value="*">Every language</option>';
             }
 
             // Active run attached to a server batch (own start or reattached after reload).
@@ -848,12 +941,20 @@
                 }
                 var stratSel = $('ss-substrat');
                 if (stratSel) strategy = stratSel.value;
+                var lang = currentLangFilter();
                 return episodesInScope(scopeId, seasonOnly).then(function (episodes) {
                     var seq = Promise.resolve();
                     episodes.forEach(function (ep) {
                         seq = seq.then(function () {
                             return listTracks(ep.id).then(function (tracks) {
-                                var use = strategy === 'first' ? tracks.slice(0, 1) : tracks;
+                                var use = tracks;
+                                if (lang && lang !== '*') {
+                                    use = use.filter(function (t) {
+                                        var tl = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';
+                                        return tl === lang;
+                                    });
+                                }
+                                use = strategy === 'first' ? use.slice(0, 1) : use;
                                 use.forEach(function (t) {
                                     queue.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
                                 });
