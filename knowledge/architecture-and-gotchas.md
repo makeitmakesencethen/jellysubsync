@@ -128,9 +128,12 @@ hook is required.
 
 ## Test Project Gap
 
-`Properties/AssemblyInfo.cs` declares `InternalsVisibleTo("Jellyfin.Plugin.SubSync.Tests")`
-but no such project exists in the repo or solution. Either scaffold a real test project
-or remove the attribute.
+No test project exists yet. `AssemblyInfo.cs` used to declare
+`InternalsVisibleTo("Jellyfin.Plugin.SubSync.Tests")` for a project that was never
+scaffolded; the attribute was removed. A real xunit project is planned together with
+the library-sweep + skip/fail-cache port (Marnalas/jellyfin-subsync, MIT) — prime
+candidates are `EscapeArg`-free arg building, the VAD allow-list fallback, cleanup
+eviction rules and skip-cache logic.
 
 ## Build Constraints
 
