@@ -795,9 +795,8 @@ public class SubSyncService
         Directory.CreateDirectory(tempDir);
 
         // Paths for the safe atomic-replace workflow
-        string? backupPath = null;   // .bak of original file (subtitle or video)
+        string? backupPath = null;   // .bak of original subtitle file (replace mode only)
         string? tempOutput = null;   // ffsubsync output in temp dir
-        string? tempVideo = null;    // remuxed video in temp dir (embedded only)
         string? changedDir = null;   // folder touched by this job (for the targeted library rescan)
 
         try
@@ -916,38 +915,38 @@ public class SubSyncService
             }
             else
             {
-                job.Phase = "Remuxing video";
+                // EMBEDDED track: the subtitle was extracted earlier and synced to
+                // tempOutput. The result is saved as a NEW external sidecar next
+                // to the video. Video files are NEVER modified — no remuxing, no
+                // container rewrite. Jellyfin discovers the sidecar via the
+                // folder rescan below; the original embedded stream stays intact.
+                job.Phase = "Saving synced subtitle";
                 job.Progress = 0.75;
 
-                (tempVideo, backupPath) = await ReplaceEmbeddedSubtitle(
-                    videoPath, videoDir, videoNameNoExt, videoExt,
-                    job.SubtitleIndex, tempOutput).ConfigureAwait(false);
+                var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
+                    ? null
+                    : subtitleStream.Language.Trim().ToLowerInvariant();
+                var target = lang is not null
+                    ? Path.Combine(videoDir, $"{videoNameNoExt}-SYNCED.{lang}.srt")
+                    : Path.Combine(videoDir, $"{videoNameNoExt}-SYNCED.srt");
 
-                job.OutputPath = videoPath;
-                _logger.LogInformation("Replaced embedded subtitle in video: {Path} (backup at {Backup})", videoPath, backupPath);
+                File.Copy(tempOutput, target, overwrite: true);
+                job.OutputPath = target;
+                changedDir = videoDir;
+                _logger.LogInformation(
+                    "Embedded subtitle synced as new external file: {Target} (video {Video} untouched)",
+                    target, videoPath);
             }
 
             // Step 4: Verify
             job.Phase = "Verifying";
             job.Progress = 0.95;
 
-            var externalTarget = subtitleStream.IsExternal && !string.IsNullOrEmpty(job.OutputPath)
-                ? job.OutputPath
-                : subtitleStream.Path;
-
-            if (subtitleStream.IsExternal)
+            if (string.IsNullOrEmpty(job.OutputPath) ||
+                !File.Exists(job.OutputPath) ||
+                new FileInfo(job.OutputPath).Length == 0)
             {
-                if (!File.Exists(externalTarget) || new FileInfo(externalTarget).Length == 0)
-                {
-                    throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
-                }
-            }
-            else
-            {
-                if (!File.Exists(videoPath) || new FileInfo(videoPath).Length == 0)
-                {
-                    throw new InvalidOperationException("Video remux verification failed — file is missing or empty after replace.");
-                }
+                throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
             }
 
             // Step 5: Success — remove backup
@@ -1040,80 +1039,6 @@ public class SubSyncService
         // 2. Copy synced temp → original (use Copy+Delete instead of cross-device Rename)
         _logger.LogInformation("Replacing subtitle with synced version: {Temp} → {Original}", syncedTempPath, originalPath);
         await Task.Run(() => File.Copy(syncedTempPath, originalPath, overwrite: true)).ConfigureAwait(false);
-    }
-
-    /// <summary>
-    /// Replaces an embedded subtitle stream in a video file by remuxing with ffmpeg.
-    /// Creates a backup of the original video, then atomically renames the new video.
-    /// Returns (tempVideoPath, backupPath) so the caller can manage cleanup.
-    /// </summary>
-    private async Task<(string TempVideo, string BackupPath)> ReplaceEmbeddedSubtitle(
-        string videoPath, string videoDir, string videoNameNoExt, string videoExt,
-        int subtitleStreamIndex, string syncedSrtPath)
-    {
-        // Determine output container — keep same extension, fallback to .mkv for safety
-        var outputExt = videoExt.ToLowerInvariant();
-        if (outputExt is not (".mkv" or ".mp4" or ".webm" or ".ts" or ".mov"))
-        {
-            // For unusual containers, remux to .mkv which supports all subtitle codecs
-            _logger.LogWarning("Container format {Ext} may not support SRT subtitles, remuxing to .mkv", outputExt);
-            outputExt = ".mkv";
-        }
-
-        var tempVideo = Path.Combine(videoDir, $"{videoNameNoExt}.subsync_tmp{outputExt}");
-        var backupPath = videoPath + ".bak.subsync";
-
-        // Build ffmpeg command:
-        //   - Copy all streams as-is (no re-encoding)
-        //   - Map the synced .srt as a new subtitle stream
-        //   - Map all original streams
-        //   - Disable the original subtitle stream at index (but keep it for safety)
-        //
-        // Actually, the safest approach: copy all streams + add the synced SRT as a new stream.
-        // Then the user has both the original and synced embedded.
-        // But the user asked to REPLACE, so we use -map to exclude the original sub and include the new one.
-
-        var ffmpegPath = ResolveFfmpegPath();
-
-        // Strategy: copy all original streams + add the synced SRT as an additional subtitle.
-        // The original (unsynced) subtitle is preserved inside the container for safety.
-        // ArgumentList: argv passed directly, no string-escaping layer.
-        var args = new List<string>
-        {
-            "-y",
-            "-nostdin",
-            "-i", videoPath,
-            "-i", syncedSrtPath,
-            "-map", "0",            // All original streams (including old subtitle)
-            "-map", "1:0",          // The synced SRT
-            "-c", "copy",           // No re-encoding, just remux
-            tempVideo
-        };
-
-        _logger.LogInformation("Remuxing video with synced subtitle: ffmpeg {Args}", string.Join(" ", args));
-
-        var (exitCode, stderr) = await RunProcessArgumentListAsync(ffmpegPath, args, null, CancellationToken.None).ConfigureAwait(false);
-
-        if (exitCode != 0)
-        {
-            throw new InvalidOperationException($"ffmpeg remux failed: {FfmpegError(stderr)}");
-        }
-
-        if (!File.Exists(tempVideo) || new FileInfo(tempVideo).Length == 0)
-        {
-            throw new InvalidOperationException("ffmpeg remux produced no output file.");
-        }
-
-        // Backup original video
-        _logger.LogInformation("Backing up original video: {Original} → {Backup}", videoPath, backupPath);
-        File.Copy(videoPath, backupPath, overwrite: false);
-
-        // Replace original with new video (atomic on same filesystem)
-        _logger.LogInformation("Replacing video with remuxed version: {Temp} → {Original}", tempVideo, videoPath);
-        File.Copy(tempVideo, videoPath, overwrite: true);
-        SafeDelete(tempVideo);
-
-        return (tempVideo, backupPath);
     }
 
     /// <summary>
