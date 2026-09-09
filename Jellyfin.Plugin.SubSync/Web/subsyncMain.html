@@ -739,7 +739,8 @@
                     var title = t.Title || t.title || ('track ' + (t.BatchIndex != null ? t.BatchIndex : ''));
                     var error = t.Error || t.error;
                     var outPath = t.OutputPath || t.outputPath;
-                    if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : ''));
+                    var outcome = t.Outcome || t.outcome || '';
+                    if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome ? ' (' + outcome + ')' : ''));
                     else if (status === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
                     else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
                     taskLines[idx] = true;
@@ -768,7 +769,8 @@
                                 var title = t.Title || t.title || ('track ' + idx);
                                 var error = t.Error || t.error;
                                 var outPath = t.OutputPath || t.outputPath;
-                                if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : ''));
+                                var outcome = t.Outcome || t.outcome || '';
+                                if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome ? ' (' + outcome + ')' : ''));
                                 else if (st === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
                                 else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
                                 taskLines[idx] = true;
