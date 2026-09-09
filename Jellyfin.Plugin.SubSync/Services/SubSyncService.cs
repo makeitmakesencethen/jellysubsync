@@ -212,20 +212,23 @@ public class SubSyncService
     /// <returns>The ffsubsync executable path.</returns>
     public string ResolveFfSubSyncPath()
     {
-        var bundled = BundledFfSubSyncPath;
-        if (bundled is not null)
-        {
-            return bundled;
-        }
-
         var config = Plugin.Instance?.Configuration;
 
-        // If user explicitly set a custom path, use it
+        // Explicit admin override wins over everything: if the user configured a
+        // custom path (non-empty, non-default), honor it even when a bundled
+        // binary exists — the setting must stay usable as an override.
         if (config is not null
             && !string.IsNullOrWhiteSpace(config.FfSubSyncPath)
             && config.FfSubSyncPath != "ffsubsync")
         {
             return config.FfSubSyncPath;
+        }
+
+        // Zero-setup default: plugin-shipped binary for this platform.
+        var bundled = BundledFfSubSyncPath;
+        if (bundled is not null)
+        {
+            return bundled;
         }
 
         // Check managed venv
