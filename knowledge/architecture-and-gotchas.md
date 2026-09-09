@@ -107,18 +107,24 @@ Three process runner methods:
 Rules:
 - All use `UseShellExecute=false`, `CreateNoWindow=true`, cancellation kills the whole
   process tree.
-- Prefer `ArgumentList.Add(...)` for every new invocation (paths with spaces/unicode).
-  Hand-escaped strings (`EscapeArg`) must not return.
-- The ffsubsync path historically used a joined `EscapeArg` string; it should be migrated
-  to `ArgumentList` like the ffmpeg paths.
+- Prefer `ArgumentList.Add(...)` for every invocation (paths with spaces/unicode) —
+  hand-escaped strings (`EscapeArg`) survive only on the legacy managed-venv python/pip
+  path and must not return to the engine.
 
-## Missing IDisposable on SubSyncService
+## Installation Security (legacy managed-venv install path)
 
-`SubSyncService` owns `_cleanupTimer` (a `Timer`) and `_wakePump` (a `SemaphoreSlim`),
-both disposable, but does not implement `IDisposable`. It is registered as a singleton in
-the DI container; Jellyfin disposes container singletons at shutdown, so an
-`IDisposable` implementation that disposes both fields is sufficient — no extra plugin
-lifecycle hook is required.
+- Install concurrency guarded by `Interlocked.CompareExchange` (`_installing`)
+- `venvPath` is plugin-derived (`{DataPath}/subsync/venv`), never raw user input, so no
+  traversal containment check exists on it — a former
+  `GetFullPath(venvPath).Contains("..")` check was dead code and was removed
+
+## Disposal
+
+`SubSyncService` implements `IDisposable` and is registered as a DI singleton, so
+Jellyfin's container disposal at shutdown calls `Dispose()`: it disposes `_cleanupTimer`
+and `_wakePump` and sets `_disposing`, which stops the background pump cleanly (the pump
+is unblocked with a release before the semaphore is disposed). No extra plugin lifecycle
+hook is required.
 
 ## Test Project Gap
 
@@ -131,13 +137,6 @@ or remove the attribute.
 - `TreatWarningsAsErrors=true` — all compiler warnings are build errors
 - `GenerateDocumentationFile=true` — every public member needs `///` XML docs
 - `Nullable=enable`, `ImplicitUsings=enable` via `Directory.Build.props`
-
-## Installation Security (legacy managed-venv install path)
-
-- Install concurrency guarded by `Interlocked.CompareExchange` (`_installing`)
-- The venv path comes from `Plugin.Instance.VenvPath` (plugin-derived from
-  `ApplicationPaths.DataPath`), not raw user input; the `Contains("..")` traversal
-  "check" on an already-resolved full path cannot trigger (see config doc)
 
 See also:
 - [api-reference.md](api-reference.md) for REST endpoint details

@@ -438,12 +438,10 @@ public class SubSyncService : IDisposable
             var venvPath = Plugin.Instance?.VenvPath
                 ?? throw new InvalidOperationException("Plugin not initialized.");
 
-            // Validate venv path is a subdirectory of the expected plugin data path
-            var expectedParent = Path.GetFullPath(venvPath);
-            if (expectedParent.Contains(".."))
-            {
-                throw new InvalidOperationException("Venv path contains path traversal characters.");
-            }
+            // venvPath is plugin-derived ({DataPath}/subsync/venv) — never raw user
+            // input — so no traversal containment check is needed here. (A former
+            // GetFullPath(venvPath).Contains("..") check was dead code: GetFullPath
+            // already resolves ".." segments, so it could never trigger.)
 
             // Step 1: Create virtualenv
             if (!Directory.Exists(venvPath) || !File.Exists(ManagedPythonPath))
