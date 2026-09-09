@@ -160,10 +160,10 @@ public class SubSyncService
     // Cleanup timer for evicting old completed/failed jobs
     private readonly Timer _cleanupTimer;
 
-    /// <summary>Allowed values for the --vad config option.</summary>
+    /// <summary>Allowed values for the --vad config option (subset of ffsubsync's engine choices).</summary>
     private static readonly HashSet<string> AllowedVadMethods = new(StringComparer.OrdinalIgnoreCase)
     {
-        "subs", "webrtc", "subs_then_webrtc", "auditok"
+        "subs", "webrtc", "subs_then_webrtc", "auditok", "subs_then_auditok", "subs_then_silero", "silero"
     };
 
     /// <summary>Allowed values for the --output-encoding config option.</summary>

@@ -19,14 +19,17 @@ Source: `Jellyfin.Plugin.SubSync/Configuration/PluginConfiguration.cs`
 
 Source: `SubSyncService.cs:130-139`
 
-**Allowed VAD Methods:**
+**Allowed VAD Methods** (subset of ffsubsync's own `--vad` choices):
 
 | Value | In HTML form? |
 |-------|---------------|
-| `subs` | No |
+| `subs` | No (legacy alias, accepted) |
 | `webrtc` | Yes |
 | `subs_then_webrtc` | Yes |
 | `auditok` | Yes |
+| `subs_then_auditok` | Yes |
+| `subs_then_silero` | Yes |
+| `silero` | Yes |
 
 **Allowed Output Encodings:**
 
@@ -38,30 +41,23 @@ Source: `SubSyncService.cs:130-139`
 | `utf-8-sig` |
 | `utf-16` |
 
-## Validation Gap: HTML vs C# Allow-Lists
+## VAD Allow-List: HTML and C# in Sync
 
-The HTML configuration form (`configPage.html:54-61`) offers these VAD methods that the
-C# allow-list does **not** include:
-
-| HTML Option | In C# Allow-List? | Behavior |
-|-------------|-------------------|----------|
-| `subs_then_auditok` | No | Silently defaulted to `subs_then_webrtc` |
-| `subs_then_silero` | No | Silently defaulted to `subs_then_webrtc` |
-| `silero` | No | Silently defaulted to `subs_then_webrtc` |
-
-And the C# allow-list includes `subs` which is **not** offered in the HTML form.
-
-The fallback logic is in `BuildFfSubSyncArgs` (`SubSyncService.cs:854-856`):
-if the configured VAD method is not in `AllowedVadMethods`, it silently uses
-`"subs_then_webrtc"`.
+The C# allow-list (`AllowedVadMethods`) contains every method the configuration forms
+offer, so no configured value can fall back silently. Every engine-side choice the
+forms expose (`webrtc`, `subs_then_webrtc`, `auditok`, `subs_then_auditok`,
+`subs_then_silero`, `silero`) was confirmed against the bundled ffsubsync 0.5.1
+`--help` output. If a future engine version removes a choice, trim BOTH the C# set and
+both HTML forms together — a client/server mismatch here is a silent-default bug.
 
 ## ffsubsync Binary Resolution Order
 
 Source: `SubSyncService.cs:175-195`
 
-1. User-configured custom path (if not empty and not `"ffsubsync"`)
-2. Managed venv binary: `{VenvPath}/bin/ffsubsync`
-3. System PATH fallback: `"ffsubsync"`
+1. User-configured custom path (explicit override — wins even over the bundled binary)
+2. Bundled binary: `{PluginFolder}/ffsubsync/{rid}/…` (zero-setup default when shipped)
+3. Managed venv binary: `{VenvPath}/bin/ffsubsync`
+4. System PATH fallback: `"ffsubsync"`
 
 ## Managed Virtualenv Paths
 
