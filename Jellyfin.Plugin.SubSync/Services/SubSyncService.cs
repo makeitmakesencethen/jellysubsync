@@ -613,14 +613,14 @@ public class SubSyncService : IDisposable
             throw new InvalidOperationException($"Subtitle stream index {subtitleIndex} not found.");
         }
 
-        // Jellyfin's MediaStream.Index is the stream's index in the CONTAINER
-        // (global across video/audio/subtitle). ffmpeg's "-map 0:s:N" needs the
-        // ordinal WITHIN subtitle streams — count subtitle streams with a lower
-        // container index to derive it. Using the raw Index here made extraction
-        // fail with "Failed to set value '0:s:4' for option 'map'" on files that
-        // have fewer than Index+1 subtitle tracks.
-        var subtitleOrdinal = source.MediaStreams
-            .Count(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && s.Index < subtitleStream.Index);
+        // Jellyfin's MediaStream.Index IS the stream's CONTAINER-wide index
+        // (video/audio/subtitle all counted) — pass it straight to ffmpeg as
+        // "-map 0:{Index}". A subtitle-scoped "0:s:N" ordinal was previously
+        // derived by counting subtitle streams from MediaStreams, but that list
+        // also includes external sidecar tracks, so the count drifted from the
+        // real container and embedded extraction failed ("Failed to set value
+        // '0:s:N' for option 'map'") on files mixing embedded + external subs.
+        var subtitleOrdinal = subtitleStream.Index;
 
         var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
 
@@ -1442,12 +1442,21 @@ public class SubSyncService : IDisposable
 
         // ArgumentList passes argv directly — no string-quoting/escaping layer
         // that can mangle paths into "Error opening output files: Invalid argument".
+        //
+        // streamIndex is the CONTAINER-wide stream index from Jellyfin
+        // (MediaStream.Index counts video/audio/subtitle alike), so we map with
+        // "-map 0:{Index}" — NOT "0:s:N", which needs a subtitle-scoped ordinal.
+        // Deriving that ordinal by counting subtitle streams from Jellyfin's
+        // MediaStreams list was unreliable: the list also contains external
+        // sidecar tracks, so the count drifted from what ffmpeg sees inside the
+        // container and extraction failed with "Failed to set value '0:s:N' for
+        // option 'map': Invalid argument" on files that mix embedded + external.
         var args = new List<string>
         {
             "-y",
             "-nostdin",
             "-i", videoPath,
-            "-map", $"0:s:{streamIndex}",
+            "-map", $"0:{streamIndex}",
             "-f", "srt",
             outputPath
         };
