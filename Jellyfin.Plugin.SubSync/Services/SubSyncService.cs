@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Text.Json.Serialization;
 using Jellyfin.Plugin.SubSync.Configuration;
@@ -1158,7 +1159,7 @@ public class SubSyncService
         }
     }
 
-    private string BuildFfSubSyncArgs(Configuration.PluginConfiguration config, string videoPath, string subtitleInput, string subtitleOutput, string? logDir = null)
+    private List<string> BuildFfSubSyncArgs(Configuration.PluginConfiguration config, string videoPath, string subtitleInput, string subtitleOutput, string? logDir = null)
     {
         // Validate config values to prevent argument injection
         var vadMethod = AllowedVadMethods.Contains(config.VadMethod)
@@ -1168,21 +1169,19 @@ public class SubSyncService
             ? config.OutputEncoding
             : "utf-8";
 
+        // ArgumentList passes argv directly — no string-quoting layer, so paths
+        // with spaces/unicode can never split into extra arguments.
         var args = new List<string>
         {
-            EscapeArg(videoPath),
-            "-i", EscapeArg(subtitleInput),
-            "-o", EscapeArg(subtitleOutput),
-            $"--max-offset-seconds {config.MaxOffsetSeconds}",
-            $"--max-subtitle-seconds {config.MaxSubtitleSeconds}",
-            $"--vad {vadMethod}",
-            $"--output-encoding {outputEncoding}"
+            videoPath,
+            "-i", subtitleInput,
+            "-o", subtitleOutput,
+            "--max-offset-seconds", config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture),
+            "--max-subtitle-seconds", config.MaxSubtitleSeconds.ToString(CultureInfo.InvariantCulture),
+            "--vad", vadMethod,
+            "--output-encoding", outputEncoding,
+            "--ffmpeg-path", ResolveFfmpegPath()
         };
-
-        // Always pass an explicit ffmpeg: Jellyfin's own ffmpeg is auto-detected
-        // (env JELLYFIN_FFMPEG or the standard install path), so Docker users
-        // never need to configure anything or have ffmpeg on PATH.
-        args.Add($"--ffmpeg-path {EscapeArg(ResolveFfmpegPath())}");
 
         if (config.UseGoldenSectionSearch)
         {
@@ -1191,10 +1190,11 @@ public class SubSyncService
 
         if (!string.IsNullOrWhiteSpace(logDir))
         {
-            args.Add($"--log-dir-path {EscapeArg(logDir)}");
+            args.Add("--log-dir-path");
+            args.Add(logDir);
         }
 
-        return string.Join(" ", args);
+        return args;
     }
 
     private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath)
@@ -1373,19 +1373,23 @@ public class SubSyncService
     /// Used for ffsubsync to parse tqdm progress and phase messages.
     /// </summary>
     private async Task<int> RunProcessWithStderrCallbackAsync(
-        string executable, string arguments, string? workingDir,
+        string executable, IReadOnlyList<string> arguments, string? workingDir,
         Action<string>? onStderrLine, CancellationToken cancellationToken)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
             FileName = executable,
-            Arguments = arguments,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        foreach (var argument in arguments)
+        {
+            process.StartInfo.ArgumentList.Add(argument);
+        }
 
         if (workingDir is not null)
         {

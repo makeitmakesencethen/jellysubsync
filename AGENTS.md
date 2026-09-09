@@ -57,9 +57,9 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
 - **Video files are NEVER written**: only read (as ffsubsync reference audio) or analysed.
   Embedded tracks are extracted and saved as new external sidecars
   (`{videoNameNoExt}-SYNCED.{lang}.srt`) — the remux path was deleted; do not restore it.
-- **ffmpeg invocations use `ProcessStartInfo.ArgumentList`** (argv direct, no string
-  escaping). The ffsubsync builder still hand-escapes (`EscapeArg`-joined string) —
-  migrate it to `ArgumentList`; do not regress the ffmpeg paths.
+- **All process invocations use `ProcessStartInfo.ArgumentList`** (argv direct, no
+  string escaping) — ffmpeg extraction and the ffsubsync engine included. Do not
+  regress to hand-escaped argument strings.
 - **Copy mode (default)**: output goes to a NEW sidecar — `{lang}.SYNCED.srt` for
   pure-language external originals (keeps Jellyfin's parser resolving the language),
   `{stem}-SYNCED.srt` otherwise, `{videoNameNoExt}-SYNCED.{lang}.srt` for embedded

@@ -73,12 +73,13 @@ Source: `SubSyncService.cs:158-168`, `Plugin.cs:54-59`
 
 ## Argument Escaping
 
-Source: `SubSyncService.cs:1040-1048`
+Source: `SubSyncService.cs:1530`
 
-The `EscapeArg(string)` method is hand-rolled and only handles:
-- Spaces → wraps in double-quotes
-- Double-quotes → escapes with backslash and wraps in double-quotes
-- Single-quotes → wraps in double-quotes
+The engine no longer hand-escapes arguments. ffsubsync (`BuildFfSubSyncArgs`) and the
+ffmpeg paths both build `List<string>` and pass argv via `ProcessStartInfo.ArgumentList`.
+`EscapeArg` survives only on the legacy managed-venv install path (python/pip
+invocations through the string-argument `RunProcessCaptureAsync`); if that path is
+ever removed, delete `EscapeArg` too.
 
 **Not handled**: trailing backslashes (can break trailing-quote), newlines, tabs,
 shell metacharacters (`$`, `` ` ``, `&`, `|`, `;`, etc.).
