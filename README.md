@@ -13,8 +13,8 @@ Public fork of [camalolo/jellysubsync](https://github.com/camalolo/jellysubsync)
   - movies: pick one subtitle track or sync all
   - series: sync a whole series or a single season (all tracks, or just the first)
 - **Server-side queue** — every run is one FIFO queue on the server, executed one task at a time. Start several runs: later ones queue and start automatically. Refreshing, closing the page, or opening the page in several tabs/devices never kills or duplicates a run — every viewer sees the same live state, and progress resumes with full detail after a reload.
-- **Safe by default** — syncs write a new file like `uzb.SYNCED.srt` next to the original and never touch your original subtitle (pure-language originals get a Jellyfin-friendly name so the copy displays cleanly). An optional **Replace the original** mode exists; embedded tracks always keep their original stream.
-- **History** — every run is recorded on the server with per-task results and written paths, shared across tabs/devices.
+- **Safe by default** — syncs write a new file like `uzb.SYNCED.srt` next to the original and never touch your original subtitle (pure-language originals get a Jellyfin-friendly name so the copy displays cleanly). An optional **Replace the original** mode exists. Video files are never modified: embedded tracks are extracted and saved as new external subtitle files.
+- **History** — every run is recorded on the server with per-task results and written paths, shared across tabs/devices. History is in-memory: it does not survive a Jellyfin restart, and old entries are evicted (failed/cancelled runs on the next cleanup pass, completed runs after ~1 hour or in bulk once the total exceeds 50 jobs).
 - **Full engine settings** — VAD method, max offset / subtitle seconds, output encoding, golden-section search, sync output mode, ffmpeg / ffsubsync path overrides. ffmpeg is detected automatically from Jellyfin.
 
 ## Installation
