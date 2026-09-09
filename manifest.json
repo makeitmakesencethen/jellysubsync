@@ -6,6 +6,7 @@
     "overview": "Adds a Sync Subtitles action to any video detail page plus a dashboard library browser for batch-syncing movies, whole series or seasons. Fork of camalolo/jellysubsync (GPL-2.0) with a bundled ffsubsync binary - no python or container setup needed.",
     "owner": "makeitmakesencethen",
     "category": "General",
-    "versions": []
+    "versions": [],
+    "imageUrl": "https://makeitmakesencethen.github.io/jellysubsync/images/subsync-logo.jpg"
   }
 ]

@@ -80,9 +80,16 @@ jobs:
           echo "Manifest:"
           cat dist/manifest.json
 
-      # Deploys manifest.json + release zips to this repo's gh-pages branch.
-      # Repository URL to add in Jellyfin:
+      # Deploys manifest.json + release zips + catalog image to this repo's
+      # gh-pages branch. Repository URL to add in Jellyfin:
       #   https://<owner>.github.io/<repo>/manifest.json
+      - name: Stage catalog image
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/images
+          cp images/subsync-logo.jpg dist/images/subsync-logo.jpg
+
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4
         with:
