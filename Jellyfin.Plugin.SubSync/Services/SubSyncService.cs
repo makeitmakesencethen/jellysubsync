@@ -139,7 +139,7 @@ public class FfSubSyncInstallationStatus
 /// <summary>
 /// Service that manages ffsubsync installation and runs sync jobs.
 /// </summary>
-public class SubSyncService
+public class SubSyncService : IDisposable
 {
     private readonly ILogger<SubSyncService> _logger;
     private readonly ILibraryManager _libraryManager;
@@ -148,6 +148,9 @@ public class SubSyncService
 
     // Track whether an installation is currently in progress
     private int _installing;
+
+    // Set on Dispose to stop the background queue pump
+    private bool _disposing;
 
     // Single global FIFO queue: every sync (detail-page or batch) is a job in
     // this queue; one background pump runs them strictly one at a time, so
@@ -718,7 +721,7 @@ public class SubSyncService
 
     private async Task PumpAsync()
     {
-        while (true)
+        while (!_disposing)
         {
             SyncJob? job;
             lock (_queueLock)
@@ -728,6 +731,11 @@ public class SubSyncService
 
             if (job is null)
             {
+                if (_disposing)
+                {
+                    break;
+                }
+
                 await _wakePump.WaitAsync().ConfigureAwait(false);
                 continue;
             }
@@ -1119,6 +1127,23 @@ public class SubSyncService
             j.ItemId == itemId &&
             j.SubtitleIndex == subtitleIndex &&
             j.Status == SyncJobStatus.Completed);
+    }
+
+    /// <inheritdoc/>
+    public void Dispose()
+    {
+        _disposing = true;
+        try { _cleanupTimer.Dispose(); }
+        catch { /* already disposed */ }
+
+        // Unblock a parked pump so it can observe _disposing and exit, then
+        // release the semaphore. Registered as a DI singleton, Jellyfin calls
+        // this once at shutdown.
+        try { _wakePump.Release(); }
+        catch { /* pump not parked or already released */ }
+
+        try { _wakePump.Dispose(); }
+        catch { /* already disposed */ }
     }
 
     /// <summary>
