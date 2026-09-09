@@ -69,6 +69,12 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   video item — no full library scan required.
 - **SyncJob statuses**: Queued → Running → Completed/Failed, plus Cancelled (pre-run only).
   Terminal jobs are evicted after ~1h (cleanup timer also trims `_runOrder`/`_jobContexts`).
+- **Library sweep** (`SubSyncSweepTask`, IScheduledTask): queues every EXTERNAL subtitle
+  without a synced output onto the normal FIFO pump; embedded tracks are manual-UI only.
+  Persistent skip/fail cache (`SweepState`, `{DataPath}/subsync/state/sweep-cache.json`)
+  skips unchanged content whose output still exists and stops retrying tracks that fail
+  `SweepFailStreakLimit` times; content change resets both. Ported from
+  Marnalas/jellyfin-subsync (MIT).
 - **Config allow-lists**: VAD method and output encoding are validated server-side
   (`AllowedVadMethods`/`AllowedOutputEncodings`) to prevent argument injection.
 - **`TreatWarningsAsErrors` + `GenerateDocumentationFile`**: every public member needs an

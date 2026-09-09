@@ -17,6 +17,7 @@ public class SubSyncServiceRegistrator : IPluginServiceRegistrator
     public void RegisterServices(IServiceCollection serviceCollection, IServerApplicationHost applicationHost)
     {
         serviceCollection.AddSingleton<SubSyncService>();
+        serviceCollection.AddSingleton<MediaBrowser.Model.Tasks.IScheduledTask, SubSyncSweepTask>();
         serviceCollection.AddSingleton<IStartupFilter, SubSyncStartupFilter>();
     }
 }

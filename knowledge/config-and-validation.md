@@ -14,6 +14,8 @@ Source: `Jellyfin.Plugin.SubSync/Configuration/PluginConfiguration.cs`
 | `OutputEncoding` | `string` | `"utf-8"` | `--output-encoding` | Validated against C# allow-list |
 | `UseGoldenSectionSearch` | `bool` | `false` | `--gss` | |
 | `OverwriteExisting` → `SyncModeCopy` | `bool` | `true` | — | true = write new `-SYNCED` sidecar copy (original untouched); false = replace the original in place (backup + rollback) |
+| `SweepFailStreakLimit` | `int` | `3` | — | Library sweep: consecutive execution failures before a subtitle stops being retried; content change resets the streak |
+| `SweepMaxItemsPerRun` | `int` | `500` | — | Library sweep: max subtitle tracks queued per run |
 
 ## C# Allow-Lists (Argument Injection Prevention)
 

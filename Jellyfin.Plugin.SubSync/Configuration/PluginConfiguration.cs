@@ -49,4 +49,16 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Copy mode is the default so users never lose their original subtitles.
     /// </summary>
     public bool SyncModeCopy { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets how many consecutive execution failures a subtitle may have
+    /// during library sweeps before the sweep stops retrying it (its file content
+    /// changing resets the streak). A failed manual sync does not count.
+    /// </summary>
+    public int SweepFailStreakLimit { get; set; } = 3;
+
+    /// <summary>
+    /// Gets or sets the maximum number of subtitle tracks one library sweep run will queue.
+    /// </summary>
+    public int SweepMaxItemsPerRun { get; set; } = 500;
 }

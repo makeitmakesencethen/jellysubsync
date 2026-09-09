@@ -137,6 +137,33 @@ public class FfSubSyncInstallationStatus
 }
 
 /// <summary>
+/// Describes the result of one library sweep run.
+/// </summary>
+public class SweepResult
+{
+    /// <summary>Gets or sets how many video items were scanned.</summary>
+    public int ScannedItems { get; set; }
+
+    /// <summary>Gets or sets how many subtitle tracks were queued for sync.</summary>
+    public int CandidatesEnqueued { get; set; }
+
+    /// <summary>Gets or sets how many tracks were skipped because their synced output already exists.</summary>
+    public int SkippedCached { get; set; }
+
+    /// <summary>Gets or sets how many tracks were skipped due to repeated failures.</summary>
+    public int SkippedFailed { get; set; }
+
+    /// <summary>Gets or sets how many tracks were skipped for another reason (e.g. synced this session).</summary>
+    public int SkippedOther { get; set; }
+
+    /// <summary>Gets or sets how many queued tracks finished successfully.</summary>
+    public int Completed { get; set; }
+
+    /// <summary>Gets or sets how many queued tracks failed or were cancelled.</summary>
+    public int FailedOrCancelled { get; set; }
+}
+
+/// <summary>
 /// Service that manages ffsubsync installation and runs sync jobs.
 /// </summary>
 public class SubSyncService : IDisposable
@@ -163,6 +190,10 @@ public class SubSyncService : IDisposable
 
     // Cleanup timer for evicting old completed/failed jobs
     private readonly Timer _cleanupTimer;
+
+    // Persistent skip/fail cache for library sweeps (external subtitle files only)
+    private readonly Lazy<SweepState> _sweepState = new(() =>
+        new SweepState(Path.Combine(Plugin.Instance?.StatePath ?? Path.GetTempPath(), "sweep-cache.json")));
 
     /// <summary>Allowed values for the --vad config option (subset of ffsubsync's engine choices).</summary>
     private static readonly HashSet<string> AllowedVadMethods = new(StringComparer.OrdinalIgnoreCase)
@@ -748,6 +779,7 @@ public class SubSyncService : IDisposable
                 _logger.LogError(ex, "Unhandled exception in sync job {JobId}", job.Id);
                 job.Status = SyncJobStatus.Failed;
                 job.Error = $"Internal error: {ex.Message}";
+                RecordSweepOutcome(job, ok: false, outputPath: null, error: ex.Message);
             }
             finally
             {
@@ -766,6 +798,13 @@ public class SubSyncService : IDisposable
         }
 
         await RunSyncJob(job, ctx.Video, ctx.Stream, ctx.Ordinal, ctx.Config).ConfigureAwait(false);
+
+        // Sweep cache: successful syncs of external subtitle files are remembered
+        // so repeat library sweeps skip unchanged content whose output still exists.
+        if (job.Status == SyncJobStatus.Completed)
+        {
+            RecordSweepOutcome(job, ok: true, outputPath: job.OutputPath, error: null);
+        }
     }
 
     /// <summary>
@@ -785,6 +824,183 @@ public class SubSyncService : IDisposable
     public IEnumerable<SyncJob> GetAllJobs()
     {
         return _jobs.Values;
+    }
+
+    /// <summary>
+    /// Runs a full-library sweep: queues one sync job per external subtitle track
+    /// that has no synced output yet, honoring the persistent skip/fail cache,
+    /// then waits for the queued batch to finish (through the normal FIFO pump).
+    /// </summary>
+    /// <param name="progress">Sweep progress, 0..1.</param>
+    /// <param name="cancellationToken">Cancels queued-but-unstarted tasks.</param>
+    /// <returns>Counts describing the run.</returns>
+    public async Task<SweepResult> SweepLibraryAsync(IProgress<double> progress, CancellationToken cancellationToken)
+    {
+        var result = new SweepResult();
+        var config = Plugin.Instance?.Configuration;
+        var failStreakLimit = Math.Max(1, config?.SweepFailStreakLimit ?? 3);
+        var maxItems = Math.Max(1, config?.SweepMaxItemsPerRun ?? 500);
+
+        var root = _libraryManager.RootFolder;
+        var videos = root?.GetRecursiveChildren().OfType<Video>().ToList() ?? new List<Video>();
+        result.ScannedItems = videos.Count;
+        progress.Report(0.02);
+
+        var tasks = new List<(Guid ItemId, int SubtitleIndex, string? Title)>();
+        var seenTracks = new HashSet<(Guid, int)>();
+
+        for (var i = 0; i < videos.Count; i++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var video = videos[i];
+
+            if (tasks.Count >= maxItems)
+            {
+                break;
+            }
+
+            var tracks = ListSubtitles(video.Id);
+            if (tracks is null)
+            {
+                continue;
+            }
+
+            foreach (var track in tracks)
+            {
+                if (tasks.Count >= maxItems)
+                {
+                    break;
+                }
+
+                if (!track.IsExternal || string.IsNullOrWhiteSpace(track.ExternalPath))
+                {
+                    continue; // sweep targets external subtitle files only
+                }
+
+                if (!seenTracks.Add((video.Id, track.Index)))
+                {
+                    continue;
+                }
+
+                if (track.HasSyncedVersion)
+                {
+                    result.SkippedOther++;
+                    continue;
+                }
+
+                var path = track.ExternalPath;
+                if (!File.Exists(path))
+                {
+                    result.SkippedOther++;
+                    continue;
+                }
+
+                var hash = SweepState.HashFile(path);
+                var entry = _sweepState.Value.Get(path);
+
+                if (entry is not null
+                    && string.Equals(entry.SourceHash, hash, StringComparison.Ordinal)
+                    && entry.OutputPath is not null
+                    && File.Exists(entry.OutputPath)
+                    && entry.FailStreak == 0)
+                {
+                    // Same source content, synced output still on disk.
+                    result.SkippedCached++;
+                    continue;
+                }
+
+                if (entry is not null
+                    && string.Equals(entry.SourceHash, hash, StringComparison.Ordinal)
+                    && entry.FailStreak >= failStreakLimit)
+                {
+                    result.SkippedFailed++;
+                    continue;
+                }
+
+                tasks.Add((video.Id, track.Index, $"{video.Name} — {track.Title}"));
+            }
+
+            if (i % 50 == 0 || i == videos.Count - 1)
+            {
+                progress.Report(0.02 + (0.08 * (i + 1) / Math.Max(1, videos.Count)));
+            }
+        }
+
+        result.CandidatesEnqueued = tasks.Count;
+        if (tasks.Count == 0)
+        {
+            progress.Report(1.0);
+            return result;
+        }
+
+        var batchLabel = $"Library sweep — {DateTime.Now:yyyy-MM-dd HH:mm}";
+        var batchJobs = CreateBatch(batchLabel, tasks);
+        var batchId = batchJobs.FirstOrDefault()?.BatchId;
+        if (string.IsNullOrEmpty(batchId))
+        {
+            result.FailedOrCancelled = tasks.Count;
+            progress.Report(1.0);
+            return result;
+        }
+
+        progress.Report(0.12);
+
+        // Wait for the batch through the same FIFO pump used by the UI, so the
+        // sweep never runs parallel to user-triggered syncs.
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var jobs = GetBatchJobs(batchId).ToList();
+            if (jobs.Count == 0)
+            {
+                break;
+            }
+
+            var done = jobs.Count(j => j.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled);
+            result.Completed = jobs.Count(j => j.Status == SyncJobStatus.Completed);
+            result.FailedOrCancelled = done - result.Completed;
+            progress.Report(0.12 + (0.88 * done / Math.Max(1, jobs.Count)));
+
+            if (done >= jobs.Count)
+            {
+                break;
+            }
+
+            await Task.Delay(750, cancellationToken).ConfigureAwait(false);
+        }
+
+        if (cancellationToken.IsCancellationRequested)
+        {
+            CancelBatch(batchId);
+        }
+
+        _logger.LogInformation(
+            "Library sweep finished: {Scanned} items scanned, {Enqueued} queued, {Cached} skipped (synced), {FailedStreak} skipped (fail streak), {Ok} ok, {Bad} failed/cancelled",
+            result.ScannedItems, result.CandidatesEnqueued, result.SkippedCached, result.SkippedFailed,
+            result.Completed, result.FailedOrCancelled);
+
+        return result;
+    }
+
+    private void RecordSweepOutcome(SyncJob job, bool ok, string? outputPath, string? error)
+    {
+        try
+        {
+            if (!_jobContexts.TryGetValue(job.Id, out var ctx))
+            {
+                return;
+            }
+
+            if (!ctx.Stream.IsExternal || string.IsNullOrWhiteSpace(ctx.Stream.Path))
+            {
+                return; // skip/fail cache tracks external subtitle files only
+            }
+
+            _sweepState.Value.Record(ctx.Stream.Path, ok, outputPath, error);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to update sweep cache for job {JobId}", job.Id);
+        }
     }
 
     private async Task RunSyncJob(

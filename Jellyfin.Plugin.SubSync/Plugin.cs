@@ -50,6 +50,11 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// </summary>
     public string VenvPath => Path.Join(ApplicationPaths.DataPath, "subsync", "venv");
 
+    /// <summary>
+    /// Gets the persistent state directory for sweep caches.
+    /// </summary>
+    public string StatePath => Path.Join(ApplicationPaths.DataPath, "subsync", "state");
+
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()
     {

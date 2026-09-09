@@ -94,6 +94,27 @@ ffsubsync stderr is read line-by-line in real time:
 - `_cleanupTimer` fires every 30 minutes → `CleanupOldJobs()`; see
   [config-and-validation.md](config-and-validation.md) for exact eviction rules.
 
+## Library Sweep (Scheduled Task)
+
+- `SubSyncSweepTask` (IScheduledTask, DI-registered as such; appears in Dashboard →
+  Scheduled Tasks with "Run Now" and normal scheduling triggers; no default
+  trigger).
+- `SweepLibraryAsync()` enumerates the library (RootFolder recursive children,
+  OfType<Video>), then queues ONE job per **external** subtitle track lacking a
+  synced output, capped by `SweepMaxItemsPerRun`. Embedded tracks are out of
+  scope for sweeps (manual UI only).
+- Queued work is a normal batch on the shared FIFO pump — never parallel to user
+  syncs — and the task waits for it, reporting real progress.
+- Persistent skip/fail cache lives in `SweepState` at
+  `{DataPath}/subsync/state/sweep-cache.json` (SHA-256 per source file; cap 5000
+  entries, oldest evicted). Rules: skip if the same content already produced an
+  output that still exists on disk; skip if the same content failed
+  `SweepFailStreakLimit` consecutive runs; a content change resets both. Hooks
+  fire in the pump/`RunSyncJobWithContext` for external tracks only. Corrupt or
+  unwritable state files are non-fatal (fresh start / run anyway).
+- Sweep feature ported from Marnalas/jellyfin-subsync (MIT) — attribution kept in
+  `SubSyncSweepTask.cs` and `SweepState.cs`.
+
 ## Process Execution
 
 Three process runner methods:
