@@ -198,6 +198,7 @@
             var scopeTarget = null;     // itemId actually synced (series or season)
             var movieTracks = [];       // subtitle tracks of the selected movie
             var busy = false;
+            var startInFlight = false; // a queue-build POST is in flight — prevents double submits
 
             var STATE_KEY = 'subsync.state.v1';
             var pendingScope = null; // scope to restore once seasons load
@@ -800,7 +801,7 @@
                             $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';
                         } else {
                             if (status === 'Queued') {
-                                $('ss-run-label').textContent = 'Queued \u2014 waiting for ' + pos + ' item(s) ahead of this batch\u2026';
+                                $('ss-run-label').textContent = 'Queued \u2014 waiting for earlier runs to finish\u2026';
                             } else {
                                 $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
                                 $('ss-phase').textContent = '';
@@ -814,15 +815,9 @@
                             watchedBatchTimer = null;
                             watchedBatchId = null;
                             logTerminal(taskLines, view);
-                            logLine('Done: ' + ok + '/' + total + ' succeeded.');
-                            busy = false;
-                            reattached = false;
-                            attachPending = false;
-                            var b2 = $('ss-syncbtn');
-                            if (b2) b2.disabled = false;
-                            var cancelEl = $('ss-cancel');
-                            if (cancelEl) cancelEl.classList.add('ss-hidden');
-                            refreshHistory();
+                            var doneLabel = view.Label || view.label || '';
+                            logLine('Done (' + doneLabel + '): ' + ok + '/' + total + ' succeeded.');
+                            advanceToNextBatch();
                         }
                     }).catch(function () { /* transient poll error — keep trying */ });
                 }, 1000);
@@ -833,8 +828,8 @@
                 reattached = true;
                 busy = true;
                 attachPending = false;
-                var btn = $('ss-syncbtn');
-                if (btn) btn.disabled = true;
+                // The sync buttons stay enabled: more runs can be queued behind
+                // this one while it streams.
                 var cancel = $('ss-cancel');
                 if (cancel) cancel.classList.remove('ss-hidden');
                 showRunBox(true);
@@ -845,14 +840,57 @@
                 pollBatchView(batchId, taskLines);
             }
 
+            // After a batch finishes, stream the next queued batch (oldest first —
+            // the server runs its FIFO exactly this way). When nothing is queued,
+            // return the UI to idle.
+            function advanceToNextBatch() {
+                api('SubSync/Batches').then(function (list) {
+                    var arr = list || [];
+                    var next = null;
+                    for (var i = arr.length - 1; i >= 0; i--) {
+                        var b = arr[i];
+                        var st = b.Status || b.status;
+                        if (st === 'Running' || st === 'Queued') { next = b; break; }
+                    }
+                    if (next && (next.Id || next.id) !== watchedBatchId) {
+                        logLine('Starting next queued run: ' + (next.Label || next.label || ''));
+                        busy = true;
+                        reattached = false;
+                        attachPending = false;
+                        var taskLines = {};
+                        pollBatchView(next.Id || next.id, taskLines);
+                        return;
+                    }
+                    busy = false;
+                    reattached = false;
+                    attachPending = false;
+                    var b2 = $('ss-syncbtn');
+                    if (b2) b2.disabled = false;
+                    var cancelEl = $('ss-cancel');
+                    if (cancelEl) cancelEl.classList.add('ss-hidden');
+                    refreshHistory();
+                }).catch(function () {
+                    busy = false;
+                    reattached = false;
+                    attachPending = false;
+                    var b2 = $('ss-syncbtn');
+                    if (b2) b2.disabled = false;
+                    refreshHistory();
+                });
+            }
+
             function startBatch() {
-                if (busy || !selected) return;
-                busy = true;
+                if (!selected || startInFlight) return;
+                startInFlight = true;
                 var btn = $('ss-syncbtn');
                 if (btn) btn.disabled = true;
-                showRunBox(true);
-                $('ss-log').textContent = '';
-                $('ss-progress').style.width = '0%';
+                var idle = !watchedBatchTimer; // no batch is being streamed right now
+                if (idle) {
+                    busy = true;
+                    showRunBox(true);
+                    $('ss-log').textContent = '';
+                    $('ss-progress').style.width = '0%';
+                }
 
                 var isMovie = selected.Type === 'Movie';
 
@@ -882,8 +920,9 @@
                     }
                     if (!tasks.length) {
                         logLine('No subtitle tracks found in the selected scope.');
-                        busy = false;
+                        startInFlight = false;
                         if (btn) btn.disabled = false;
+                        if (idle) busy = false;
                         return;
                     }
                     logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' across ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's') + ' to sync.');
@@ -902,16 +941,29 @@
                     }).then(function (view) {
                         var batchId = (view && (view.Id || view.id)) || '';
                         if (!batchId) throw new Error('server did not return a batch id');
-                        reattached = false;
-                        attachPending = false;
-                        var taskLines = {};
-                        pollBatchView(batchId, taskLines);
+                        startInFlight = false;
+                        if (btn) btn.disabled = false;
+                        if (watchedBatchTimer) {
+                            // Another batch is streaming: this run joins the server
+                            // FIFO queue and starts when the current one finishes.
+                            busy = true;
+                            logLine('Queued: ' + label + ' \u2014 ' + tasks.length + ' task(s); starts after the current run finishes.');
+                            $('ss-run-label').textContent = 'Queued: ' + label + ' \u2014 behind the current run.';
+                            refreshHistory();
+                        } else {
+                            busy = true;
+                            reattached = false;
+                            attachPending = false;
+                            var taskLines = {};
+                            pollBatchView(batchId, taskLines);
+                        }
                     });
                 }).catch(function (e) {
+                    startInFlight = false;
+                    if (btn) btn.disabled = false;
+                    if (!watchedBatchTimer) busy = false;
                     diag('Could not start batch: ' + (e.message || e), true);
                     logLine('ERROR: ' + (e.message || e));
-                    busy = false;
-                    if (btn) btn.disabled = false;
                 });
             }
 
