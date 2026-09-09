@@ -247,6 +247,7 @@ public class SubSyncController : ControllerBase
             CurrentTask = current is null ? null : new BatchTask
             {
                 BatchIndex = current.BatchIndex,
+                ItemId = current.ItemId,
                 Title = current.Label,
                 Status = current.Status.ToString(),
                 Progress = current.Progress,
@@ -257,6 +258,7 @@ public class SubSyncController : ControllerBase
             Tasks = jobs.OrderBy(j => j.BatchIndex).Select(j => new BatchTask
             {
                 BatchIndex = j.BatchIndex,
+                ItemId = j.ItemId,
                 Title = j.Label,
                 Status = j.Status.ToString(),
                 Progress = j.Progress,
@@ -383,6 +385,9 @@ public class BatchTask
 {
     /// <summary>Gets or sets the 0-based task position.</summary>
     public int BatchIndex { get; set; }
+
+    /// <summary>Gets or sets the Jellyfin item ID (episode/movie) this task belongs to.</summary>
+    public Guid ItemId { get; set; }
 
     /// <summary>Gets or sets the display title.</summary>
     public string? Title { get; set; }

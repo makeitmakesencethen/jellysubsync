@@ -157,7 +157,7 @@
                                         <option value="copy">Keep original — save a synced copy</option>
                                         <option value="replace">Replace the original subtitle</option>
                                     </select>
-                                    <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title -SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place.</div>
+                                    <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title -SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place. Video files are never modified — embedded tracks are extracted and saved as a new external subtitle file instead of being remuxed back in.</div>
                                 </div>
                                 <h3 class="ss-subhead">Paths (Advanced)</h3>
                                 <div class="ss-field">
@@ -620,7 +620,7 @@
                             return i.SeasonId ? i.SeasonId === scopeId : (i.ParentId === scopeId);
                         });
                     }
-                    return items.map(function (i) { return i.Id; });
+                    return items.map(function (i) { return { id: i.Id, name: i.Name }; });
                 });
             }
 
@@ -684,10 +684,24 @@
 
                         // Header + progress
                         var pos = (view.Completed != null) ? view.Completed : ((view.completed != null) ? view.completed : 0);
+                        // Episode numbering: tasks share the same itemId per episode.
+                        var episodeIds = [];
+                        tasks.forEach(function (t) {
+                            var iid = t.ItemId || t.itemId;
+                            if (iid && episodeIds.indexOf(iid) < 0) episodeIds.push(iid);
+                        });
+                        var totalEp = episodeIds.length;
                         if (current) {
                             var cTitle = current.Title || current.title || '';
                             var phase = current.Phase || current.phase || '';
-                            $('ss-run-label').textContent = 'Syncing ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
+                            var curIid = current.ItemId || current.itemId;
+                            var epPos = episodeIds.indexOf(curIid) + 1;
+                            if (totalEp > 1) {
+                                $('ss-run-label').textContent = 'Episode ' + epPos + '/' + totalEp +
+                                    ' \u00b7 task ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
+                            } else {
+                                $('ss-run-label').textContent = 'Syncing ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
+                            }
                             $('ss-phase').textContent = phase;
                             var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);
                             var overall = total ? ((pos + prog) / total) : 0;
@@ -780,7 +794,7 @@
                         if (btn) btn.disabled = false;
                         return;
                     }
-                    logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' to sync.');
+                    logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' across ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's') + ' to sync.');
                     $('ss-run-label').textContent = 'Sending ' + tasks.length + ' task(s) to the server queue\u2026';
 
                     var payload = {
@@ -834,19 +848,19 @@
                 }
                 var stratSel = $('ss-substrat');
                 if (stratSel) strategy = stratSel.value;
-                return episodesInScope(scopeId, seasonOnly).then(function (epIds) {
+                return episodesInScope(scopeId, seasonOnly).then(function (episodes) {
                     var seq = Promise.resolve();
-                    epIds.forEach(function (epId) {
+                    episodes.forEach(function (ep) {
                         seq = seq.then(function () {
-                            return listTracks(epId).then(function (tracks) {
+                            return listTracks(ep.id).then(function (tracks) {
                                 var use = strategy === 'first' ? tracks.slice(0, 1) : tracks;
                                 use.forEach(function (t) {
-                                    queue.push({ itemId: epId, index: t.Index, title: (t.Title || ('track ' + t.Index)) });
+                                    queue.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
                                 });
                             });
                         });
                     });
-                    return seq.then(function () { return { episodeCount: epIds.length, queue: queue }; });
+                    return seq.then(function () { return { episodeCount: episodes.length, queue: queue }; });
                 });
             }
 
