@@ -1,0 +1,943 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <title>SubSync</title>
+</head>
+<body>
+    <div id="subsyncMainPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <!-- Styles live in the BODY: jellyfin-web strips <head> when embedding main-menu plugin pages. -->
+        <style>
+            .ss-layout { display: flex; gap: 24px; align-items: flex-start; }
+            .ss-nav { flex: 0 0 200px; display: flex; flex-direction: column; gap: 4px; position: sticky; top: 12px; }
+            .ss-nav-brand { display: flex; align-items: center; gap: 8px; font-weight: 700; font-size: 1.05rem; padding: 6px 8px 14px; }
+            .ss-nav-item { justify-content: flex-start; text-align: left; padding: 10px 12px; border-radius: 8px; opacity: .62; width: 100%; background: transparent; }
+            .ss-nav-item:focus { outline: none; background: transparent !important; box-shadow: none !important; }
+            .ss-nav-item.ss-nav-active { opacity: 1; background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 15%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
+            .ss-nav-item.ss-nav-active .ss-nav-icon { color: var(--theme-primary-color, #00a4dc); }
+            .ss-nav-sep { border-top: 1px solid rgba(255,255,255,.09); margin: 8px 0 4px; }
+            .ss-nav-icon { margin-right: 8px; font-size: 1.3rem; vertical-align: middle; }
+            .ss-main { flex: 1 1 auto; min-width: 0; }
+            .ss-badge { font-size: .76rem; padding: 4px 10px; border-radius: 999px; background: rgba(255,255,255,.08); opacity: .9; white-space: nowrap; }
+            .ss-badge-ok { color: #8f8; background: rgba(80,220,80,.12); }
+            .ss-dataline { font-size: .86rem; opacity: .9; margin: 10px 0 4px; min-height: 1.2em; }
+            .ss-dataline.err { color: #ff6b6b; }
+            .ss-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 10px 0 14px; max-width: 620px; }
+            .ss-toolbar .ss-lib { max-width: 340px; }
+            .ss-toolbar .emby-input { width: 100%; }
+            .ss-list { margin-top: 4px; }
+            .ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; border-radius: 6px; }
+            .ss-row.selected { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 14%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
+            .ss-row.selected .ss-name { color: var(--theme-primary-color, #00a4dc); font-weight: 600; }
+            .ss-row-main { min-width: 0; flex: 1 1 auto; }
+            .ss-name { font-weight: 500; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color, #ddd); }
+            .ss-meta { opacity: .62; font-size: .84rem; margin-top: 2px; }
+            .ss-row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; }
+            .ss-row-actions .emby-select { width: auto; }
+            .ss-compact { width: auto !important; max-width: 220px; }
+            .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
+            .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
+            .ss-log { white-space: pre-wrap; max-height: 190px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin-top: 6px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
+            .ss-settings-grid { max-width: 620px; }
+            .ss-settings-grid .ss-subhead { margin: 1.6em 0 .3em; }
+            .ss-settings-grid .ss-field { margin-bottom: 22px; }
+            .ss-settings-grid .ss-field .fieldDescription { margin-top: 4px; }
+            .ss-settings-grid .checkboxContainer { margin-bottom: 0; }
+            .ss-hist-item { border-bottom: 1px solid rgba(255,255,255,.07); padding: 10px 4px; cursor: pointer; border-radius: 6px; }
+            .ss-hist-item:hover { background: rgba(255,255,255,.04); }
+            .ss-hist-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
+            .ss-hist-title { font-weight: 500; }
+            .ss-hist-meta { opacity: .6; font-size: .84rem; }
+            .ss-hist-badge { font-size: .76rem; padding: 2px 10px; border-radius: 999px; background: rgba(255,255,255,.08); white-space: nowrap; }
+            .ss-hist-badge.ok { color: #8f8; background: rgba(80,220,80,.12); }
+            .ss-hist-badge.fail { color: #ff6b6b; background: rgba(255,80,80,.12); }
+            .ss-hist-badge.partial { color: #fc3; background: rgba(255,200,60,.12); }
+            .ss-hist-log { white-space: pre-wrap; max-height: 260px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin: 8px 0 2px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
+            .ss-diag { margin: 8px 0; padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,.05); white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
+            .ss-diag.err { color: #ff6b6b; background: rgba(255,80,80,.08); }
+            .ss-hidden { display: none; }
+            .ss-muted { opacity: .7; }
+            @media (max-width: 760px) { .ss-layout { flex-direction: column; } .ss-nav { flex: none; width: 100%; flex-direction: row; flex-wrap: wrap; position: static; } .ss-nav-brand, .ss-nav-sep { display: none; } }
+        </style>
+
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="ss-layout">
+                    <nav class="ss-nav" aria-label="Sections">
+                        <div class="ss-nav-brand">
+                            <span class="material-icons subtitles" aria-hidden="true"></span>
+                            <span>SubSync</span>
+                        </div>
+                        <div class="ss-nav-sep"></div>
+                        <button type="button" is="emby-button" class="ss-nav-item ss-nav-active" data-panel="sync">
+                            <span class="material-icons ss-nav-icon" aria-hidden="true">playlist_play</span><span>Sync</span>
+                        </button>
+                        <div class="ss-nav-sep"></div>
+                        <button type="button" is="emby-button" class="ss-nav-item" data-panel="history">
+                            <span class="material-icons ss-nav-icon" aria-hidden="true">history</span><span>History</span>
+                        </button>
+                        <div class="ss-nav-sep"></div>
+                        <button type="button" is="emby-button" class="ss-nav-item" data-panel="settings">
+                            <span class="material-icons ss-nav-icon" aria-hidden="true">tune</span><span>Settings</span>
+                        </button>
+                        <div class="ss-nav-sep"></div>
+                        <div id="ss-diag" class="ss-diag ss-hidden"></div>
+                    </nav>
+
+                    <div class="ss-main">
+                        <div id="ss-runbox" class="ss-hidden" style="margin:0 0 14px;background:rgba(255,255,255,.03);border-radius:8px;padding:10px 12px;">
+                            <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
+                                <div id="ss-run-label" class="ss-muted"></div>
+                                <button is="emby-button" type="button" id="ss-cancel" class="raised emby-button ss-hidden"><span>Cancel</span></button>
+                            </div>
+                            <div class="ss-progress-wrap"><div class="ss-progress-bar" id="ss-progress"></div></div>
+                            <div id="ss-phase" class="ss-muted"></div>
+                            <pre id="ss-log" class="ss-log"></pre>
+                        </div>
+                        <section id="panel-sync">
+                            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
+                                <h2 class="sectionTitle" style="margin:0;">Sync from your library</h2>
+                                <div id="ss-badge" class="ss-badge">checking bundled ffsubsync…</div>
+                            </div>
+                            <p class="sectionDescription ss-muted" style="margin-top:4px;">Click any movie or series to select it — the Sync options appear on that row. Movies can sync one picked subtitle or all tracks; series sync every episode of the series or of a chosen season. For a single movie or episode you can also sync straight from its detail page: ⋮ More → Sync Subtitles.</p>
+
+                            <div class="ss-toolbar">
+                                <select is="emby-select" id="ss-library" class="ss-lib" aria-label="Library"><option value="">All Libraries</option></select>
+                                <input is="emby-input" id="ss-search" type="text" placeholder="Search movies and series…" />
+                            </div>
+
+                            <div class="ss-dataline" id="ss-dataline">Loading libraries…</div>
+
+                            <div class="ss-list" id="ss-list"></div>
+                            <p id="ss-empty" class="ss-hidden ss-muted">No movies or series found.</p>
+                        </section>
+
+                        <section id="panel-settings" class="ss-hidden">
+                            <h2 class="sectionTitle" style="margin:0;">Settings</h2>
+                            <p class="sectionDescription ss-muted" style="margin-top:4px;">Sync engine options. ffmpeg and the bundled ffsubsync are detected automatically — only change these if you know what you are doing.</p>
+
+                            <div id="ss-status" style="padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.06);color:var(--text-color,#ddd);white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:13px;margin:10px 0 16px;">Checking status...</div>
+
+                            <div class="ss-settings-grid">
+                                <h3 class="ss-subhead">Synchronization Settings</h3>
+                                <div class="ss-field">
+                                    <select is="emby-select" id="ss-vad" label="Voice Activity Detector">
+                                        <option value="subs_then_webrtc">subs_then_webrtc (default)</option>
+                                        <option value="webrtc">webrtc</option>
+                                        <option value="subs_then_auditok">subs_then_auditok</option>
+                                        <option value="auditok">auditok</option>
+                                        <option value="subs_then_silero">subs_then_silero</option>
+                                        <option value="silero">silero</option>
+                                    </select>
+                                    <div class="fieldDescription">The VAD method used by ffsubsync for speech detection.</div>
+                                </div>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-maxoffset" label="Max offset seconds" min="1" max="600" />
+                                    <div class="fieldDescription">Maximum allowed offset in seconds for any subtitle segment. Default: 60.</div>
+                                </div>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-maxsub" label="Max subtitle seconds" min="1" max="60" step="0.5" />
+                                    <div class="fieldDescription">Maximum on-screen duration for a subtitle. Default: 10.</div>
+                                </div>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="text" id="ss-encoding" label="Output encoding" placeholder="utf-8" />
+                                    <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
+                                </div>
+                                <div class="ss-field">
+                                    <div class="checkboxContainer checkboxContainer-withDescription">
+                                        <label class="emby-checkbox-label">
+                                            <input is="emby-checkbox" type="checkbox" id="ss-gss" />
+                                            <span>Use golden-section search for framerate ratio</span>
+                                        </label>
+                                        <div class="fieldDescription checkboxFieldDescription">Enable --gss to find the optimal framerate ratio between video and subtitles.</div>
+                                    </div>
+                                </div>
+                                <div class="ss-field">
+                                    <select is="emby-select" id="ss-mode" label="Sync output">
+                                        <option value="copy">Keep original — save a synced copy</option>
+                                        <option value="replace">Replace the original subtitle</option>
+                                    </select>
+                                    <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title -SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place.</div>
+                                </div>
+                                <h3 class="ss-subhead">Paths (Advanced)</h3>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="text" id="ss-ffmpeg" label="ffmpeg path (optional)" placeholder="auto" />
+                                    <div class="fieldDescription">Override ffmpeg path. Leave empty to use Jellyfin's own ffmpeg.</div>
+                                </div>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="text" id="ss-ffsubsync" label="ffsubsync executable (optional)" placeholder="bundled linux-x64 build" />
+                                    <div class="fieldDescription">Override the bundled ffsubsync with your own binary. Leave empty to use the bundled linux-x64 build.</div>
+                                </div>
+                            </div>
+                            <div style="display:flex;gap:10px;align-items:center;margin-top:10px;">
+                                <button is="emby-button" id="ss-save" type="button" class="raised button-submit emby-button"><span>Save settings</span></button>
+                                <span class="ss-muted" id="ss-save-status"></span>
+                            </div>
+                        </section>
+
+                        <section id="panel-history" class="ss-hidden">
+                            <h2 class="sectionTitle" style="margin:0;">Sync history</h2>
+                            <p class="sectionDescription ss-muted" style="margin-top:4px;">Every run on this server, shared across tabs and devices. Click a run to see its log.</p>
+                            <p id="ss-history-stats" class="ss-muted" style="font-size:.8rem;"></p>
+                            <div id="ss-history"></div>
+                            <p id="ss-history-empty" class="ss-muted">Nothing synced yet. Start a sync from the Sync tab and it will show up here.</p>
+                        </section>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script type="text/javascript">
+        (function () {
+            'use strict';
+
+            var PLUGIN_ID = 'c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2';
+            var allItems = [];
+            var libraries = [];
+            var selected = null;        // selected library item
+            var scopeTarget = null;     // itemId actually synced (series or season)
+            var movieTracks = [];       // subtitle tracks of the selected movie
+            var busy = false;
+
+            var STATE_KEY = 'subsync.state.v1';
+            var pendingScope = null; // scope to restore once seasons load
+            var lastInitAt = 0;
+            var reattached = false; // a run was reattached after page load
+            var attachPending = false; // batch lookup in flight — don't hide the box meanwhile
+
+            // Storage that survives reloads (used for UI state only — history
+            // now lives on the server with the batches).
+            var storageMode = 'none';
+            function store() {
+                try {
+                    if (window.localStorage) { localStorage.setItem('__subsync_probe__', '1'); localStorage.removeItem('__subsync_probe__'); storageMode = 'localStorage'; return localStorage; }
+                } catch (e) { /* fall through */ }
+                try {
+                    if (window.sessionStorage) { sessionStorage.setItem('__subsync_probe__', '1'); sessionStorage.removeItem('__subsync_probe__'); storageMode = 'sessionStorage'; return sessionStorage; }
+                } catch (e) { /* fall through */ }
+                var mem = {};
+                return { getItem: function (k) { return Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null; }, setItem: function (k, v) { mem[k] = String(v); } };
+            }
+            var storeImpl = store();
+
+            function loadState() {
+                try { var s = JSON.parse(storeImpl.getItem(STATE_KEY)); return (s && typeof s === 'object') ? s : {}; }
+                catch (e) { return {}; }
+            }
+            function saveState(patch) {
+                try {
+                    var s = loadState();
+                    for (var k in patch) { if (Object.prototype.hasOwnProperty.call(patch, k)) s[k] = patch[k]; }
+                    storeImpl.setItem(STATE_KEY, JSON.stringify(s));
+                } catch (e) { /* state just won't persist */ }
+            }
+
+            function $(id) { return document.getElementById(id); }
+            function esc(v) {
+                return String(v == null ? '' : v).replace(/[&<>"]/g, function (c) {
+                    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
+                });
+            }
+
+            function diag(msg, isErr) {
+                var el = $('ss-diag');
+                if (!msg) { el.classList.add('ss-hidden'); el.textContent = ''; return; }
+                el.textContent = msg;
+                el.classList.remove('ss-hidden');
+                el.classList.toggle('err', !!isErr);
+            }
+
+            function api(path, options) {
+                options = options || {};
+                var headers = { 'Accept': 'application/json', 'X-Emby-Token': ApiClient.accessToken() };
+                if (options.body) headers['Content-Type'] = 'application/json';
+                return fetch(ApiClient.getUrl(path), {
+                    method: options.method || 'GET',
+                    headers: headers,
+                    body: options.body ? options.body : undefined
+                }).then(function (r) {
+                    if (!r.ok) {
+                        return r.text().then(function (b) {
+                            throw new Error((b && b.trim()) ? b.trim() : 'HTTP ' + r.status);
+                        });
+                    }
+                    return r.status === 204 ? null : r.json();
+                });
+            }
+
+            function logLine(text) {
+                var el = $('ss-log');
+                el.textContent += text + '\n';
+                el.scrollTop = el.scrollHeight;
+            }
+
+            function refreshHistory() {
+                // History comes from the SERVER now (batches): every tab and
+                // device attached to the server sees the same runs.
+                api('SubSync/Batches').then(function (batches) {
+                    var list = (batches || []);
+                    var el = $('ss-history');
+                    el.innerHTML = '';
+                    var stats = $('ss-history-stats');
+                    if (stats) {
+                        stats.textContent = list.length + ' run' + (list.length === 1 ? '' : 's') + ' — shared from the server across every tab/device.';
+                    }
+                    $('ss-history-empty').classList.toggle('ss-hidden', list.length > 0);
+                    list.forEach(function (b) {
+                        var badge, badgeCls;
+                        var status = b.Status || b.status;
+                        var ok = (b.Ok != null) ? b.Ok : b.ok;
+                        var total = (b.Total != null) ? b.Total : b.total;
+                        if (total === 0) { badge = status; badgeCls = status === 'Failed' ? 'fail' : 'ok'; }
+                        else if (status === 'Completed') { badge = ok + '/' + total + ' OK'; badgeCls = 'ok'; }
+                        else if (status === 'Partial') { badge = ok + '/' + total + ' OK'; badgeCls = 'partial'; }
+                        else if (status === 'Failed') { badge = ok + '/' + total + ' OK'; badgeCls = 'fail'; }
+                        else if (status === 'Cancelled') { badge = 'cancelled'; badgeCls = 'partial'; }
+                        else { badge = ok + '/' + total + ' running'; badgeCls = 'partial'; }
+
+                        var created = b.CreatedAtUtc || b.createdAtUtc || b.createdAt;
+                        var time = created ? new Date(created).toLocaleString() : '';
+
+                        var item = document.createElement('div');
+                        item.className = 'ss-hist-item';
+                        item.innerHTML =
+                            '<div class="ss-hist-head">' +
+                            '<span class="ss-hist-title">' + esc(b.Label || b.label || 'Batch') + '</span>' +
+                            '<span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' +
+                            '<span class="ss-hist-meta">' + esc(time) + '</span>' +
+                            '<span class="ss-hist-badge ' + badgeCls + '">' + badge + '</span>' +
+                            '</span>' +
+                            '</div>' +
+                            '<pre class="ss-hist-log ss-hidden"></pre>';
+                        item.addEventListener('click', function () {
+                            var log = item.querySelector('.ss-hist-log');
+                            if (log.textContent === '') {
+                                log.textContent = 'Loading\u2026';
+                                api('SubSync/Batch/' + (b.Id || b.id)).then(function (view) {
+                                    log.textContent = batchToLines(view);
+                                }).catch(function (e) {
+                                    log.textContent = 'Could not load run: ' + (e.message || e);
+                                });
+                            }
+                            log.classList.toggle('ss-hidden');
+                        });
+                        el.appendChild(item);
+                    });
+                }).catch(function () {
+                    var stats = $('ss-history-stats');
+                    if (stats) stats.textContent = 'History unavailable \u2014 could not reach the server.';
+                });
+            }
+
+            function batchToLines(view) {
+                // Render a server batch view as readable log lines (same format
+                // as live progress: OK/FAIL per task with the written path).
+                var lines = [];
+                var tasks = (view && view.Tasks) || (view && view.tasks) || [];
+                tasks.forEach(function (t) {
+                    var title = t.Title || t.title || ('track ' + (t.SubtitleIndex != null ? t.SubtitleIndex : (t.BatchIndex || 0)));
+                    var status = t.Status || t.status;
+                    var error = t.Error || t.error;
+                    var outPath = t.OutputPath || t.outputPath;
+                    if (status === 'Completed') lines.push('OK   ' + title + (outPath ? ' \u2192 ' + outPath : ''));
+                    else if (status === 'Cancelled') lines.push('SKIP ' + title + ' \u2014 cancelled');
+                    else lines.push('FAIL ' + title + ' \u2014 ' + (error || status));
+                });
+                return lines.length ? lines.join('\n') : '(no tasks recorded)';
+            }
+
+            function showRunBox(show) {
+                $('ss-runbox').classList.toggle('ss-hidden', !show);
+                var cancel = $('ss-cancel');
+                if (cancel) cancel.classList.toggle('ss-hidden', !show);
+                if (show && $('ss-runbox').scrollIntoView) $('ss-runbox').scrollIntoView({ block: 'nearest' });
+            }
+
+            // ---------------- Settings ----------------
+            function loadConfig() {
+                return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
+                    $('ss-vad').value = c.VadMethod || 'subs_then_webrtc';
+                    $('ss-maxoffset').value = c.MaxOffsetSeconds || 60;
+                    $('ss-maxsub').value = c.MaxSubtitleSeconds || 10;
+                    $('ss-encoding').value = c.OutputEncoding || 'utf-8';
+                    $('ss-ffmpeg').value = c.FfmpegPath || '';
+                    $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
+                    $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
+                    $('ss-gss').checked = !!c.UseGoldenSectionSearch;
+                });
+            }
+
+            function saveConfig() {
+                $('ss-save-status').textContent = 'Saving\u2026';
+                return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
+                    c.VadMethod = $('ss-vad').value;
+                    c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
+                    c.MaxSubtitleSeconds = parseFloat($('ss-maxsub').value) || 10;
+                    c.OutputEncoding = $('ss-encoding').value || 'utf-8';
+                    c.FfmpegPath = $('ss-ffmpeg').value;
+                    c.FfSubSyncPath = $('ss-ffsubsync').value || 'ffsubsync';
+                    c.SyncModeCopy = $('ss-mode').value === 'copy';
+                    c.UseGoldenSectionSearch = $('ss-gss').checked;
+                    return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
+                }).then(function () {
+                    $('ss-save-status').textContent = 'Saved.';
+                }).catch(function (e) {
+                    $('ss-save-status').textContent = 'Save failed: ' + (e.message || e);
+                });
+            }
+
+            function refreshStatus() {
+                api('SubSync/InstallationStatus').then(function (s) {
+                    var lines = [];
+                    if (s.BundledFfSubSyncVersion) {
+                        lines.push('\u2713 Bundled ffsubsync: ' + s.BundledFfSubSyncVersion + ' (' + (s.BundledRid || '') + ') \u2014 ready to use.');
+                    } else {
+                        lines.push('ffsubsync source: ' + (s.ResolvedBinaryPath || 'ffsubsync'));
+                    }
+                    lines.push('ffmpeg: auto (Jellyfin\u2019s own ffmpeg is detected)');
+                    $('ss-status').textContent = lines.join('\n');
+                    var badge = $('ss-badge');
+                    if (badge) {
+                        if (s.BundledFfSubSyncVersion) {
+                            badge.textContent = '\u2713 bundled ' + (s.BundledFfSubSyncVersion.split(' ')[1] || s.BundledFfSubSyncVersion);
+                            badge.classList.add('ss-badge-ok');
+                        } else {
+                            badge.textContent = 'no bundled binary';
+                        }
+                    }
+                }).catch(function (e) {
+                    $('ss-status').textContent = 'Status check failed: ' + (e.message || e);
+                });
+            }
+
+            // ---------------- Browse ----------------
+            function loadLibraries() {
+                var uid = ApiClient.getCurrentUserId();
+                if (!uid) { diag('Not logged in \u2014 open from the Jellyfin web UI.', true); return Promise.resolve(); }
+                return api('Users/' + uid + '/Views').then(function (data) {
+                    var folders = (data && data.Items) ? data.Items : [];
+                    libraries = folders.filter(function (f) {
+                        var t = (f.CollectionType || '').toLowerCase();
+                        return t === 'movies' || t === 'tvshows' || t === 'homevideos' || t === 'mixed' || t === '';
+                    });
+                    var sel = $('ss-library');
+                    var cur = sel.value;
+                    sel.innerHTML = '<option value="">All Libraries</option>' +
+                        libraries.map(function (f) { return '<option value="' + esc(f.Id) + '">' + esc(f.Name) + '</option>'; }).join('');
+                    if (cur && libraries.some(function (f) { return f.Id === cur; })) sel.value = cur;
+                    var dl = $('ss-dataline');
+                    if (libraries.length === 0) {
+                        diag('No libraries visible to this account. Grant access in Dashboard \u2192 Users, or log in as admin.', true);
+                        if (dl) { dl.textContent = '0 libraries returned by the server'; dl.classList.add('err'); }
+                    } else {
+                        diag(null);
+                        if (dl) { dl.textContent = libraries.length + ' librar' + (libraries.length === 1 ? 'y' : 'ies') + ' available'; dl.classList.remove('err'); }
+                    }
+                }).catch(function (e) {
+                    diag('Could not load libraries: ' + (e.message || e), true);
+                    var dl = $('ss-dataline');
+                    if (dl) { dl.textContent = 'Library request failed: ' + (e.message || e); dl.classList.add('err'); }
+                });
+            }
+
+            function loadItems() {
+                var params = new URLSearchParams({
+                    Recursive: 'true',
+                    IncludeItemTypes: 'Series,Movie',
+                    SortBy: 'SortName',
+                    SortOrder: 'Ascending',
+                    Fields: 'ProductionYear'
+                });
+                var lid = $('ss-library').value;
+                if (lid) params.set('ParentId', lid);
+                var uid = ApiClient.getCurrentUserId();
+                var path = uid ? 'Users/' + uid + '/Items?' + params.toString() : 'Items?' + params.toString();
+                $('ss-dataline').textContent = 'Loading\u2026';
+                return api(path).then(function (data) {
+                    allItems = (data && data.Items) ? data.Items : [];
+                    var dl = $('ss-dataline');
+                    if (dl) {
+                        var libName = ($('ss-library').selectedOptions && $('ss-library').selectedOptions[0]) ? $('ss-library').selectedOptions[0].textContent : 'all libraries';
+                        dl.textContent = allItems.length + ' item' + (allItems.length === 1 ? '' : 's') + ' in ' + libName;
+                        dl.classList.remove('err');
+                    }
+                    render();
+                }).catch(function (e) {
+                    diag('Could not load items: ' + (e.message || e), true);
+                    var dl = $('ss-dataline');
+                    if (dl) { dl.textContent = 'Items request failed: ' + (e.message || e); dl.classList.add('err'); }
+                });
+            }
+
+            function trackOptionsHtml() {
+                var html = '<option value="-1">All ' + movieTracks.length + ' track' + (movieTracks.length === 1 ? '' : 's') + '</option>';
+                movieTracks.forEach(function (t) {
+                    html += '<option value="' + t.Index + '">' + esc(t.Title || ('Track ' + t.Index)) + (t.Language ? ' (' + esc(t.Language) + ')' : '') + '</option>';
+                });
+                return html;
+            }
+
+            function render() {
+                var q = ($('ss-search').value || '').toLowerCase().trim();
+                var filtered = allItems.filter(function (x) {
+                    return !q || (x.Name || '').toLowerCase().indexOf(q) !== -1;
+                });
+                $('ss-list').innerHTML = filtered.map(function (item) {
+                    var meta = item.Type + (item.ProductionYear ? ' \u00b7 ' + item.ProductionYear : '');
+                    var isSel = selected && selected.Id === item.Id;
+                    var html = '<div class="ss-row' + (isSel ? ' selected' : '') + '" data-id="' + esc(item.Id) + '">' +
+                        '<div class="ss-row-main">' +
+                        '<div class="ss-name">' + esc(item.Name) + '</div>' +
+                        '<div class="ss-meta">' + esc(meta) + '</div>' +
+                        '</div>';
+                    if (isSel) {
+                        if (item.Type === 'Movie') {
+                            html += '<div class="ss-row-actions">' +
+                                '<select is="emby-select" id="ss-trackpick" class="ss-compact" label="Subtitle">' + trackOptionsHtml() + '</select>' +
+                                '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync movie</span></button>' +
+                                '</div>';
+                        } else {
+                            html += '<div class="ss-row-actions">' +
+                                '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="series">Whole series</option></select>' +
+                                '<select is="emby-select" id="ss-substrat" class="ss-compact" label="Subs"><option value="all">All subtitle tracks</option><option value="first">First track only</option></select>' +
+                                '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync series</span></button>' +
+                                '</div>';
+                        }
+                    } else {
+                        html += '<span class="material-icons" aria-hidden="true" style="opacity:.45;">chevron_right</span>';
+                    }
+                    html += '</div>';
+                    return html;
+                }).join('');
+                $('ss-empty').classList.toggle('ss-hidden', filtered.length !== 0);
+
+                Array.prototype.forEach.call($('ss-list').querySelectorAll('.ss-row'), function (row) {
+                    row.addEventListener('click', function (e) {
+                        if (e.target.closest('.ss-row-actions')) return; // clicks on controls handled separately
+                        var id = row.getAttribute('data-id');
+                        var match = null;
+                        for (var i = 0; i < allItems.length; i++) if (allItems[i].Id === id) { match = allItems[i]; break; }
+                        if (!match) return;
+                        selectItem(match);
+                    });
+                });
+
+                if (selected) {
+                    if (selected.Type === 'Movie' && $('ss-trackpick')) {
+                        $('ss-trackpick').onchange = null;
+                    }
+                    if (selected.Type === 'Series' && $('ss-scope')) {
+                        $('ss-scope').onchange = function () {
+                            var opt = $('ss-scope').options[$('ss-scope').selectedIndex];
+                            scopeTarget = $('ss-scope').value;
+                            saveState({ scope: scopeTarget });
+                            var name = opt ? (opt.getAttribute('data-name') || opt.textContent) : selected.Name;
+                            var rowName = $('ss-list').querySelector('.ss-row.selected .ss-name');
+                            if (rowName) rowName.textContent = name;
+                        };
+                    }
+                    if ($('ss-syncbtn')) {
+                        $('ss-syncbtn').onclick = function (e) {
+                            e.stopPropagation();
+                            startBatch();
+                        };
+                    }
+                }
+            }
+
+            function selectItem(item) {
+                selected = item;
+                scopeTarget = item.Id;
+                movieTracks = [];
+                saveState({ selectedId: item.Id });
+                if (!busy && !reattached && !attachPending) {
+                    $('ss-log').textContent = '';
+                    $('ss-progress').style.width = '0%';
+                    showRunBox(false);
+                }
+                diag(null);
+                if (item.Type === 'Movie') {
+                    api('SubSync/Subtitles/' + item.Id).then(function (tracks) {
+                        movieTracks = (tracks || []).filter(function (t) { return t && typeof t.Index === 'number'; });
+                        if (!movieTracks.length) diag('No subtitle tracks found for this movie.', true);
+                        render();
+                    }).catch(function (e) {
+                        diag('Could not load subtitles: ' + (e.message || e), true);
+                        render();
+                    });
+                } else {
+                    var params = new URLSearchParams({
+                        ParentId: item.Id,
+                        IncludeItemTypes: 'Season',
+                        SortBy: 'SortName',
+                        SortOrder: 'Ascending'
+                    });
+                    var uid = ApiClient.getCurrentUserId();
+                    api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params.toString()).then(function (data) {
+                        var seasons = (data && data.Items) || [];
+                        var scope = $('ss-scope');
+                        if (!scope) return;
+                        scope.innerHTML = '<option value="' + esc(item.Id) + '" data-name="' + esc(item.Name) + '">Whole series</option>';
+                        seasons.forEach(function (s) {
+                            var opt = document.createElement('option');
+                            opt.value = s.Id;
+                            opt.setAttribute('data-name', item.Name + ' \u00b7 ' + s.Name);
+                            opt.textContent = s.Name;
+                            scope.appendChild(opt);
+                        });
+                        // Restore the previously selected season after reload
+                        if (pendingScope && scope.querySelector('option[value="' + pendingScope + '"]')) {
+                            scope.value = pendingScope;
+                            scopeTarget = pendingScope;
+                            var opt2 = scope.options[scope.selectedIndex];
+                            if (opt2) {
+                                var rowName2 = $('ss-list').querySelector('.ss-row.selected .ss-name');
+                                if (rowName2) rowName2.textContent = opt2.getAttribute('data-name') || opt2.textContent;
+                            }
+                        }
+                        pendingScope = null;
+                    }).catch(function (e) { diag('Could not load seasons: ' + (e.message || e), true); });
+                    render();
+                }
+            }
+
+            // ---------------- Sync ----------------
+            function episodesInScope(scopeId, seasonOnly) {
+                var params = new URLSearchParams({
+                    ParentId: scopeId,
+                    Recursive: 'true',
+                    IncludeItemTypes: 'Episode',
+                    SortBy: 'SortName',
+                    SortOrder: 'Ascending'
+                });
+                var uid = ApiClient.getCurrentUserId();
+                return api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params.toString()).then(function (data) {
+                    var items = ((data && data.Items) || []);
+                    if (seasonOnly) {
+                        // Belt & braces: some server layouts return sibling-season
+                        // episodes for a season ParentId — keep only this season's.
+                        items = items.filter(function (i) {
+                            return i.SeasonId ? i.SeasonId === scopeId : (i.ParentId === scopeId);
+                        });
+                    }
+                    return items.map(function (i) { return i.Id; });
+                });
+            }
+
+            function listTracks(itemId) {
+                return api('SubSync/Subtitles/' + itemId).then(function (tracks) {
+                    return (tracks || []).filter(function (t) { return t && typeof t.Index === 'number'; });
+                });
+            }
+
+            // Active run attached to a server batch (own start or reattached after reload).
+            var watchedBatchId = null;
+            var watchedBatchTimer = null;
+
+            function logTerminal(taskLines, view) {
+                // After a batch finishes, write any tasks we haven't logged yet.
+                if (!taskLines || !view) return;
+                var tasks = (view.Tasks) || (view.tasks) || [];
+                tasks.forEach(function (t) {
+                    var idx = (t.BatchIndex != null) ? t.BatchIndex : -1;
+                    if (taskLines[idx] !== undefined) return;
+                    var status = t.Status || t.status;
+                    var title = t.Title || t.title || ('track ' + (t.BatchIndex != null ? t.BatchIndex : ''));
+                    var error = t.Error || t.error;
+                    var outPath = t.OutputPath || t.outputPath;
+                    if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : ''));
+                    else if (status === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
+                    else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
+                    taskLines[idx] = true;
+                });
+            }
+
+            function pollBatchView(batchId, taskLines) {
+                if (watchedBatchTimer) { clearInterval(watchedBatchTimer); watchedBatchTimer = null; }
+                watchedBatchId = batchId;
+                var lastFinished = -1;
+                var timer = setInterval(function () {
+                    api('SubSync/Batch/' + batchId).then(function (view) {
+                        if (!view) return;
+                        var tasks = (view.Tasks) || (view.tasks) || [];
+                        var status = view.Status || view.status;
+                        var total = (view.Total != null) ? view.Total : view.total;
+                        var ok = (view.Ok != null) ? view.Ok : view.ok;
+                        var failed = (view.Failed != null) ? view.Failed : view.failed;
+                        var current = view.CurrentTask || view.currentTask;
+
+                        // Log every task that just finished.
+                        tasks.forEach(function (t) {
+                            var idx = (t.BatchIndex != null) ? t.BatchIndex : -1;
+                            var st = t.Status || t.status;
+                            if ((st === 'Completed' || st === 'Failed' || st === 'Cancelled') && idx > lastFinished && !taskLines[idx]) {
+                                var title = t.Title || t.title || ('track ' + idx);
+                                var error = t.Error || t.error;
+                                var outPath = t.OutputPath || t.outputPath;
+                                if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : ''));
+                                else if (st === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
+                                else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
+                                taskLines[idx] = true;
+                            }
+                        });
+                        lastFinished = Math.max(lastFinished, ok + failed + ((view.Cancelled != null) ? view.Cancelled : (view.cancelled || 0)));
+
+                        // Header + progress
+                        var pos = (view.Completed != null) ? view.Completed : ((view.completed != null) ? view.completed : 0);
+                        if (current) {
+                            var cTitle = current.Title || current.title || '';
+                            var phase = current.Phase || current.phase || '';
+                            $('ss-run-label').textContent = 'Syncing ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
+                            $('ss-phase').textContent = phase;
+                            var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);
+                            var overall = total ? ((pos + prog) / total) : 0;
+                            $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';
+                        } else {
+                            if (status === 'Queued') {
+                                $('ss-run-label').textContent = 'Queued \u2014 waiting for ' + pos + ' item(s) ahead of this batch\u2026';
+                            } else {
+                                $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
+                                $('ss-phase').textContent = '';
+                                $('ss-progress').style.width = '100%';
+                            }
+                        }
+
+                        var terminal = status === 'Completed' || status === 'Failed' || status === 'Partial' || status === 'Cancelled';
+                        if (terminal && !current && pos >= total) {
+                            clearInterval(timer);
+                            watchedBatchTimer = null;
+                            watchedBatchId = null;
+                            logTerminal(taskLines, view);
+                            logLine('Done: ' + ok + '/' + total + ' succeeded.');
+                            busy = false;
+                            reattached = false;
+                            attachPending = false;
+                            var b2 = $('ss-syncbtn');
+                            if (b2) b2.disabled = false;
+                            var cancelEl = $('ss-cancel');
+                            if (cancelEl) cancelEl.classList.add('ss-hidden');
+                            refreshHistory();
+                        }
+                    }).catch(function () { /* transient poll error — keep trying */ });
+                }, 1000);
+                watchedBatchTimer = timer;
+            }
+
+            function attachBatch(batchId) {
+                reattached = true;
+                busy = true;
+                attachPending = false;
+                var btn = $('ss-syncbtn');
+                if (btn) btn.disabled = true;
+                var cancel = $('ss-cancel');
+                if (cancel) cancel.classList.remove('ss-hidden');
+                showRunBox(true);
+                $('ss-log').textContent = '';
+                $('ss-progress').style.width = '0%';
+                $('ss-run-label').textContent = 'Attaching to run\u2026';
+                var taskLines = {};
+                pollBatchView(batchId, taskLines);
+            }
+
+            function startBatch() {
+                if (busy || !selected) return;
+                busy = true;
+                var btn = $('ss-syncbtn');
+                if (btn) btn.disabled = true;
+                showRunBox(true);
+                $('ss-log').textContent = '';
+                $('ss-progress').style.width = '0%';
+
+                var isMovie = selected.Type === 'Movie';
+
+                // Read the scope from the select AT SYNC TIME — never trust a
+                // cached var: a stale change event could leave the series id
+                // active while the dropdown shows a season (syncing ALL seasons).
+                var scopeSel = $('ss-scope');
+                var scopeId = isMovie
+                    ? selected.Id
+                    : (scopeSel && scopeSel.value ? scopeSel.value : (scopeTarget || selected.Id));
+                var scopeLabel = '';
+                if (scopeSel && scopeSel.selectedOptions && scopeSel.selectedOptions[0]) {
+                    scopeLabel = scopeSel.selectedOptions[0].getAttribute('data-name')
+                        || scopeSel.selectedOptions[0].textContent
+                        || '';
+                }
+                scopeTarget = scopeId;
+                var seasonOnly = !isMovie && scopeId !== selected.Id;
+                var label = scopeLabel || selected.Name;
+
+                $('ss-run-label').textContent = 'Building queue\u2026';
+
+                episodesInScopeChain(isMovie ? null : scopeId, seasonOnly).then(function (result) {
+                    var tasks = result ? result.queue : [];
+                    if (result) {
+                        logLine('Scope: ' + label + ' \u2014 ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's'));
+                    }
+                    if (!tasks.length) {
+                        logLine('No subtitle tracks found in the selected scope.');
+                        busy = false;
+                        if (btn) btn.disabled = false;
+                        return;
+                    }
+                    logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' to sync.');
+                    $('ss-run-label').textContent = 'Sending ' + tasks.length + ' task(s) to the server queue\u2026';
+
+                    var payload = {
+                        label: label,
+                        tasks: tasks.map(function (t) {
+                            return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
+                        })
+                    };
+
+                    return api('SubSync/Batch', {
+                        method: 'POST',
+                        body: JSON.stringify(payload)
+                    }).then(function (view) {
+                        var batchId = (view && (view.Id || view.id)) || '';
+                        if (!batchId) throw new Error('server did not return a batch id');
+                        reattached = false;
+                        attachPending = false;
+                        var taskLines = {};
+                        pollBatchView(batchId, taskLines);
+                    });
+                }).catch(function (e) {
+                    diag('Could not start batch: ' + (e.message || e), true);
+                    logLine('ERROR: ' + (e.message || e));
+                    busy = false;
+                    if (btn) btn.disabled = false;
+                });
+            }
+
+            function cancelWatchedBatch() {
+                if (!watchedBatchId) return;
+                $('ss-run-label').textContent = 'Cancelling\u2026';
+                var cancelEl = $('ss-cancel');
+                if (cancelEl) cancelEl.disabled = true;
+                api('SubSync/Batch/' + watchedBatchId + '/Cancel', { method: 'POST' }).then(function () {
+                    if (cancelEl) cancelEl.disabled = false;
+                }).catch(function () {
+                    if (cancelEl) cancelEl.disabled = false;
+                    $('ss-run-label').textContent = 'Cancel request failed.';
+                });
+            }
+
+            function episodesInScopeChain(scopeId, seasonOnly) {
+                // Movie: fetch its tracks directly. Series/season: episodes -> tracks per strategy.
+                var queue = [];
+                var strategy = 'all';
+                if (!scopeId) {
+                    // movie with chosen track index
+                    var chosen = $('ss-trackpick') ? parseInt($('ss-trackpick').value, 10) : -1;
+                    return Promise.resolve({ episodeCount: 1, queue: movieTracks.filter(function (t) { return chosen === -1 || t.Index === chosen; })
+                        .map(function (t) { return { itemId: selected.Id, index: t.Index, title: selected.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) }; }) });
+                }
+                var stratSel = $('ss-substrat');
+                if (stratSel) strategy = stratSel.value;
+                return episodesInScope(scopeId, seasonOnly).then(function (epIds) {
+                    var seq = Promise.resolve();
+                    epIds.forEach(function (epId) {
+                        seq = seq.then(function () {
+                            return listTracks(epId).then(function (tracks) {
+                                var use = strategy === 'first' ? tracks.slice(0, 1) : tracks;
+                                use.forEach(function (t) {
+                                    queue.push({ itemId: epId, index: t.Index, title: (t.Title || ('track ' + t.Index)) });
+                                });
+                            });
+                        });
+                    });
+                    return seq.then(function () { return { episodeCount: epIds.length, queue: queue }; });
+                });
+            }
+
+            // ---------------- Wiring ----------------
+            $('ss-save').addEventListener('click', saveConfig);
+            var cancelBtn = $('ss-cancel');
+            if (cancelBtn) cancelBtn.addEventListener('click', cancelWatchedBatch);
+            $('ss-library').addEventListener('change', function () {
+                saveState({ library: $('ss-library').value });
+                loadItems();
+            });
+            $('ss-search').addEventListener('input', function () {
+                saveState({ search: $('ss-search').value });
+                render();
+            });
+
+            function showPanel(panel, remember) {
+                Array.prototype.forEach.call(document.querySelectorAll('.ss-nav-item'), function (b) {
+                    b.classList.toggle('ss-nav-active', b.getAttribute('data-panel') === panel);
+                });
+                $('panel-sync').classList.toggle('ss-hidden', panel !== 'sync');
+                $('panel-settings').classList.toggle('ss-hidden', panel !== 'settings');
+                $('panel-history').classList.toggle('ss-hidden', panel !== 'history');
+                if (panel === 'history') refreshHistory();
+                if (remember !== false) saveState({ tab: panel });
+            }
+
+            document.querySelector('.ss-nav').addEventListener('click', function (e) {
+                var btn = e.target.closest ? e.target.closest('.ss-nav-item') : null;
+                if (!btn) return;
+                showPanel(btn.getAttribute('data-panel'));
+            });
+
+            function restoreSelection(st) {
+                if (!st || !st.selectedId || !allItems.length) return;
+                var match = null;
+                for (var i = 0; i < allItems.length; i++) if (allItems[i].Id === st.selectedId) { match = allItems[i]; break; }
+                if (!match) return;
+                pendingScope = st.scope || null;
+                selectItem(match);
+            }
+
+            function attachActiveJobs() {
+                // Refresh/exit mid-run kills only this page — the batch keeps
+                // running server-side. Re-attach to the active batch so the same
+                // info (task, position, phase) comes right back.
+                if (reattached || attachPending) return;
+                attachPending = true;
+                api('SubSync/Batches').then(function (batches) {
+                    attachPending = false;
+                    var list = (batches || []);
+                    var running = null, queued = null;
+                    list.forEach(function (b) {
+                        var s = b.Status || b.status;
+                        if (s === 'Running' && !running) running = b;
+                        if (s === 'Queued' && !queued) queued = b;
+                    });
+                    var target = running || queued;
+                    if (!target) return;
+                    attachBatch(target.Id || target.id);
+                }).catch(function () { attachPending = false; /* not reachable — ignore */ });
+            }
+
+            function init() {
+                var now = Date.now();
+                if (now - lastInitAt < 800) return; // pageshow + immediate can double-fire
+                lastInitAt = now;
+
+                var st = loadState();
+
+                // Restore remembered tab, library filter and search text
+                var tab = st.tab === 'settings' || st.tab === 'history' ? st.tab : 'sync';
+                showPanel(tab, false);
+                if (st.search) $('ss-search').value = st.search;
+                if (st.library) $('ss-library').value = st.library;
+
+                refreshStatus();
+                loadConfig();
+                attachActiveJobs();
+                loadLibraries().then(function () {
+                    return loadItems();
+                }).then(function () {
+                    restoreSelection(st);
+                    attachActiveJobs(); // re-check after selection restore (catches late-running jobs)
+                });
+            }
+
+            document.getElementById('subsyncMainPage').addEventListener('pageshow', init);
+            if (document.readyState === 'complete' || document.readyState === 'interactive') init();
+        })();
+        </script>
+    </div>
+</body>
+</html>

@@ -1,0 +1,98 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Validate tag matches csproj version
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG_VER="${GITHUB_REF_NAME#v}"
+          CSPROJ_VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          if [ "$TAG_VER" != "$CSPROJ_VER" ] && [ "${TAG_VER}.0" != "$CSPROJ_VER" ]; then
+            echo "Tag version '$TAG_VER' does not match <Version>$CSPROJ_VER</Version> in the csproj." >&2
+            exit 1
+          fi
+
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj --configuration Release --no-restore
+
+      - name: Build bundled ffsubsync binary (linux-x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/ffbuild
+          /tmp/ffbuild/bin/pip install --quiet ffsubsync==0.5.1 pyinstaller
+          mkdir -p /tmp/ffhooks
+          curl -s https://raw.githubusercontent.com/smacke/ffsubsync/0.5.1/gui/hooks/hook-webrtcvad.py \
+            -o /tmp/ffhooks/hook-webrtcvad.py
+          cd /tmp
+          /tmp/ffbuild/bin/python -m PyInstaller --noconfirm --onedir \
+            --additional-hooks-dir /tmp/ffhooks --name ffsubsync \
+            /tmp/ffbuild/bin/ffsubsync --distpath /tmp/ffbin
+          test -x /tmp/ffbin/ffsubsync/ffsubsync
+
+      - name: Package plugin zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          mkdir -p staging dist
+          cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll staging/
+          cp Jellyfin.Plugin.SubSync/meta.json staging/
+          mkdir -p "staging/ffsubsync/linux-x64"
+          cp -r /tmp/ffbin/ffsubsync/ffsubsync "staging/ffsubsync/linux-x64/ffsubsync"
+          cp -r /tmp/ffbin/ffsubsync/_internal "staging/ffsubsync/linux-x64/_internal"
+          (cd staging && zip -q -r "../dist/Jellyfin.Plugin.SubSync_${VER}.zip" .)
+
+      - name: Write catalog manifest
+        shell: bash
+        env:
+          OWNER: "${{ github.repository_owner }}"
+          REPO: "${{ github.repository }}"
+          REF: "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          ZIP="dist/Jellyfin.Plugin.SubSync_${VER}.zip"
+          # Jellyfin verifies downloads against the MD5 of the zip.
+          CHECKSUM="$(md5sum "$ZIP" | cut -d' ' -f1)"
+          python3 scripts/write_manifest.py \
+            manifest.json "$ZIP" "$CHECKSUM" \
+            "https://${OWNER}.github.io/${REPO#*/}" \
+            "https://github.com/${REPO}/releases/tag/${REF}" \
+            dist/manifest.json "$OWNER"
+          echo "Manifest:"
+          cat dist/manifest.json
+
+      # Deploys manifest.json + release zips to this repo's gh-pages branch.
+      # Repository URL to add in Jellyfin:
+      #   https://<owner>.github.io/<repo>/manifest.json
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          keep_files: true
+
+      - name: Attach assets to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/Jellyfin.Plugin.SubSync_*.zip
+            dist/manifest.json
