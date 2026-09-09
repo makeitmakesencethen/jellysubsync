@@ -253,7 +253,8 @@ public class SubSyncController : ControllerBase
                 Progress = current.Progress,
                 Phase = current.Phase,
                 Error = current.Error,
-                OutputPath = current.OutputPath
+                OutputPath = current.OutputPath,
+                Outcome = current.Outcome
             },
             Tasks = jobs.OrderBy(j => j.BatchIndex).Select(j => new BatchTask
             {
@@ -264,7 +265,8 @@ public class SubSyncController : ControllerBase
                 Progress = j.Progress,
                 Phase = j.Phase,
                 Error = j.Error,
-                OutputPath = j.OutputPath
+                OutputPath = j.OutputPath,
+                Outcome = j.Outcome
             }).ToList()
         };
     }
@@ -406,6 +408,9 @@ public class BatchTask
 
     /// <summary>Gets or sets the written output path on success.</summary>
     public string? OutputPath { get; set; }
+
+    /// <summary>Gets or sets what the sync changed (e.g. "−1250 ms offset"), set on success.</summary>
+    public string? Outcome { get; set; }
 }
 
 /// <summary>

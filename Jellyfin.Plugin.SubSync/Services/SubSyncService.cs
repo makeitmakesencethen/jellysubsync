@@ -84,6 +84,10 @@ public class SyncJob
     /// <summary>Gets or sets the output file path after successful sync.</summary>
     public string? OutputPath { get; set; }
 
+    /// <summary>Gets or sets a short technical summary of what the sync changed
+    /// (e.g. "offset −1250 ms", "framerate ratio 1.0004×"), for History.</summary>
+    public string? Outcome { get; set; }
+
     /// <summary>Gets or sets when the job was created (queue order).</summary>
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
@@ -1060,6 +1064,95 @@ public class SubSyncService : IDisposable
         return result;
     }
 
+    /// <summary>
+    /// Parses SRT cue start times (seconds).
+    /// </summary>
+    internal static List<double>? ParseSrtCueStarts(string path)
+    {
+        try
+        {
+            var starts = new List<double>();
+            foreach (var line in File.ReadLines(path))
+            {
+                var trimmed = line.Trim();
+                var arrow = trimmed.IndexOf("-->", StringComparison.Ordinal);
+                if (arrow <= 0)
+                {
+                    continue;
+                }
+
+                var ts = trimmed[..arrow].Trim();
+                var parts = ts.Split(':', ',', '.');
+                if (parts.Length < 4)
+                {
+                    continue;
+                }
+
+                if (int.TryParse(parts[0], out var h)
+                    && int.TryParse(parts[1], out var m)
+                    && int.TryParse(parts[2], out var s))
+                {
+                    starts.Add((h * 3600.0) + (m * 60.0) + s);
+                }
+            }
+
+            return starts.Count >= 3 ? starts : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Describes what a successful sync actually changed, by comparing cue
+    /// timings of the original and the synced file: the applied offset in
+    /// milliseconds (signed; + = subtitles moved later) and, when ffsubsync
+    /// corrected a framerate mismatch, the fitted time ratio plus the total
+    /// cumulative drift it fixed over the subtitle's runtime.
+    /// </summary>
+    internal static string? DescribeSyncChange(string inputPath, string outputPath)
+    {
+        var before = ParseSrtCueStarts(inputPath);
+        var after = ParseSrtCueStarts(outputPath);
+        if (before is null || after is null || before.Count < 3 || after.Count != before.Count)
+        {
+            return null;
+        }
+
+        var n = before.Count;
+        var diffs = new List<double>(n);
+        double sumX = 0, sumY = 0, sumXY = 0, sumXX = 0;
+        for (var i = 0; i < n; i++)
+        {
+            var x = before[i];
+            var y = after[i];
+            diffs.Add(y - x);
+            sumX += x;
+            sumY += y;
+            sumXY += x * y;
+            sumXX += x * x;
+        }
+
+        diffs.Sort();
+        var shiftMs = (long)Math.Round(diffs[n / 2] * 1000.0);
+
+        var denom = (n * sumXX) - (sumX * sumX);
+        double ratio = 1.0;
+        if (Math.Abs(denom) > 1e-9)
+        {
+            ratio = ((n * sumXY) - (sumX * sumY)) / denom;
+        }
+
+        if (Math.Abs(ratio - 1.0) < 1e-4)
+        {
+            return $"{shiftMs:+0;-0} ms offset";
+        }
+
+        var driftMs = (long)Math.Round((ratio - 1.0) * before[^1] * 1000.0);
+        return $"{shiftMs:+0;-0} ms offset at start \u00b7 framerate ratio {ratio:0.0000}\u00d7 (\u2248{driftMs:+0;-0} ms cumulative drift)";
+    }
+
     private async Task RunSyncJob(
         SyncJob job,
         Video video,
@@ -1156,7 +1249,15 @@ public class SubSyncService : IDisposable
 
             if (!File.Exists(tempOutput))
             {
-                throw new InvalidOperationException("ffsubsync completed but output file was not created.");
+                // ffsubsync suppresses writing when the detected shift is below
+                // its threshold (default 3 s) — the subtitle is effectively
+                // already in sync, so this is a success, not a failure.
+                job.Outcome = "already in sync (shift under 3 s) \u2014 no change needed";
+                job.Phase = "Complete";
+                job.Status = SyncJobStatus.Completed;
+                job.Progress = 1.0;
+                _logger.LogInformation("Sync job {JobId}: subtitle already in sync \u2014 no output written", job.Id);
+                return;
             }
 
             _logger.LogInformation("ffsubsync produced synced subtitle ({Size} bytes)", new FileInfo(tempOutput).Length);
@@ -1239,7 +1340,14 @@ public class SubSyncService : IDisposable
                 throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
             }
 
-            // Step 5: Success — remove backup
+            // Step 5: Success — describe what changed (offset ms / framerate),
+            // then remove the replace-mode backup.
+            var outcomeInput = backupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
+            if (job.OutputPath is not null)
+            {
+                job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
+            }
+
             SafeDelete(backupPath);
             backupPath = null;
 
@@ -1247,7 +1355,9 @@ public class SubSyncService : IDisposable
             job.Status = SyncJobStatus.Completed;
             job.Progress = 1.0;
 
-            _logger.LogInformation("Sync job {JobId} completed — wrote: {Output}", job.Id, job.OutputPath ?? "(no output path set)");
+            _logger.LogInformation(
+                "Sync job {JobId} completed \u2014 wrote: {Output} ({Outcome})",
+                job.Id, job.OutputPath ?? "(no output path set)", job.Outcome ?? "unknown");
 
             // Targeted Jellyfin rescan: tell the library monitor the folder
             // changed. This rescans ONE folder (no full library scan) and makes
