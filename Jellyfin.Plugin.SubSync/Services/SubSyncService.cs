@@ -2363,18 +2363,19 @@ public class SubSyncService : IDisposable
 
         if (config.FastIndexedExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
         {
-            job.Phase = "Extracting subtitle with the Matroska cue index";
+            job.Phase = "Extracting subtitle from the Matroska index";
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why))
+            var progress = new Action<string>(line => job.Phase = "Extracting subtitle: " + line);
+            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why, progress, out var stats))
             {
                 await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
-                    "Extracted embedded subtitle via the Matroska cue index in {Ms} ms ({Cues} cues) from {Video}",
-                    watch.ElapsedMilliseconds, SrtWriter.CountCues(srt), videoPath);
-                return "matroska-cues";
+                    "Extracted embedded subtitle in {Ms} ms ({Cues} cues, {Stats}) from {Video}",
+                    watch.ElapsedMilliseconds, SrtWriter.CountCues(srt), stats, videoPath);
+                return stats.Method;
             }
 
-            skipped.Add("matroska-cues: " + why);
+            skipped.Add("matroska-index: " + why + " [" + stats + "]");
         }
 
         if (config.FastIndexedExtraction && Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
@@ -2548,7 +2549,10 @@ public class SubSyncService : IDisposable
     /// <summary>Friendly name of an extraction method, for the UI phase and logs.</summary>
     private static string DescribeExtraction(string method) => method switch
     {
-        "matroska-cues" => "with the Matroska cue index",
+        "seekhead-cues" => "from the Matroska index (SeekHead)",
+        "cue-index" => "from the Matroska cue index",
+        "metadata-scan" => "by scanning Matroska metadata only (no full read)",
+        "matroska-cues" => "from the Matroska index",
         "mp4-sample-table" => "with the MP4 sample table",
         _ => "with ffmpeg (whole-file read)"
     };

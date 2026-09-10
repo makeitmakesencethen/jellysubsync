@@ -191,7 +191,43 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.21]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.22]
+
+### Fixed
+- **Embedded Matroska extraction is now genuinely index-based.** The previous reader located
+  subtitles with hundreds of thousands of tiny reads and then read the *video payload* of
+  every block it looked at, so it cost a large share of the file instead of a few
+  kilobytes — and when the cue index had no entries for the subtitle track, it gave up and
+  let ffmpeg demux the whole file, which is the "extraction takes longer than the sync" case
+  on a remux.
+
+  Measured on a 63 GB Blu-ray-shaped remux (12,000 clusters, cue index at the end of the
+  file), producing the same 40 subtitle cues:
+
+  | case | before | after |
+  | --- | --- | --- |
+  | subtitle cue points present | 612 ms, 996 MB read, 12,214 reads | **28 ms, 0.2 MB, 505 reads** |
+  | no cue points for the track | failed → ffmpeg reads 63 GB | **95 ms, 1.8 MB, 108,138 reads** |
+  | no Cues element at all | failed → ffmpeg reads 63 GB | **113 ms, 1.7 MB, 120,134 reads** |
+
+  What changed in `MkvSubtitleExtractor`:
+  - the SeekHead is used to jump to Tracks and Cues instead of walking every cluster;
+  - the cue index is read in one bulk pass and parsed from memory;
+  - block *headers* are read first and payloads only for the wanted track, so other tracks'
+    data is skipped rather than read;
+  - when the index has no entries for the track (or no Cues element), the plugin now scans
+    cluster metadata only — headers read, payloads skipped by seeking — instead of falling
+    back to ffmpeg, which read the entire file;
+  - reads are unbuffered, so a seek costs the bytes it asks for instead of a 64 KB refill;
+  - truncated or malformed elements stop the scan gracefully instead of failing the
+    extraction.
+
+- Extraction now reports what it cost in the log (`method, clusters, blocks, MB, read
+  calls, timings`), and the job phase tracks the work (`Extracting subtitle: reading cluster
+  12/40 from the cue index`, `scanning clusters (400 read, 0.4 MB, 7 subtitles found)`), so a
+  slow extraction is visible instead of frozen at 5%.
+
+## [1.1.0.21]
 
 ### Changed
 - Parallel waves now **spread across storage volumes as a preference**: the scheduler takes

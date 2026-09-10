@@ -228,7 +228,23 @@ the `SpeechCache` key.
 `SubSyncService.ExtractEmbeddedAsync` tries methods cheapest-first and returns which one
 worked:
 
-1. `MkvSubtitleExtractor` — Matroska cue index (text codecs only).
+1. `MkvSubtitleExtractor` — the container's own structures (text codecs only):
+   - **SeekHead** → Tracks and Cues positions, so no walk past the clusters is needed.
+   - **Cues** read in one bulk pass and parsed in memory (an index can hold thousands of
+     cue points; parsing them one syscall at a time is what made this slow).
+   - **block headers first**: a block's track number is read from its header and the payload
+     is only read for the wanted track — reading payloads for every block pulls the video
+     into the extraction.
+   - **metadata-only cluster scan** when the index has no entries for the track (or no Cues
+     element at all): headers are read, payloads are skipped by seeking. This replaced a
+     fall back to ffmpeg, which read the whole file.
+   - reads are unbuffered (`bufferSize: 0`), so a seek costs the bytes it asks for instead
+     of a 64 KB buffered refill.
+   - reports `MkvExtractionStats` (method, clusters, blocks, MB, read calls, timings), which
+     the service logs: `Extracted embedded subtitle in 28 ms (40 cues, seekhead-cues: 40
+     clusters, 40 blocks, 0.2 MB in 505 reads, 28 ms ...)`. Assert on **bytes read**, not
+     wall time — a fast local disk hides a reader that walks the whole file. The harness
+     (`/opt/data/tmp/logictest.py`) builds synthetic remuxes and checks exactly that.
 2. `Mp4SubtitleExtractor` — MP4/MOV `stbl` sample table (`tx3g`/`mov_text`, `text`).
 3. `ExtractSubtitle` — ffmpeg demux, which reads the whole file.
 
