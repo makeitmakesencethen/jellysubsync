@@ -25,6 +25,7 @@
             .ss-selactions { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
             .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
             .ss-selnote { font-size: .82rem; opacity: .7; }
+            .ss-selactions .emby-select { min-height: 40px; }
             .ss-row { user-select: none; -webkit-user-select: none; }
             .ss-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 10px 0 14px; max-width: 620px; }
             .ss-toolbar .ss-lib { max-width: 340px; }
@@ -114,6 +115,9 @@
 
                             <div class="ss-selactions" id="ss-selactions" style="display:none;">
                                 <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised button-submit"><span>Sync</span></button>
+                                <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
+                                    <option value="">All languages</option>
+                                </select>
                                 <span class="ss-selnote" id="ss-selnote"></span>
                             </div>
 
@@ -468,6 +472,8 @@
                 $('ss-dataline').textContent = 'Loading\u2026';
                 return api(path).then(function (data) {
                     allItems = (data && data.Items) ? data.Items : [];
+                    trackCache = {};
+                    episodesCache = {};
                     refreshDataline();
                     render();
                 }).catch(function (e) {
@@ -498,9 +504,9 @@
                     (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
                 if (n === 0) {
-                    html += ' <span style="opacity:.6;">\u00b7 shift-click or right-click a row to pick several</span>';
+                    html += ' <span style="opacity:.6;">\u00b7 right-click rows to pick several</span>';
                 } else {
-                    html += ' <span style="opacity:.6;">\u00b7 ' + n + ' picked</span>';
+                    html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked</span>';
                 }
 
                 dl.innerHTML = html;
@@ -515,8 +521,26 @@
                 var busyNow = isBuilding || startInFlight;
                 var btn = $('ss-syncsel-btn');
                 var span = btn ? btn.querySelector('span') : null;
-                if (span) span.textContent = busyNow ? 'Working\u2026' : ('Sync ' + n + ' media');
+                if (span) span.textContent = busyNow ? 'Working\u2026' : ('Sync ' + n + ' file' + (n === 1 ? '' : 's'));
                 if (btn) btn.disabled = busyNow;
+
+                // Keep the language dropdown in step with the scan, without
+                // disturbing the option the user picked.
+                var langSel = $('ss-sellang');
+                if (langSel) {
+                    var codes = Object.keys(langScan.langs).sort();
+                    var sig = codes.join(',');
+                    if (sig !== langScan.signature) {
+                        langScan.signature = sig;
+                        var opts = '<option value="">All languages</option>';
+                        codes.forEach(function (c) {
+                            opts += '<option value="' + esc(c) + '">' + esc(langLabel(c)) + ' (' + langScan.langs[c] + ')</option>';
+                        });
+                        langSel.innerHTML = opts;
+                    }
+                    langSel.value = selLang;
+                    if (langSel.value !== selLang) { selLang = ''; langSel.value = ''; }
+                }
 
                 var hasSeries = false;
                 for (var si = 0; si < allItems.length; si++) {
@@ -524,9 +548,15 @@
                 }
                 var note = $('ss-selnote');
                 if (note) {
-                    note.textContent = hasSeries
-                        ? n + ' media selected \u2014 series sync all their episodes'
-                        : n + ' media selected';
+                    var words = n + ' file' + (n === 1 ? '' : 's') + ' selected';
+                    if (hasSeries) words += ' \u2014 series sync all their episodes';
+                    if (selLang) words += ' \u2014 only ' + langLabel(selLang) + ' subtitles';
+                    if (langScan.running) {
+                        words += ' \u00b7 reading subtitles\u2026 ' + langScan.done + '/' + langScan.total;
+                    } else if (langScan.partial) {
+                        words += ' \u00b7 language list partial';
+                    }
+                    note.textContent = words;
                 }
                 bar.style.display = 'flex';
             }
@@ -567,40 +597,139 @@
                     selectedIds = {};
                     vis.forEach(function (x) { selectedIds[x.Id] = true; });
                 }
+                startLangScan();
                 render();
             }
 
             function togglePicked(id) {
                 if (selectedIds[id]) delete selectedIds[id];
                 else selectedIds[id] = true;
+                startLangScan();
                 render();
             }
 
-            // Tasks for one item: a movie contributes its tracks; a series
-            // contributes one track per language per episode (external preferred).
+            // ---- picked-selection language support -------------------------
+            // Track/episode lists are cached: the language scan and the queue
+            // build walk the same data, so each item is only fetched once.
+            var trackCache = {};
+            var episodesCache = {};
+            var selLang = '';            // '' = every language
+            var langScanToken = 0;
+            var langScan = { running: false, done: 0, total: 0, langs: {}, partial: false, signature: '' };
+            var LANG_SCAN_BUDGET = 400;  // max track requests per scan
+
+            function normLang(t) {
+                return (t && t.Language && t.Language !== 'und') ? String(t.Language).toLowerCase() : 'und';
+            }
+
+            function langLabel(code) {
+                if (!code) return 'All languages';
+                return code === 'und' ? 'Unknown' : (LANG_NAMES[code] || code);
+            }
+
+            function cachedTracks(id) {
+                if (trackCache[id]) return Promise.resolve(trackCache[id]);
+                return listTracks(id).then(function (t) {
+                    trackCache[id] = t || [];
+                    return trackCache[id];
+                });
+            }
+
+            function cachedEpisodes(id) {
+                if (episodesCache[id]) return Promise.resolve(episodesCache[id]);
+                return episodesInScope(id, false).then(function (eps) {
+                    episodesCache[id] = eps || [];
+                    return episodesCache[id];
+                });
+            }
+
+            // One track per language per episode (external preferred over embedded),
+            // mirroring what the queue build does.
+            function bestPerLanguage(tracks, onlyLang) {
+                var byLang = {};
+                (tracks || []).forEach(function (t) {
+                    var k = normLang(t);
+                    if (onlyLang && k !== onlyLang) return;
+                    var cur = byLang[k];
+                    if (!cur || (!cur.IsExternal && t.IsExternal)) byLang[k] = t;
+                });
+                return Object.keys(byLang).sort().map(function (k) { return byLang[k]; });
+            }
+
+            // Reads the subtitle lists of everything picked so the dropdown can
+            // list the languages that actually exist. Runs in the background and
+            // stops after LANG_SCAN_BUDGET track requests.
+            function startLangScan() {
+                var token = ++langScanToken;
+                var picked = allItems.filter(function (x) { return selectedIds[x.Id]; });
+                langScan = { running: picked.length > 0, done: 0, total: picked.length, langs: {}, partial: false, signature: '' };
+                if (!picked.length) { refreshDataline(); return; }
+
+                var budget = LANG_SCAN_BUDGET;
+                var seq = Promise.resolve();
+
+                picked.forEach(function (it) {
+                    seq = seq.then(function () {
+                        if (token !== langScanToken || budget <= 0) return null;
+                        var collect = function (tracks) {
+                            (tracks || []).forEach(function (t) {
+                                var k = normLang(t);
+                                langScan.langs[k] = (langScan.langs[k] || 0) + 1;
+                            });
+                        };
+                        if (it.Type === 'Movie') {
+                            budget--;
+                            return cachedTracks(it.Id).then(function (t) {
+                                collect(t);
+                                langScan.done++;
+                                refreshDataline();
+                            });
+                        }
+                        return cachedEpisodes(it.Id).then(function (eps) {
+                            var inner = Promise.resolve();
+                            eps.forEach(function (ep) {
+                                inner = inner.then(function () {
+                                    if (token !== langScanToken || budget <= 0) return null;
+                                    budget--;
+                                    return cachedTracks(ep.id).then(collect);
+                                });
+                            });
+                            return inner.then(function () {
+                                langScan.done++;
+                                refreshDataline();
+                            });
+                        });
+                    });
+                });
+
+                seq.then(function () {
+                    if (token !== langScanToken) return;
+                    langScan.running = false;
+                    langScan.partial = budget <= 0;
+                    refreshDataline();
+                });
+            }
+
+            // Tasks for one item. Movies contribute their tracks, series one track
+            // per language per episode (external preferred). When a language is
+            // chosen in the dropdown, only that language is queued.
             function buildTasksForItem(item) {
                 if (item.Type === 'Movie') {
-                    return listTracks(item.Id).then(function (tracks) {
-                        return (tracks || []).map(function (t) {
+                    return cachedTracks(item.Id).then(function (tracks) {
+                        var chosen = selLang ? bestPerLanguage(tracks, selLang) : (tracks || []);
+                        return chosen.map(function (t) {
                             return { itemId: item.Id, index: t.Index, title: item.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) };
                         });
                     });
                 }
 
-                return episodesInScope(item.Id, false).then(function (episodes) {
+                return cachedEpisodes(item.Id).then(function (episodes) {
                     var tasks = [];
                     var seq = Promise.resolve();
                     episodes.forEach(function (ep) {
                         seq = seq.then(function () {
-                            return listTracks(ep.id).then(function (tracks) {
-                                var byLang = {};
-                                (tracks || []).forEach(function (t) {
-                                    var k = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';
-                                    var cur = byLang[k];
-                                    if (!cur || (!cur.IsExternal && t.IsExternal)) byLang[k] = t;
-                                });
-                                Object.keys(byLang).sort().forEach(function (k) {
-                                    var t = byLang[k];
+                            return cachedTracks(ep.id).then(function (tracks) {
+                                bestPerLanguage(tracks, selLang).forEach(function (t) {
                                     tasks.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
                                 });
                             });
@@ -643,7 +772,8 @@
                     $('ss-log').textContent = '';
                     $('ss-progress').style.width = '0%';
                 }
-                logLine('Building queue for ' + items.length + ' selected item' + (items.length === 1 ? '' : 's') + '\u2026');
+                logLine('Building queue for ' + items.length + ' picked file' + (items.length === 1 ? '' : 's')
+                    + (selLang ? ' (' + langLabel(selLang) + ' subtitles only)' : '') + '\u2026');
                 var done = 0;
 
                 var all = [];
@@ -655,8 +785,8 @@
                             done++;
                             logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
                                 + (it.Type === 'Series' ? ' (all episodes)' : ''));
-                            $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + done + '/' + items.length + ' media, '
-                                + all.length + ' track' + (all.length === 1 ? '' : 's') + ' so far';
+                            $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + done + '/' + items.length + ' file'
+                                + (items.length === 1 ? '' : 's') + ', ' + all.length + ' track' + (all.length === 1 ? '' : 's') + ' so far';
                         });
                     });
                 });
@@ -671,7 +801,7 @@
                         return;
                     }
 
-                    var label = 'Selected (' + items.length + ' item' + (items.length === 1 ? '' : 's') + ')';
+                    var label = 'Selection (' + items.length + ' file' + (items.length === 1 ? '' : 's') + ')';
                     $('ss-run-label').textContent = 'Sending ' + all.length + ' task(s) to the server queue\u2026';
 
                     return api('SubSync/Batch', {
@@ -770,6 +900,7 @@
                             // opens its options without losing the selection.
                             selectedIds = {};
                             selectedIds[id] = true;
+                            startLangScan();
                         }
                         selectItem(match);
                     });
@@ -1287,6 +1418,13 @@
                         e.preventDefault();
                         startSyncSelected();
                     }
+                });
+            }
+            var selLangSel = $('ss-sellang');
+            if (selLangSel) {
+                selLangSel.addEventListener('change', function () {
+                    selLang = selLangSel.value || '';
+                    refreshDataline();
                 });
             }
             var selBar = $('ss-selactions');

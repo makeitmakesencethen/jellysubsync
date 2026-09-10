@@ -11,12 +11,15 @@ All notable changes to this plugin are documented here. Versions follow
   individually (picks do not have to be adjacent). Right-click is the primary gesture;
   shift-click works too and no longer drag-selects the page text. The **Select all** link
   under the search box stays scoped to the current library + search view, and once
-  anything is picked a full-width action row appears with a proper **Sync N media**
-  button plus a count note that says series sync all their episodes. While the queue is
-  assembled the button reads "Working…" and the run line shows the progress
-  ("Reading subtitles… N/M media"), then the batch joins the server queue (behind a
-  running batch if one is streaming). Movies contribute their subtitle tracks; series
-  contribute one track per language per episode (external preferred).
+  anything is picked a full-width action row appears with a **Sync N files** button, a
+  **Subtitles** dropdown and a count note. The dropdown lists the languages actually
+  present in the picked files (with track counts), gathered by a background scan that
+  reads the same cached subtitle lists the queue build uses; pick one language to sync
+  only that, or leave it on *All languages*. Series always expand to all their episodes.
+  While the queue is assembled the button reads "Working…" and the run line shows
+  "Reading subtitles… N/M files", then the batch joins the server queue (behind a running
+  batch if one is streaming). Movies contribute their subtitle tracks; series contribute
+  one track per language per episode (external preferred).
 
 ## 1.0.10
 
