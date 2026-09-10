@@ -1204,13 +1204,14 @@ public class SubSyncService : IDisposable
     /// </summary>
     /// <param name="video">The video item.</param>
     /// <param name="target">The embedded subtitle stream to extract.</param>
-    /// <returns>The real container stream index and the 0-based subtitle ordinal.</returns>
+    /// <returns>The container index, subtitle ordinal and codecs in subtitle-stream order.</returns>
     /// <exception cref="InvalidOperationException">The stream could not be mapped.</exception>
-    private async Task<(int ContainerIndex, int SubtitleOrdinal)> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
+    private async Task<(int ContainerIndex, int SubtitleOrdinal, List<string> Codecs)> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
     {
         var ffmpegPath = ResolveFfmpegPath();
         var (_, stderr) = await RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
         var containerSubs = ParseProbeSubtitleIndexes(stderr);
+        var subtitleCodecs = ParseProbeSubtitleCodecs(stderr);
 
         var mediaSources = video.GetMediaSources(true);
         var jellyfinEmbedded = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
@@ -1226,7 +1227,7 @@ public class SubSyncService : IDisposable
 
         if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
         {
-            return (containerSubs[pos], pos);
+            return (containerSubs[pos], pos, subtitleCodecs);
         }
 
         throw new InvalidOperationException(
@@ -1236,10 +1237,93 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Parses ffmpeg's "-i" output for subtitle stream codecs, in stream order, so text
+    /// tracks can be told apart from image tracks ("Stream #0:4(eng): Subtitle: subrip").
+    /// </summary>
+    /// <param name="ffmpegOutput">ffmpeg "-i" output.</param>
+    /// <returns>Codecs in subtitle-stream order (index 0 = first subtitle stream).</returns>
+    public static List<string> ParseProbeSubtitleCodecs(string ffmpegOutput)
+    {
+        var result = new List<string>();
+        foreach (var line in ffmpegOutput.Split('\n'))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(line, @"Stream\s+#0:\d+[^:]*:\s*Subtitle:\s*(\S+)");
+            if (match.Success)
+            {
+                result.Add(match.Groups[1].Value.Trim());
+            }
+        }
+
+        return result;
+    }
+
+    /// <summary>
+    /// Chooses which stream of the media file ffsubsync should derive its speech signal
+    /// from, for an embedded subtitle being synced.
+    ///
+    /// ffsubsync's default detector (<c>subs_then_*</c>) prefers an embedded text subtitle
+    /// stream as the speech signal — cheap and accurate — but if the track being synced is
+    /// itself an embedded text stream of the same file, "the file's subs" and "the subtitle
+    /// we are fixing" are the same track, so the alignment can only return zero and the
+    /// subtitle is reported as already in sync. Measured: a track 6 s out of sync came back
+    /// unchanged (offset 0.000), while the same run with the reference pointed at the file's
+    /// other text track applied exactly -6.000 s.
+    ///
+    /// So: pick another *text* subtitle stream when the file has one, otherwise fall back to
+    /// the audio stream.
+    /// </summary>
+    /// <param name="isEmbedded">Whether the subtitle being synced came from this file.</param>
+    /// <param name="subtitleCodecs">Codecs in subtitle-stream order.</param>
+    /// <param name="targetOrdinal">0-based position of the subtitle being synced.</param>
+    /// <returns>An ffmpeg stream specifier ("s:1", "a:0") or null to leave the default.</returns>
+    public static string? SelectReferenceStream(bool isEmbedded, IReadOnlyList<string> subtitleCodecs, int targetOrdinal)
+    {
+        if (!isEmbedded)
+        {
+            // External sidecar: the file's embedded text track is a legitimate reference.
+            return null;
+        }
+
+        for (var position = 0; position < subtitleCodecs.Count; position++)
+        {
+            if (position == targetOrdinal)
+            {
+                continue;
+            }
+
+            if (IsTextSubtitleCodec(subtitleCodecs[position]))
+            {
+                return "s:" + position.ToString(CultureInfo.InvariantCulture);
+            }
+        }
+
+        // Only itself (or image tracks): force the audio, otherwise the sync is a no-op.
+        return "a:0";
+    }
+
+    private static bool IsTextSubtitleCodec(string codec)
+    {
+        var value = (codec ?? string.Empty).ToLowerInvariant();
+        if (LanguageSupport.IsImageBased(value))
+        {
+            return false;
+        }
+
+        return value.Contains("subrip")
+            || value.Contains("srt")
+            || value.Contains("ass")
+            || value.Contains("ssa")
+            || value.Contains("webvtt")
+            || value.Contains("mov_text")
+            || value.Contains("ttml")
+            || value.Contains("text");
+    }
+
+    /// <summary>
     /// Parses ffmpeg's "-i" output for the container indexes of its subtitle
     /// streams ("Stream #0:4(eng): Subtitle: ...").
     /// </summary>
-    internal static List<int> ParseProbeSubtitleIndexes(string ffmpegOutput)
+    public static List<int> ParseProbeSubtitleIndexes(string ffmpegOutput)
     {
         var result = new List<int>();
         foreach (var line in ffmpegOutput.Split('\n'))
@@ -1361,6 +1445,10 @@ public class SubSyncService : IDisposable
         var tempDir = Path.Combine(Plugin.Instance?.TempPath ?? Path.GetTempPath(), job.Id);
         Directory.CreateDirectory(tempDir);
 
+        // Stream of the media file ffsubsync should take its speech signal from. Embedded
+        // inputs set this so the subtitle being fixed is not used as its own reference.
+        string? referenceStream = null;
+
         // Paths for the safe atomic-replace workflow
         string? backupPath = null;   // .bak of original subtitle file (replace mode only)
         string? tempOutput = null;   // ffsubsync output in temp dir
@@ -1416,7 +1504,15 @@ public class SubSyncService : IDisposable
                 // stream count on files mixing embedded + external tracks), so
                 // the real stream is located by probing the file with ffmpeg
                 // and matching by position among embedded subtitle streams.
-                var (containerIndex, subtitleStreamOrdinal) = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
+                var (containerIndex, subtitleStreamOrdinal, subtitleCodecs) = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
+
+                // Keep ffsubsync from using the very track we are fixing as its speech
+                // signal (see SelectReferenceStream) — that would report every embedded
+                // subtitle as already in sync.
+                referenceStream = SelectReferenceStream(true, subtitleCodecs, subtitleStreamOrdinal);
+                _logger.LogInformation(
+                    "Embedded sync of {Video}: deriving the speech signal from '{Reference}'",
+                    videoPath, referenceStream);
 
                 // Matroska carries a cue index, so a text subtitle can be read straight
                 // from its clusters (kilobytes) instead of demuxing the whole file
@@ -1466,10 +1562,18 @@ public class SubSyncService : IDisposable
 
             if (IsSpeechCachingMode(mode))
             {
-                var engineVersion = string.IsNullOrWhiteSpace(ResolveFfSubSyncPath())
-                    ? "ffsubsync"
-                    : ResolveFfSubSyncPath();
-                speechKey = SpeechCache.KeyFor(videoPath, config.VadMethod ?? "subs_then_webrtc", engineVersion);
+                // Identity of everything that shapes the speech signal: the binary in use,
+                // the bundled engine version and this plugin's own version. A path alone is
+                // not enough — an upgraded bundled binary keeps its path.
+                var engineIdentity = string.Join(
+                    "|",
+                    ResolveFfSubSyncPath(),
+                    BundledFfSubSyncVersion,
+                    typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+                speechKey = SpeechCache.KeyFor(
+                    videoPath,
+                    (config.VadMethod ?? "subs_then_webrtc") + "|ref=" + (referenceStream ?? "auto"),
+                    engineIdentity);
                 var cached = SpeechCache.TryGet(speechKey);
                 if (cached is not null)
                 {
@@ -1486,7 +1590,7 @@ public class SubSyncService : IDisposable
                 }
             }
 
-            var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech);
+            var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
 
             _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
 
@@ -1516,7 +1620,7 @@ public class SubSyncService : IDisposable
 
                 referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
                 serializeSpeech = true;
-                args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech);
+                args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
                 exitCode = await RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, args, tempDir,
                     line => ParseFfSubSyncStderr(line, job),
@@ -1868,7 +1972,8 @@ public class SubSyncService : IDisposable
         string subtitleInput,
         string subtitleOutput,
         string? logDir = null,
-        bool serializeSpeech = false)
+        bool serializeSpeech = false,
+        string? referenceStream = null)
     {
         // Validate config values to prevent argument injection
         var vadMethod = AllowedVadMethods.Contains(config.VadMethod)
@@ -1895,6 +2000,12 @@ public class SubSyncService : IDisposable
         if (config.UseGoldenSectionSearch)
         {
             args.Add("--gss");
+        }
+
+        if (!string.IsNullOrWhiteSpace(referenceStream))
+        {
+            args.Add("--reference-stream");
+            args.Add(referenceStream);
         }
 
         if (serializeSpeech)

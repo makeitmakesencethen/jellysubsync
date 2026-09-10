@@ -194,3 +194,30 @@ Verified (`MkvSubtitleExtractor` vs ffmpeg on real files): subrip and ASS tracks
 cues, identical text, ≤0.023 s timing difference (the extractor's timestamps equal the
 muxed source; ffmpeg re-times slightly); and a 3-track file where ordinals 0/1/2 returned
 English/ASS-Swedish/German exactly as `ffmpeg -map 0:s:N` did.
+
+
+## Never let an embedded subtitle be its own sync reference
+
+ffsubsync's default detector family (`subs_then_webrtc` and friends) prefers an *embedded
+text subtitle stream of the reference file* as the speech signal — documented upstream as
+cheaper and often more accurate than a VAD over the audio. That is exactly wrong when the
+subtitle being synced is itself an embedded track of that file: reference and input are the
+same timings, so the best alignment is zero and the run reports success without changing
+anything.
+
+`SubSyncService.SelectReferenceStream` handles it: for embedded inputs it returns the first
+*text* subtitle stream that is not the one being synced (`--reference-stream s:N`), and
+`a:0` when the file has no other text track. External sidecars keep the default, because
+then the file's embedded track is a legitimate (and cheap) reference.
+
+Measured with ffsubsync 0.5.1 on a file holding a 6-second-out-of-sync text track plus one
+correct track:
+
+| reference choice | result |
+| --- | --- |
+| default (no `--reference-stream`) | offset 0.000 — not corrected |
+| `--reference-stream s:1` (other text track) | offset −6.000 — corrected exactly |
+| `--reference-stream a:0` (audio) | audio path used (synthetic tone audio → not a valid accuracy check) |
+
+The choice changes the derived speech signal, so `(vad method, reference stream)` is part of
+the `SpeechCache` key.

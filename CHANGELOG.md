@@ -51,6 +51,14 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Fixed: **embedded subtitles could be aligned against themselves.** ffsubsync's default
+  detector (`subs_then_*`) prefers a file's embedded text subtitle as the speech signal —
+  but when the subtitle being synced *is* that embedded track, the alignment can only
+  return zero, so the sync silently did nothing ("already in sync"). Measured: a track 6 s
+  out of sync came back unchanged (offset 0.000); the same file with the reference pointed
+  at its other text track was corrected by exactly −6.000 s. Embedded syncs now pass
+  `--reference-stream s:N` for another text track when the file has one, and `a:0` (audio)
+  when the track is alone — the speech-signal choice is also part of the speech-cache key.
 - Changed: **Cancel now reports and escalates.** Pressing Cancel drops queued tasks and
   then tells you what happened: how many tasks were dropped and whether any run is still
   working (a running ffsubsync cannot be interrupted). While processes are still alive the
