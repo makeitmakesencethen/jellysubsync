@@ -1,3 +1,4 @@
+using System;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.SubSync.Configuration;
@@ -7,6 +8,13 @@ namespace Jellyfin.Plugin.SubSync.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
+    /// <summary>
+    /// Gets or sets the subtitle languages that may be synced. Empty = every language.
+    /// Tracks in other languages are not listed and not synced, and tracks with no
+    /// language at all are skipped while a filter is set (they cannot be matched).
+    /// </summary>
+    public string[] SyncLanguages { get; set; } = Array.Empty<string>();
+
     /// <summary>
     /// Gets or sets the path to the ffsubsync executable.
     /// </summary>

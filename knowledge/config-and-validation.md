@@ -117,3 +117,25 @@ The cleanup timer fires every 30 minutes. Actual eviction behavior (from `Cleanu
 
 Jobs live only in memory (`_jobs`), so everything is lost on a Jellyfin restart; the
 cleanup rules only bound the lifetime of an otherwise unbounded in-memory list.
+
+
+## SyncLanguages (global subtitle language filter)
+
+`PluginConfiguration.SyncLanguages` (`string[]`, default empty) lists the languages that
+may be synced. It is enforced in one place — `SubSyncService.ListSubtitles()` — which both
+the UI (library browser, detail page, language dropdown) and the scheduled sweep read, so
+a filtered-out track is never listed or queued. `SubSyncService` repeats the check when a
+job actually starts as defence in depth against stale clients.
+
+Semantics (see `Services/LanguageSupport.cs`):
+
+- empty array → every text subtitle language is allowed
+- comparison is done on normalised codes: `sv` / `swe` / `sv-SE` / `Swedish` are the same
+  language, as are `chi` / `zh` / `zho` / `Chinese`
+- tracks with no language at all (`und`) are skipped while a filter is set, because they
+  cannot be matched by language
+- image-based codecs (`pgs`, `dvd`, `vob`, `dvb`, `xsub`, `hdmv`, `bitmap`) are removed
+  from the listing for every configuration — they can never be aligned
+
+Both the dashboard Settings tab (chip list with add/remove) and the plugin config page
+(comma-separated field) write this setting.

@@ -23,6 +23,17 @@ All notable changes to this plugin are documented here. Versions follow
   "Reading subtitles… N/M files", then the batch joins the server queue (behind a running
   batch if one is streaming). Movies contribute their subtitle tracks; series contribute
   one track per language per episode (external preferred).
+- Changed: image-based subtitle tracks (Blu-ray **PGS**, DVD **VobSub**, **DVB**, **XSUB**)
+  are no longer listed anywhere — library rows, detail-page track lists, language
+  dropdowns and the scheduled sweep skip them, so they can't be picked and fail. Only
+  alignable text subtitles are offered.
+- Added: a **global language filter**. In the dashboard **Settings** tab (own section,
+  "Only sync subtitles in these languages") or the plugin config page (comma-separated),
+  list the languages you want and everything else is hidden from every list and skipped by
+  the sweep. Codes and names are interchangeable — `sv`, `swe`, `sv-SE`, `Swedish` all
+  match the same language, as do `chi`/`zh`/`zho`/`Chinese`. Empty list = sync every
+  language; while a filter is set, text tracks with no language at all are skipped because
+  they can't be matched.
 - Added: **shift+right-click** a row to select the whole range from the anchor (the last
   plain-clicked row) — the previous range behaviour, now opt-in so single-row right-click
   picking stays exact.

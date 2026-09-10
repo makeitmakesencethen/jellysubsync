@@ -538,9 +538,16 @@ public class SubSyncService : IDisposable
         }
 
         var source = mediaSources[0];
+        var languageFilter = Plugin.Instance?.Configuration?.SyncLanguages ?? Array.Empty<string>();
 
+        // Image-based tracks (PGS, VobSub, DVB, XSUB) can never be aligned — they are
+        // left out entirely so they cannot be picked and fail. Tracks outside the
+        // configured language filter are hidden too, so the UI only ever offers work
+        // that can actually succeed.
         return source.MediaStreams
             .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
+            .Where(s => !LanguageSupport.IsImageBased(s.Codec))
+            .Where(s => LanguageSupport.MatchesFilter(s.Language, languageFilter))
             .Select(s =>
             {
                 return new SubtitleInfo
@@ -1191,6 +1198,16 @@ public class SubSyncService : IDisposable
             // Step 1: Prepare subtitle input
             string subtitleInputPath;
 
+            // Language filter applies to external files and embedded tracks alike;
+            // ListSubtitles already hides what the filter excludes, so reaching this
+            // point means a stale client queued the track.
+            var allowedLanguages = Plugin.Instance?.Configuration?.SyncLanguages ?? Array.Empty<string>();
+            if (!LanguageSupport.MatchesFilter(subtitleStream.Language, allowedLanguages))
+            {
+                throw new InvalidOperationException(
+                    $"This subtitle track is in {LanguageSupport.Label(subtitleStream.Language)}, which the configured language filter ({LanguageSupport.Describe(allowedLanguages)}) excludes.");
+            }
+
             if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
             {
                 subtitleInputPath = subtitleStream.Path;
@@ -1200,9 +1217,7 @@ public class SubSyncService : IDisposable
                 // Only text subtitles can be aligned — image-based tracks (PGS,
                 // DVD/VobSub, DVB, XSUB) cannot be converted to SRT text and made
                 // ffmpeg fail with a cryptic exit code (e.g. 234) at extraction.
-                var codec = (subtitleStream.Codec ?? string.Empty).ToLowerInvariant();
-                if (codec.Contains("pgs") || codec.Contains("dvd") || codec.Contains("xsub")
-                    || codec.Contains("dvb") || codec.Contains("vob") || codec.Contains("bitmap"))
+                if (LanguageSupport.IsImageBased(subtitleStream.Codec))
                 {
                     throw new InvalidOperationException(
                         "This embedded subtitle track is image-based (PGS/DVD/VobSub) and can't be synchronized — only text subtitles can be aligned.");

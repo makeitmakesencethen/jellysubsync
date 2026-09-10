@@ -26,6 +26,8 @@
             .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
             .ss-selnote { font-size: .82rem; opacity: .7; }
             .ss-selchips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+            .ss-langchips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
+            .ss-langchips a { display: inline-flex; align-items: center; gap: 5px; font-size: .82rem; text-decoration: none; padding: 4px 10px; border-radius: 12px; background: rgba(120,170,255,.16); color: inherit; }
             .ss-selchips a { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; text-decoration: none; padding: 3px 8px; border-radius: 10px; background: rgba(120,170,255,.16); color: inherit; }
             .ss-selactions .emby-select { min-height: 40px; }
             .ss-row { user-select: none; -webkit-user-select: none; }
@@ -158,6 +160,25 @@
                                 <div class="ss-field">
                                     <input is="emby-input" type="text" id="ss-encoding" label="Output encoding" placeholder="utf-8" />
                                     <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
+                                </div>
+
+                                <h3 class="ss-subhead">Subtitle language filter</h3>
+                                <div class="ss-field">
+                                    <label class="selectLabel" for="ss-langadd">Only sync subtitles in these languages</label>
+                                    <div class="fieldDescription">
+                                        Leave empty to sync every language. Add one entry per language — anything else is never
+                                        listed and never synced. Image-based tracks (Blu-ray PGS, DVD VobSub, DVB, XSUB) are
+                                        excluded from the lists entirely, since they cannot be aligned. While a filter is set,
+                                        text tracks with no language at all are skipped too, because they cannot be matched.
+                                    </div>
+                                    <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:8px;">
+                                        <input is="emby-input" type="text" id="ss-langadd" list="ss-langoptions"
+                                               placeholder="Add a language (Swedish, swe, sv…)" style="max-width:340px;" />
+                                        <button is="emby-button" type="button" id="ss-langaddbtn" class="raised"><span>Add language</span></button>
+                                        <datalist id="ss-langoptions"></datalist>
+                                    </div>
+                                    <div class="ss-langchips" id="ss-langchips"></div>
+                                    <div class="fieldDescription" id="ss-langhint"></div>
                                 </div>
                                 <div class="ss-field">
                                     <div class="checkboxContainer checkboxContainer-withDescription">
@@ -384,6 +405,8 @@
                     $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
+                    syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
+                    renderLangChips();
                 });
             }
 
@@ -398,12 +421,60 @@
                     c.FfSubSyncPath = $('ss-ffsubsync').value || 'ffsubsync';
                     c.SyncModeCopy = $('ss-mode').value === 'copy';
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
+                    c.SyncLanguages = syncLanguages.slice();
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';
                 }).catch(function (e) {
                     $('ss-save-status').textContent = 'Save failed: ' + (e.message || e);
                 });
+            }
+
+            // ---- global language filter (Settings tab) ----------------------
+            var syncLanguages = [];
+
+            function renderLangChips() {
+                var box = $('ss-langchips');
+                if (!box) return;
+                var html = '';
+                syncLanguages.forEach(function (code) {
+                    html += '<a href="#" data-ss-globallang="' + esc(code) + '" title="Remove this language">'
+                        + esc(langLabel(code)) + ' \u2715</a>';
+                });
+                box.innerHTML = html;
+
+                var hint = $('ss-langhint');
+                if (hint) {
+                    hint.textContent = syncLanguages.length
+                        ? 'Currently syncing only: ' + syncLanguages.map(langLabel).join(', ')
+                            + '. Everything else is hidden from the library lists and the scheduled sweep.'
+                        : 'No filter — every text subtitle language is synced.';
+                }
+            }
+
+            function addGlobalLanguage(raw) {
+                var value = (raw || '').trim();
+                if (!value) return;
+                var code = normLang({ Language: value });
+                if (syncLanguages.indexOf(code) === -1) {
+                    syncLanguages.push(code);
+                    renderLangChips();
+                }
+                var input = $('ss-langadd');
+                if (input) input.value = '';
+            }
+
+            function buildLangDatalist() {
+                var dl = $('ss-langoptions');
+                if (!dl) return;
+                var codes = Object.keys(LANG_NAMES2).sort(function (a, b) {
+                    return langLabel(a).localeCompare(langLabel(b));
+                });
+                var html = '';
+                codes.forEach(function (c) {
+                    html += '<option value="' + esc(langLabel(c)) + '"></option>';
+                });
+                dl.innerHTML = html;
             }
 
             function refreshStatus() {
@@ -510,6 +581,10 @@
                     html += ' <span style="opacity:.6;">\u00b7 right-click a row to pick it, shift+right-click for a range</span>';
                 } else {
                     html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked</span>';
+                }
+                if (syncLanguages.length) {
+                    html += ' <span style="opacity:.6;">\u00b7 language filter: '
+                        + esc(syncLanguages.map(langLabel).join(', ')) + '</span>';
                 }
 
                 dl.innerHTML = html;
@@ -1518,6 +1593,35 @@
                     }
                 });
             }
+            var globalLangInput = $('ss-langadd');
+            if (globalLangInput) {
+                globalLangInput.addEventListener('keydown', function (e) {
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        addGlobalLanguage(globalLangInput.value);
+                    }
+                });
+            }
+            var globalLangBtn = $('ss-langaddbtn');
+            if (globalLangBtn) {
+                globalLangBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    addGlobalLanguage($('ss-langadd').value);
+                });
+            }
+            var globalLangChips = $('ss-langchips');
+            if (globalLangChips) {
+                globalLangChips.addEventListener('click', function (e) {
+                    var chip = e.target.closest('[data-ss-globallang]');
+                    if (!chip) return;
+                    e.preventDefault();
+                    var code = chip.getAttribute('data-ss-globallang');
+                    syncLanguages = syncLanguages.filter(function (c) { return c !== code; });
+                    renderLangChips();
+                });
+            }
+            buildLangDatalist();
+
             var selLangSel = $('ss-sellang');
             if (selLangSel) {
                 selLangSel.addEventListener('change', function () {
