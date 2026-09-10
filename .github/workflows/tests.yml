@@ -1,0 +1,33 @@
+name: tests
+
+# Runs the regression checks on every push and pull request, so a change that reintroduces an old
+# bug fails visibly instead of reaching a beta build. The checks are self-contained: synthetic
+# fixtures, no Jellyfin instance, no ffsubsync binary.
+#
+# Kept separate from beta.yml on purpose: this one must be able to fail without publishing
+# anything, and it must run on branches that never publish.
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Run regression checks
+        run: python3 tests/run_checks.py

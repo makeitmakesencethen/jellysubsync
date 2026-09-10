@@ -13,7 +13,11 @@ dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj -c Release
 # Output: Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll
 ```
 
-No test runner exists. Deploy via the release zip (DLL + meta.json + bundled
+Tests: `python3 tests/run_checks.py` (regression checks for extraction cost, scheduling, language
+matching, configuration and progress accounting; needs only the .NET 9 SDK and python3, fixtures
+are synthetic). See [tests/README.md](tests/README.md).
+
+Deploy via the release zip (DLL + meta.json + bundled
 `ffsubsync/linux-x64/`), which is served by the GitHub Pages plugin catalog.
 
 **Workflow for changes and releases: see [CONTRIBUTING.md](CONTRIBUTING.md)** — `master`

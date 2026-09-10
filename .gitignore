@@ -14,3 +14,6 @@ core.*
 
 # Scratch scripts: patch helpers must never be committed
 .tmp_*
+
+# Test scratch space (generated harness project, synthetic fixtures)
+.tests-work/
