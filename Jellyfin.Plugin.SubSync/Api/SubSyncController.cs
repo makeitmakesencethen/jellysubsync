@@ -245,6 +245,9 @@ public class SubSyncController : ControllerBase
             CreatedAtUtc = jobs.Min(j => j.CreatedAtUtc),
             FinishedAtUtc = jobs.Max(j => j.FinishedAtUtc),
             Mode = Services.SyncJobMode.Normalize(jobs[0].Mode),
+            WorkerLimit = Services.SyncJobMode.IsParallel(Services.SyncJobMode.Normalize(jobs[0].Mode))
+                ? Math.Clamp(_syncService.EffectiveWorkerLimit, 1, 16)
+                : 1,
             RunningTasks = jobs
                 .Where(j => j.Status == Services.SyncJobStatus.Running)
                 .OrderBy(j => j.BatchIndex)
@@ -562,6 +565,13 @@ public class BatchView
     /// several media files at once, so the UI shows one row per running task.
     /// </summary>
     public List<BatchTask> RunningTasks { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets how many tasks this batch may run at once (the configured worker count for
+    /// parallel strategies). Reported next to the running count so a lower-than-expected
+    /// parallelism can be traced to the setting instead of guessed at.
+    /// </summary>
+    public int WorkerLimit { get; set; }
 
     /// <summary>Gets or sets the scope label.</summary>
     public string Label { get; set; } = string.Empty;

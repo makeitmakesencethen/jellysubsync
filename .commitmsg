@@ -1,26 +1,15 @@
-Use CueRelativePosition to extract a subtitle block in one read
+Diagnostics for "how wide is this batch actually running?"
 
-Real remuxes record, for every cue point, the byte offset of the referenced block inside its
-cluster: the 8.2 GB remux in the benchmark has it on 1873 of 1873 cue points, written by both
-ffmpeg and mkvmerge. The reader ignored it and walked the cluster's blocks instead - a remux
-cluster holds ~150 of them, mostly audio frames - so an episode with 344 subtitle cue points
-cost tens of thousands of small reads. That is why extraction was still slow on a real library
-after the earlier index work, while looking fine on synthetic files.
+The wave selector is provably correct - a 20-episode batch with two subtitles per episode on a
+single disk selects four jobs, and eight when eight workers are configured (harness covers both)
+- so a batch that runs two at a time is either configured that way or held fewer eligible tasks
+than expected. Both are now visible instead of guessed:
 
-Measured on the same files with identical output: real 8.2 GB remux 127 reads / 7.0 MB ->
-28 reads / 0.1 MB (27 ms), and a 1,400-subtitle fixture 1,421 reads / 91.8 MB -> 1,413 reads /
-5.8 MB. The output is byte-identical to ffmpeg's own extraction of the same track. Clusters
-that lack the offset, or whose shape does not match, still take the walking path.
+- the batch view reports the effective worker limit, and the run line shows "2/4 workers"
+  (running / limit) whenever the batch is parallel and has work left;
+- every wave logs its width: "Wave: starting 2 job(s) (worker limit 4, mode ultimate, 37 still
+  queued) for batch ...".
 
-Also fixes a time offset the indexed path introduced: CueTime is the seek point's timestamp,
-which for the referenced block is already its own time, so adding the block's relative
-timecode double-counted it (+51 ms / +459 ms against ffmpeg). The cluster Timecode element is
-the base now, as in the walking path.
+Harness: 90 checks, ALL PASS, including the 20-episode cases.
 
-Extraction progress reports its cost while it runs (reading subtitle 80/344 (1.2 MB, 96
-reads)) so a slow read is distinguishable from a slow disk.
-
-Harness: 85 checks, ALL PASS, including that the indexed path reads less than the walk on
-identical fixtures and that block offsets are actually used.
-
-Version 1.1.0.25.
+Version 1.1.0.26.

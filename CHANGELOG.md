@@ -191,7 +191,19 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.25]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.26]
+
+### Added
+- **Visible batch width.** The batch view now reports the effective worker limit and the run
+  line shows `2/4 workers` (running / limit) whenever a parallel batch still has work left, and
+  every wave logs its own width: `Wave: starting 2 job(s) (worker limit 4, mode ultimate, 37
+  still queued)`. Asked "why did a 20-episode series only run two at a time?" the scheduler had
+  no answer to give; now the setting and the wave size are both stated.
+
+  The selector itself was verified against that exact shape: 20 episodes, two subtitles each,
+  one disk — it selects four jobs, and eight when eight workers are configured.
+
+## [1.1.0.25]
 
 ### Fixed
 - **Extraction now uses `CueRelativePosition`, which is why it was still slow.** Real remuxes

@@ -1239,6 +1239,13 @@ public class SubSyncService : IDisposable
     /// <summary>Worker count for parallel mode, clamped to a sane range.</summary>
     private static int NormalizeWorkers(int workers) => workers < 1 ? 1 : (workers > 8 ? 8 : workers);
 
+    /// <summary>
+    /// Gets how many jobs may run at once with the current settings. Reported to the UI so the
+    /// effective parallelism is visible instead of inferred.
+    /// </summary>
+    public int EffectiveWorkerLimit =>
+        NormalizeWorkers(Plugin.Instance?.Configuration?.ParallelWorkers ?? DefaultParallelWorkers);
+
     /// <summary>Default worker count for parallel mode.</summary>
     public const int DefaultParallelWorkers = 4;
 
@@ -1302,6 +1309,22 @@ public class SubSyncService : IDisposable
                 await _wakePump.WaitAsync().ConfigureAwait(false);
                 continue;
             }
+
+            // Every wave states its own width, so "why only two at a time?" is answered by the
+            // log instead of by reasoning about the scheduler.
+            int stillQueued;
+            lock (_queueLock)
+            {
+                stillQueued = _runOrder.Count(j => j.Status == SyncJobStatus.Queued);
+            }
+
+            _logger.LogInformation(
+                "Wave: starting {Count} job(s) (worker limit {Limit}, mode {Mode}, {Queued} still queued) for batch {Batch}",
+                jobs.Count,
+                EffectiveWorkerLimit,
+                NormalizeMode(jobs[0].Mode),
+                stillQueued,
+                jobs[0].BatchId ?? "(standalone)");
 
             var runOne = async Task (SyncJob job) =>
             {

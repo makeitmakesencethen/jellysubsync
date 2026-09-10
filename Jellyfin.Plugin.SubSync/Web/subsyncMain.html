@@ -1630,7 +1630,10 @@
                         var bits = [];
                         var badge = modeBadge(view.Mode || view.mode);
                         if (badge) bits.push(badge);
-                        if (workersNow > 1) bits.push(workersNow + ' workers');
+                        var workerLimit = view.WorkerLimit || view.workerLimit || 0;
+                        if (workersNow > 1 || (workerLimit > 1 && total > workersNow)) {
+                            bits.push(workerLimit > 0 ? workersNow + '/' + workerLimit + ' workers' : workersNow + ' workers');
+                        }
                         if (current) {
                             var cTitle = current.Title || current.title || '';
                             var phase = current.Phase || current.phase || '';
