@@ -2,7 +2,7 @@
 
 Automatically synchronizes subtitle timing with video audio using [ffsubsync](https://github.com/smacke/ffsubsync).
 
-Public fork of [camalolo/jellysubsync](https://github.com/camalolo/jellysubsync) (GPL-2.0), rebuilt for zero-setup installs with a server-side batch queue.
+Originally forked from [camalolo/jellysubsync](https://github.com/camalolo/jellysubsync) (GPL-2.0) and since rebuilt into a standalone project — see [NOTICE.md](NOTICE.md) for full credits and bundled components, and [CHANGELOG.md](CHANGELOG.md) for what changed when.
 
 ## What you get
 

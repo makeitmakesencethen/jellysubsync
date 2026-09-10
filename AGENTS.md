@@ -16,6 +16,10 @@ dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj -c Release
 No test runner exists. Deploy via the release zip (DLL + meta.json + bundled
 `ffsubsync/linux-x64/`), which is served by the GitHub Pages plugin catalog.
 
+**Workflow for changes and releases: see [CONTRIBUTING.md](CONTRIBUTING.md)** — `master`
+is the release branch, work happens on branches, releases are batched and never rewrite
+published tags.
+
 ## Architecture
 
 ```
