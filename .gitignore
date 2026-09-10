@@ -11,3 +11,6 @@ staging/
 core
 core.*
 *.core
+
+# Scratch scripts: patch helpers must never be committed
+.tmp_*
