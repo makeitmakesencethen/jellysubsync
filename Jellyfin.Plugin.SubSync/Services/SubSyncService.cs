@@ -105,6 +105,10 @@ public class SyncJob
 
     /// <summary>Gets or sets the human display label (subtitle/track title).</summary>
     public string? Label { get; set; }
+
+    /// <summary>Gets or sets the multi-subtitle mode this job runs in
+    /// (normal | parallel | fast).</summary>
+    public string Mode { get; set; } = "normal";
 }
 
 /// <summary>
@@ -569,12 +573,13 @@ public class SubSyncService : IDisposable
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <param name="subtitleIndex">The subtitle stream index within the first media source.</param>
+    /// <param name="mode">Multi-subtitle mode (normal | parallel | fast).</param>
     /// <returns>The created sync job.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the video file is not found.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the subtitle stream is not found or ffsubsync is unavailable.</exception>
-    public SyncJob StartSync(Guid itemId, int subtitleIndex)
+    public SyncJob StartSync(Guid itemId, int subtitleIndex, string? mode = null)
     {
-        return EnqueueSync(itemId, subtitleIndex, label: null, batchId: null, batchLabel: null, batchIndex: -1);
+        return EnqueueSync(itemId, subtitleIndex, label: null, batchId: null, batchLabel: null, batchIndex: -1, mode: mode);
     }
 
     /// <summary>
@@ -588,10 +593,11 @@ public class SubSyncService : IDisposable
     /// <param name="batchId">Batch this job belongs to, if any.</param>
     /// <param name="batchLabel">Batch scope label, if any.</param>
     /// <param name="batchIndex">0-based position inside the batch.</param>
+    /// <param name="mode">Multi-subtitle mode (normal | parallel | fast).</param>
     /// <returns>The queued sync job.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the video file is not found.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the subtitle stream is not found.</exception>
-    public SyncJob EnqueueSync(Guid itemId, int subtitleIndex, string? label, string? batchId, string? batchLabel, int batchIndex)
+    public SyncJob EnqueueSync(Guid itemId, int subtitleIndex, string? label, string? batchId, string? batchLabel, int batchIndex, string? mode = null)
     {
         if (subtitleIndex < 0)
         {
@@ -643,7 +649,8 @@ public class SubSyncService : IDisposable
             BatchId = batchId,
             BatchLabel = batchLabel,
             BatchIndex = batchIndex,
-            Label = label
+            Label = label,
+            Mode = NormalizeMode(mode ?? Plugin.Instance?.Configuration?.MultiSyncMode)
         };
 
         _jobs[job.Id] = job;
@@ -664,10 +671,12 @@ public class SubSyncService : IDisposable
     /// </summary>
     /// <param name="label">Scope label shown in history (e.g. "Series · Season 2").</param>
     /// <param name="tasks">The task list (item, subtitle index, display title).</param>
+    /// <param name="mode">Multi-subtitle mode for the whole batch (normal | parallel | fast).</param>
     /// <returns>The created batch jobs (includes pre-failed entries).</returns>
-    public IReadOnlyList<SyncJob> CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks)
+    public IReadOnlyList<SyncJob> CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks, string? mode = null)
     {
         var batchId = Guid.NewGuid().ToString("N");
+        var resolvedMode = NormalizeMode(mode ?? Plugin.Instance?.Configuration?.MultiSyncMode);
         var jobs = new List<SyncJob>(tasks.Count);
 
         for (var i = 0; i < tasks.Count; i++)
@@ -675,7 +684,7 @@ public class SubSyncService : IDisposable
             var task = tasks[i];
             try
             {
-                jobs.Add(EnqueueSync(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i));
+                jobs.Add(EnqueueSync(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode));
             }
             catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or ArgumentException)
             {
@@ -688,6 +697,7 @@ public class SubSyncService : IDisposable
                     BatchLabel = label,
                     BatchIndex = i,
                     Label = task.Title,
+                    Mode = resolvedMode,
                     Status = SyncJobStatus.Failed,
                     Error = ex.Message,
                     FinishedAtUtc = DateTime.UtcNow
@@ -743,6 +753,27 @@ public class SubSyncService : IDisposable
             .OrderByDescending(g => g.CreatedAt);
     }
 
+    /// <summary>Allowed values for <see cref="Configuration.PluginConfiguration.MultiSyncMode"/>.</summary>
+    private static readonly HashSet<string> AllowedMultiSyncModes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "normal", "parallel", "fast"
+    };
+
+    /// <summary>Clamps a mode string to the supported set.</summary>
+    private static string NormalizeMode(string? mode)
+    {
+        if (string.IsNullOrWhiteSpace(mode))
+        {
+            return "normal";
+        }
+
+        var value = mode.Trim().ToLowerInvariant();
+        return AllowedMultiSyncModes.Contains(value) ? value : "normal";
+    }
+
+    /// <summary>Worker count for parallel mode, clamped to a sane range.</summary>
+    private static int NormalizeWorkers(int workers) => workers < 1 ? 1 : (workers > 8 ? 8 : workers);
+
     private void WakePump()
     {
         lock (_queueLock)
@@ -760,13 +791,35 @@ public class SubSyncService : IDisposable
     {
         while (!_disposing)
         {
-            SyncJob? job;
+            List<SyncJob> jobs;
             lock (_queueLock)
             {
-                job = _runOrder.FirstOrDefault(j => j.Status == SyncJobStatus.Queued);
+                // The head of the queue decides how much runs at once: normal/fast run
+                // one job at a time, parallel runs up to ParallelWorkers jobs of the same
+                // batch together. Batches never interleave, so FIFO order still holds.
+                var head = _runOrder.FirstOrDefault(j => j.Status == SyncJobStatus.Queued);
+                if (head is null)
+                {
+                    jobs = new List<SyncJob>();
+                }
+                else
+                {
+                    var config = Plugin.Instance?.Configuration;
+                    var headMode = NormalizeMode(head.Mode);
+                    var limit = headMode == "parallel"
+                        ? NormalizeWorkers(config?.ParallelWorkers ?? 2)
+                        : 1;
+
+                    jobs = _runOrder
+                        .Where(j => j.Status == SyncJobStatus.Queued)
+                        .Where(j => NormalizeMode(j.Mode) == headMode)
+                        .Where(j => head.BatchId is null ? j.BatchId is null : j.BatchId == head.BatchId)
+                        .Take(limit)
+                        .ToList();
+                }
             }
 
-            if (job is null)
+            if (jobs.Count == 0)
             {
                 if (_disposing)
                 {
@@ -777,22 +830,38 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
-            _logger.LogInformation("Pump starting job {JobId} (batch {Batch})", job.Id, job.BatchId ?? "none");
-            try
+            var runOne = async Task (SyncJob job) =>
             {
-                await RunSyncJobWithContext(job).ConfigureAwait(false);
-            }
-            catch (Exception ex)
+                try
+                {
+                    await RunSyncJobWithContext(job).ConfigureAwait(false);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Unhandled exception in sync job {JobId}", job.Id);
+                    job.Status = SyncJobStatus.Failed;
+                    job.Error = $"Internal error: {ex.Message}";
+                    RecordSweepOutcome(job, ok: false, outputPath: null, error: ex.Message);
+                }
+                finally
+                {
+                    job.FinishedAtUtc = DateTime.UtcNow;
+                }
+            };
+
+            if (jobs.Count == 1)
             {
-                _logger.LogError(ex, "Unhandled exception in sync job {JobId}", job.Id);
-                job.Status = SyncJobStatus.Failed;
-                job.Error = $"Internal error: {ex.Message}";
-                RecordSweepOutcome(job, ok: false, outputPath: null, error: ex.Message);
+                _logger.LogInformation(
+                    "Pump starting job {JobId} (batch {Batch}, mode {Mode})",
+                    jobs[0].Id, jobs[0].BatchId ?? "none", NormalizeMode(jobs[0].Mode));
+                await runOne(jobs[0]).ConfigureAwait(false);
+                continue;
             }
-            finally
-            {
-                job.FinishedAtUtc = DateTime.UtcNow;
-            }
+
+            _logger.LogInformation(
+                "Pump starting {Count} jobs in parallel (batch {Batch}, mode {Mode})",
+                jobs.Count, jobs[0].BatchId ?? "none", NormalizeMode(jobs[0].Mode));
+            await Task.WhenAll(jobs.Select(runOne)).ConfigureAwait(false);
         }
     }
 
@@ -1242,7 +1311,39 @@ public class SubSyncService : IDisposable
             job.Progress = 0.1;
 
             tempOutput = Path.Combine(tempDir, "synced.srt");
-            var args = BuildFfSubSyncArgs(config, videoPath, subtitleInputPath, tempOutput, tempDir);
+
+            // "fast" mode: the speech analysis depends only on the media file, the VAD
+            // method and the ffsubsync build — not on which subtitle is being synced —
+            // so it is computed once and reused for the other subtitles of that file.
+            var mode = NormalizeMode(job.Mode);
+            var referencePath = videoPath;
+            var serializeSpeech = false;
+            string? speechKey = null;
+            var usingCachedSpeech = false;
+
+            if (mode == "fast")
+            {
+                var engineVersion = string.IsNullOrWhiteSpace(ResolveFfSubSyncPath())
+                    ? "ffsubsync"
+                    : ResolveFfSubSyncPath();
+                speechKey = SpeechCache.KeyFor(videoPath, config.VadMethod ?? "subs_then_webrtc", engineVersion);
+                var cached = SpeechCache.TryGet(speechKey);
+                if (cached is not null)
+                {
+                    referencePath = cached;
+                    usingCachedSpeech = true;
+                    job.Phase = "Syncing (reusing audio analysis)";
+                    _logger.LogInformation("Fast mode: reusing cached speech analysis for {Video}", videoPath);
+                }
+                else
+                {
+                    referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
+                    serializeSpeech = true;
+                    job.Phase = "Syncing (analysing audio, then caching it)";
+                }
+            }
+
+            var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech);
 
             _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
 
@@ -1257,9 +1358,39 @@ public class SubSyncService : IDisposable
                 },
                 CancellationToken.None).ConfigureAwait(false);
 
+            if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
+            {
+                // The cached speech file is unusable (deleted mid-run, truncated, or from
+                // a different ffsubsync build). Drop it and redo the run from the audio.
+                _logger.LogWarning(
+                    "Cached speech analysis failed for {Video} (exit code {Code}); falling back to a full audio run",
+                    videoPath, exitCode);
+                var stale = SpeechCache.TryGet(speechKey);
+                if (stale is not null)
+                {
+                    try { File.Delete(stale); } catch (IOException) { /* retry below still works */ }
+                }
+
+                referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
+                serializeSpeech = true;
+                args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech);
+                exitCode = await RunProcessWithStderrCallbackAsync(
+                    ffsubsyncExe, args, tempDir,
+                    line => ParseFfSubSyncStderr(line, job),
+                    CancellationToken.None).ConfigureAwait(false);
+            }
+
             if (exitCode != 0)
             {
                 throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.");
+            }
+
+            if (mode == "fast" && speechKey is not null && serializeSpeech)
+            {
+                // Harvest covers the fallback where ffsubsync wrote the .npz next to the
+                // media file; DropLink removes the temporary symlink either way.
+                SpeechCache.Harvest(referencePath, speechKey);
+                SpeechCache.DropLink(speechKey);
             }
 
             if (!File.Exists(tempOutput))
@@ -1587,7 +1718,13 @@ public class SubSyncService : IDisposable
         }
     }
 
-    private List<string> BuildFfSubSyncArgs(Configuration.PluginConfiguration config, string videoPath, string subtitleInput, string subtitleOutput, string? logDir = null)
+    private List<string> BuildFfSubSyncArgs(
+        Configuration.PluginConfiguration config,
+        string videoPath,
+        string subtitleInput,
+        string subtitleOutput,
+        string? logDir = null,
+        bool serializeSpeech = false)
     {
         // Validate config values to prevent argument injection
         var vadMethod = AllowedVadMethods.Contains(config.VadMethod)
@@ -1614,6 +1751,14 @@ public class SubSyncService : IDisposable
         if (config.UseGoldenSectionSearch)
         {
             args.Add("--gss");
+        }
+
+        if (serializeSpeech)
+        {
+            // Writes the speech signal next to the reference path we passed in (a
+            // symlink inside our cache dir), so later subtitles of the same file can
+            // reuse it instead of analysing the audio again.
+            args.Add("--serialize-speech");
         }
 
         if (!string.IsNullOrWhiteSpace(logDir))

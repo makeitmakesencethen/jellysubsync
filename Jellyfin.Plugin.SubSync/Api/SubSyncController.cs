@@ -58,7 +58,7 @@ public class SubSyncController : ControllerBase
     {
         try
         {
-            var job = _syncService.StartSync(request.ItemId, request.SubtitleIndex);
+            var job = _syncService.StartSync(request.ItemId, request.SubtitleIndex, request.Mode);
             return Ok(job);
         }
         catch (FileNotFoundException ex)
@@ -127,7 +127,7 @@ public class SubSyncController : ControllerBase
             .Select(t => (t.ItemId, t.SubtitleIndex, Title: t.Title))
             .ToList();
 
-        var jobs = _syncService.CreateBatch(request.Label ?? string.Empty, tasks);
+        var jobs = _syncService.CreateBatch(request.Label ?? string.Empty, tasks, request.Mode);
         var batchId = jobs[0].BatchId!;
         return Ok(BuildBatchView(batchId));
     }
@@ -345,6 +345,12 @@ public class SubSyncController : ControllerBase
 /// </summary>
 public class SyncRequest
 {
+    /// <summary>
+    /// Gets or sets the multi-subtitle mode (normal | parallel | fast). Optional;
+    /// defaults to the configured MultiSyncMode.
+    /// </summary>
+    public string? Mode { get; set; }
+
     /// <summary>Gets or sets the Jellyfin item ID.</summary>
     public Guid ItemId { get; set; }
 
@@ -373,6 +379,12 @@ public class BatchTaskRequest
 /// </summary>
 public class BatchCreateRequest
 {
+    /// <summary>
+    /// Gets or sets the mode for the whole batch (normal | parallel | fast).
+    /// Optional; defaults to the configured MultiSyncMode.
+    /// </summary>
+    public string? Mode { get; set; }
+
     /// <summary>Gets or sets the scope label (shown in history).</summary>
     public string? Label { get; set; }
 

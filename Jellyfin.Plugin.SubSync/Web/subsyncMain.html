@@ -33,6 +33,16 @@
                 display: inline-block; animation: ss-spin .7s linear infinite;
             }
             @keyframes ss-spin { to { transform: rotate(360deg); } }
+            .ss-langfield { position: relative; max-width: 340px; width: 100%; }
+            .ss-sugg {
+                position: absolute; left: 0; right: 0; top: 100%; z-index: 60;
+                background: #242424; border: 1px solid rgba(255,255,255,.16);
+                border-radius: 6px; box-shadow: 0 6px 18px rgba(0,0,0,.45);
+                max-height: 190px; overflow-y: auto; margin-top: 2px;
+            }
+            .ss-sugg div { padding: 6px 10px; font-size: .85rem; cursor: pointer; }
+            .ss-sugg div:hover, .ss-sugg div.ss-sugg-active { background: rgba(120,170,255,.2); }
+            .ss-sugg small { opacity: .6; }
             .ss-langchips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
             .ss-langchips a { display: inline-flex; align-items: center; gap: 5px; font-size: .82rem; text-decoration: none; padding: 4px 10px; border-radius: 12px; background: rgba(120,170,255,.16); color: inherit; }
             .ss-selchips a { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; text-decoration: none; padding: 3px 8px; border-radius: 10px; background: rgba(120,170,255,.16); color: inherit; }
@@ -129,6 +139,11 @@
                                 <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
                                     <option value="">All languages</option>
                                 </select>
+                                <select is="emby-select" id="ss-batchmode" class="ss-compact" label="Mode" style="max-width:210px;">
+                                    <option value="normal">Normal</option>
+                                    <option value="parallel">Parallel</option>
+                                    <option value="fast">Fast (reuse audio analysis)</option>
+                                </select>
                                 <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
@@ -170,6 +185,28 @@
                                     <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
                                 </div>
 
+                                <h3 class="ss-subhead">Multi-subtitle sync mode</h3>
+                                <div class="ss-field">
+                                    <select is="emby-select" id="ss-multimode" label="When one sync covers several subtitles">
+                                        <option value="normal">Normal — one at a time (default)</option>
+                                        <option value="parallel">Parallel — several at once</option>
+                                        <option value="fast">Fast — reuse the first run's audio analysis</option>
+                                    </select>
+                                    <div class="fieldDescription">
+                                        <strong>Normal</strong> syncs one subtitle at a time and analyses the audio for each.
+                                        <strong>Parallel</strong> runs several subtitles of the same media file at once (CPU-bound, a
+                                        few hundred MB per worker — keep it low on slow storage).
+                                        <strong>Fast</strong> analyses the audio once per media file and reuses that speech signal
+                                        for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra
+                                        subtitle and produces identical results. Fast only helps when several subtitles share one
+                                        file (a movie with many tracks, or re-syncing the same file later).
+                                    </div>
+                                </div>
+                                <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
+                                    <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 2.</div>
+                                </div>
+
                                 <h3 class="ss-subhead">Subtitle language filter</h3>
                                 <div class="ss-field">
                                     <label class="selectLabel" for="ss-langadd">Only sync subtitles in these languages</label>
@@ -180,10 +217,12 @@
                                         text tracks with no language at all are skipped too, because they cannot be matched.
                                     </div>
                                     <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:8px;">
-                                        <input is="emby-input" type="text" id="ss-langadd" list="ss-langoptions"
-                                               placeholder="Add a language (Swedish, swe, sv…)" style="max-width:340px;" />
+                                        <div class="ss-langfield">
+                                            <input is="emby-input" type="text" id="ss-langadd" autocomplete="off"
+                                                   placeholder="Add a language (Swedish, swe, sv…)" />
+                                            <div class="ss-sugg" id="ss-langsugg" style="display:none;"></div>
+                                        </div>
                                         <button is="emby-button" type="button" id="ss-langaddbtn" class="raised"><span>Add language</span></button>
-                                        <datalist id="ss-langoptions"></datalist>
                                     </div>
                                     <div class="ss-langchips" id="ss-langchips"></div>
                                     <div class="fieldDescription" id="ss-langhint"></div>
@@ -413,6 +452,10 @@
                     $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
+                    $('ss-multimode').value = c.MultiSyncMode || 'normal';
+                    batchMode = c.MultiSyncMode || 'normal';
+                    if ($('ss-batchmode')) $('ss-batchmode').value = batchMode;
+                    $('ss-workers').value = c.ParallelWorkers || 2;
                     syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
                     renderLangChips();
                 });
@@ -430,6 +473,8 @@
                     c.SyncModeCopy = $('ss-mode').value === 'copy';
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
                     c.SyncLanguages = syncLanguages.slice();
+                    c.MultiSyncMode = $('ss-multimode').value || 'normal';
+                    c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 2));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';
@@ -472,17 +517,50 @@
                 if (input) input.value = '';
             }
 
-            function buildLangDatalist() {
-                var dl = $('ss-langoptions');
-                if (!dl) return;
-                var codes = Object.keys(LANG_NAMES2).sort(function (a, b) {
-                    return langLabel(a).localeCompare(langLabel(b));
+            // Suggestion list for the language input. A native <datalist> popup cannot
+            // be sized or styled (it opened as an enormous list of 85 languages), so the
+            // suggestions are rendered here instead: filtered as you type, capped in
+            // height, scrollable.
+            var LANG_CODES = null;
+
+            function langCodesSorted() {
+                if (!LANG_CODES) {
+                    LANG_CODES = Object.keys(LANG_NAMES2).sort(function (a, b) {
+                        return langLabel(a).localeCompare(langLabel(b));
+                    });
+                }
+                return LANG_CODES;
+            }
+
+            function showLangSuggestions(query) {
+                var box = $('ss-langsugg');
+                if (!box) return;
+                var q = (query || '').trim().toLowerCase();
+                var hits = [];
+                langCodesSorted().forEach(function (c) {
+                    var label = langLabel(c);
+                    var hay = (label + ' ' + c).toLowerCase();
+                    if (!q || hay.indexOf(q) !== -1) {
+                        hits.push({ code: c, label: label });
+                    }
                 });
+                if (!hits.length) {
+                    box.style.display = 'none';
+                    box.innerHTML = '';
+                    return;
+                }
                 var html = '';
-                codes.forEach(function (c) {
-                    html += '<option value="' + esc(langLabel(c)) + '"></option>';
+                hits.slice(0, 40).forEach(function (h) {
+                    html += '<div data-ss-langpick="' + esc(h.code) + '">' + esc(h.label)
+                        + ' <small>' + esc(h.code) + '</small></div>';
                 });
-                dl.innerHTML = html;
+                box.innerHTML = html;
+                box.style.display = 'block';
+            }
+
+            function hideLangSuggestions() {
+                var box = $('ss-langsugg');
+                if (box) { box.style.display = 'none'; box.innerHTML = ''; }
             }
 
             function refreshStatus() {
@@ -982,7 +1060,8 @@
                     $('ss-progress').style.width = '0%';
                 }
                 logLine('Building queue for ' + items.length + ' picked file' + (items.length === 1 ? '' : 's')
-                    + (selLangs.length ? ' (' + selLangs.map(langLabel).join(' + ') + ' subtitles only)' : '') + '\u2026');
+                    + (selLangs.length ? ' (' + selLangs.map(langLabel).join(' + ') + ' subtitles only)' : '')
+                    + ' \u2014 mode: ' + batchMode + '\u2026');
                 var done = 0;
 
                 var all = [];
@@ -1017,6 +1096,7 @@
                         method: 'POST',
                         body: JSON.stringify({
                             label: label,
+                            mode: batchMode,
                             tasks: all.map(function (t) {
                                 return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
                             })
@@ -1651,13 +1731,37 @@
             }
             var globalLangInput = $('ss-langadd');
             if (globalLangInput) {
+                globalLangInput.addEventListener('input', function () {
+                    showLangSuggestions(globalLangInput.value);
+                });
+                globalLangInput.addEventListener('focus', function () {
+                    showLangSuggestions(globalLangInput.value);
+                });
                 globalLangInput.addEventListener('keydown', function (e) {
                     if (e.key === 'Enter') {
                         e.preventDefault();
                         addGlobalLanguage(globalLangInput.value);
+                        hideLangSuggestions();
+                    } else if (e.key === 'Escape') {
+                        hideLangSuggestions();
                     }
                 });
             }
+            var globalLangSugg = $('ss-langsugg');
+            if (globalLangSugg) {
+                // mousedown, so the click lands before the input's blur hides the list
+                globalLangSugg.addEventListener('mousedown', function (e) {
+                    var pick = e.target.closest('[data-ss-langpick]');
+                    if (!pick) return;
+                    e.preventDefault();
+                    addGlobalLanguage(pick.getAttribute('data-ss-langpick'));
+                    hideLangSuggestions();
+                });
+            }
+            document.addEventListener('click', function (e) {
+                if (e.target.closest('.ss-langfield')) return;
+                hideLangSuggestions();
+            });
             var globalLangBtn = $('ss-langaddbtn');
             if (globalLangBtn) {
                 globalLangBtn.addEventListener('click', function (e) {
@@ -1676,7 +1780,13 @@
                     renderLangChips();
                 });
             }
-            buildLangDatalist();
+            var batchModeSel = $('ss-batchmode');
+            var batchMode = 'normal';
+            if (batchModeSel) {
+                batchModeSel.addEventListener('change', function () {
+                    batchMode = batchModeSel.value || 'normal';
+                });
+            }
 
             var selLangSel = $('ss-sellang');
             if (selLangSel) {

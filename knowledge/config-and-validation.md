@@ -139,3 +139,31 @@ Semantics (see `Services/LanguageSupport.cs`):
 
 Both the dashboard Settings tab (chip list with add/remove) and the plugin config page
 (comma-separated field) write this setting.
+
+
+## MultiSyncMode / ParallelWorkers (multi-subtitle modes)
+
+`MultiSyncMode` (`string`, default `normal`, allow-list `normal|parallel|fast`) is resolved
+per job in `SubSyncService.NormalizeMode`; `ParallelWorkers` (int, clamped 1-8, default 2)
+only applies to `parallel`.
+
+- **normal** — the pump takes one queued job at a time, ffsubsync analyses the audio on
+  every run.
+- **parallel** — the pump takes up to `ParallelWorkers` queued jobs *of the same batch and
+  same mode* and runs them with `Task.WhenAll`; batches still never interleave, so FIFO
+  order between batches is preserved.
+- **fast** — before the run, `SpeechCache.KeyFor` builds a key from the media path, size,
+  mtime, the VAD method and the ffsubsync binary, and the speech analysis is reused:
+  - cache hit → the `.npz` is passed to ffsubsync *as the reference instead of the video*,
+    so no audio work happens at all;
+  - cache miss → ffsubsync runs with `--serialize-speech`, which makes it write the `.npz`
+    next to the reference it was given. We therefore hand it a symlink inside
+    `SpeechCache.Root` (`<state>/speech-cache`), so nothing is ever written into a media
+    folder; if symlinks are unavailable the real path is used and `SpeechCache.Harvest`
+    moves the produced `.npz` into the cache afterwards.
+  - a cached run that fails (stale/truncated `.npz`) is retried once from the audio, after
+    deleting the bad cache entry.
+
+Measured (15-minute test media, bursts placed at the cue times): full run 2.98s vs 1.00s
+with the cached speech; the `.npz` is ~2 KB. Results were byte-identical between the audio
+path and the cached path for subtitles at three different offsets.

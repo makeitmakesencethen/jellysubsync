@@ -94,6 +94,27 @@
                             <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title -SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place. Video files are never modified — embedded tracks are extracted and saved as a new external subtitle file instead of being remuxed back in.</div>
                         </div>
 
+                        <div class="selectContainer">
+                            <label class="selectLabel" for="MultiSyncMode">Multi-subtitle sync mode</label>
+                            <select is="emby-select" id="MultiSyncMode" name="MultiSyncMode">
+                                <option value="normal">Normal — one at a time (analyses audio every run)</option>
+                                <option value="parallel">Parallel — several subtitles at once</option>
+                                <option value="fast">Fast — reuse the first run's audio analysis</option>
+                            </select>
+                            <div class="fieldDescription">
+                                Fast analyses the audio once per media file and reuses that speech signal for the remaining
+                                subtitles of the same file (identical results, noticeably less work per extra subtitle). It only
+                                helps when several subtitles share one file — a movie with many tracks, or re-syncing later.
+                                Normal and Parallel analyse the audio on every run.
+                            </div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ParallelWorkers">Parallel workers</label>
+                            <input is="emby-input" type="number" id="ParallelWorkers" name="ParallelWorkers" min="1" max="8" />
+                            <div class="fieldDescription">How many subtitles run at once in Parallel mode (1-8). Default: 2. Each worker is CPU-bound and holds a few hundred MB while analysing audio.</div>
+                        </div>
+
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="SyncLanguages">Only sync subtitles in these languages</label>
                             <input is="emby-input" type="text" id="SyncLanguages" name="SyncLanguages" placeholder="leave empty for every language, e.g. sv, en" />
@@ -222,6 +243,8 @@
                         document.querySelector('#OutputEncoding').value = config.OutputEncoding || 'utf-8';
                         document.querySelector('#UseGoldenSectionSearch').checked = config.UseGoldenSectionSearch || false;
                         document.querySelector('#SyncModeCopy').value = config.SyncModeCopy !== false ? 'true' : 'false';
+                        document.querySelector('#MultiSyncMode').value = config.MultiSyncMode || 'normal';
+                        document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 2;
                         document.querySelector('#SyncLanguages').value = (config.SyncLanguages || []).join(', ');
                         Dashboard.hideLoadingMsg();
                     });
@@ -274,6 +297,8 @@
                         config.OutputEncoding = document.querySelector('#OutputEncoding').value || 'utf-8';
                         config.UseGoldenSectionSearch = document.querySelector('#UseGoldenSectionSearch').checked;
                         config.SyncModeCopy = document.querySelector('#SyncModeCopy').value === 'true';
+                        config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
+                        config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 2));
                         config.SyncLanguages = document.querySelector('#SyncLanguages').value
                             .split(',')
                             .map(function (x) { return x.trim(); })

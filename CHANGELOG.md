@@ -43,6 +43,17 @@ All notable changes to this plugin are documented here. Versions follow
   1,240 German subtitle tracks to sync` — with the button reading `Sync 1,240 subtitles`
   in that case. Counts are only shown once the scan is complete, so the number always
   matches the queue that gets built.
+- Added: **multi-subtitle modes** — choose in the Settings tab (and per run in the library
+  action row): **Normal** (one at a time, audio analysed every run), **Parallel** (several
+  subtitles at once, `Parallel workers` 1-8) or **Fast** (the audio is analysed once per
+  media file and the speech signal is reused for its other subtitles — identical results,
+  ~2-3x less work per extra subtitle). The cached speech signal lives in the plugin's state
+  directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
+  build, so a replaced file never reuses stale data. Nothing is ever written into media
+  folders.
+- Changed: the Settings language picker no longer uses a native `<datalist>` (its popup
+  opened as an enormous list that could not be sized) — it is now a compact, scrollable
+  suggestion box filtered as you type.
 - Fixed: selecting a series in the library showed **no languages at all** in the row's
   Subtitle picker unless a specific season was chosen — the language scan started before
   the row existed; it now starts right after the row is rendered. The picker also folds

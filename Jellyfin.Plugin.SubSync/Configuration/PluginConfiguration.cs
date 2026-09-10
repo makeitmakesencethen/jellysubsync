@@ -9,6 +9,22 @@ namespace Jellyfin.Plugin.SubSync.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
+    /// Gets or sets how multiple subtitles of the same media file are synced.
+    /// <c>normal</c> = one at a time, audio analysed every run;
+    /// <c>parallel</c> = up to <see cref="ParallelWorkers"/> subtitles at once;
+    /// <c>fast</c> = reuse the speech analysis of the first run for the remaining
+    /// subtitles of that file (identical results, ~3x less work per extra subtitle).
+    /// </summary>
+    public string MultiSyncMode { get; set; } = "normal";
+
+    /// <summary>
+    /// Gets or sets the worker count used by <c>parallel</c> mode (1-8).
+    /// Each worker is CPU-bound and holds a few hundred MB while analysing audio,
+    /// so keep this low on slow storage or a small server.
+    /// </summary>
+    public int ParallelWorkers { get; set; } = 2;
+
+    /// <summary>
     /// Gets or sets the subtitle languages that may be synced. Empty = every language.
     /// Tracks in other languages are not listed and not synced, and tracks with no
     /// language at all are skipped while a filter is set (they cannot be matched).
