@@ -232,6 +232,16 @@ worked:
    - **SeekHead** → Tracks and Cues positions, so no walk past the clusters is needed.
    - **Cues** read in one bulk pass and parsed in memory (an index can hold thousands of
      cue points; parsing them one syscall at a time is what made this slow).
+   - **CueRelativePosition first**: real muxers (ffmpeg, mkvmerge) record the referenced
+     block's byte offset inside its cluster for every cue point. One cue point must therefore
+     cost one small read. Walking a cluster's ~150 blocks (mostly audio frames) instead is what
+     made extraction take tens of seconds per episode; measured on a real 8.2 GB remux, 127
+     reads / 7.0 MB became 28 reads / 0.1 MB, and a 1,400-subtitle file went from 91.8 MB to
+     5.8 MB read. The walk stays as a fallback, and the harness asserts the indexed path reads
+     less than the walk on identical fixtures.
+   - **time base is the cluster Timecode**, never CueTime: CueTime is the seek point's
+     timestamp, which for the referenced block already is its own time, so adding the block's
+     relative timecode double-counts it (+51 ms / +459 ms measured against ffmpeg).
    - **block headers first**: a block's track number is read from its header and the payload
      is only read for the wanted track — reading payloads for every block pulls the video
      into the extraction.

@@ -191,7 +191,39 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.24]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.25]
+
+### Fixed
+- **Extraction now uses `CueRelativePosition`, which is why it was still slow.** Real remuxes
+  record, for every cue point, the exact byte offset of the referenced block inside its
+  cluster — the remux here has it on 1873 of 1873 cue points, written by both ffmpeg and
+  mkvmerge. The reader ignored it and walked the cluster's blocks instead, and a remux cluster
+  holds ~150 of them (mostly audio frames): an episode with 344 subtitle cue points meant tens
+  of thousands of small reads. Now an index entry means *one* small read.
+
+  Measured, same files, same output:
+
+  | case | before | after |
+  | --- | --- | --- |
+  | real 8.2 GB remux, 4 subtitles | 127 reads, 7.0 MB | **28 reads, 0.1 MB, 27 ms** |
+  | 1,400 subtitle cue points | 1,421 reads, 91.8 MB | **1,413 reads, 5.8 MB** |
+
+  Output is byte-identical to ffmpeg's own extraction of the same track. When a file has no
+  block offsets (or holds a cluster in a shape that does not match), the cluster walk still
+  runs, so nothing regresses — the harness asserts that the indexed path reads less than the
+  walk on identical fixtures.
+
+- **Fixed a time offset the indexed path introduced**: CueTime is the seek point's timestamp,
+  which for the referenced block is already its own time, so using it as the base and adding
+  the block's relative timecode double-counted it (+51 ms and +459 ms against ffmpeg). The
+  cluster's Timecode element is used as the base instead — the same base the walking path
+  uses — which is muxer independent.
+
+### Changed
+- Extraction progress reports its cost while it works: `reading subtitle 80/344 (1.2 MB, 96
+  reads)` instead of a bare cluster counter, so a slow read can be told apart from a slow disk.
+
+## [1.1.0.24]
 
 ### Fixed
 - **Kill now kills.** The sync's ffsubsync run was started with `CancellationToken.None`, so

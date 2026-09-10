@@ -33,6 +33,9 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how many cue points the index held (all tracks).</summary>
     public long CuePoints { get; set; }
 
+    /// <summary>Gets or sets how many indexed cue points had to fall back to a cluster walk.</summary>
+    public int IndexedMisses { get; set; }
+
     /// <summary>Gets or sets the time spent locating the subtitle data, in milliseconds.</summary>
     public double LocateMs { get; set; }
 
@@ -99,6 +102,7 @@ public static class MkvSubtitleExtractor
     private const ulong IdCueTrackPositions = 0xB7;
     private const ulong IdCueTrack = 0xF7;
     private const ulong IdCueClusterPosition = 0xF1;
+    private const ulong IdCueRelativePosition = 0xF0;
     private const ulong IdCluster = 0x1F43B675;
     private const ulong IdClusterTimecode = 0xE7;
     private const ulong IdSimpleBlock = 0xA3;
@@ -413,31 +417,33 @@ public static class MkvSubtitleExtractor
 
         // --- 4. Where does that track live? Cue index first, scan otherwise ---
         var cues = new List<Cue>();
-        var clusterOffsets = new List<long>();
+        List<CueRef> cueRefs = new();
 
         if (cuesDataStart > 0 && cuesSize > 0 && cuesSize <= MaxIndexBytes)
         {
             var cueBuffer = reader.ReadRegion(cuesDataStart, cuesSize);
-            clusterOffsets = ParseCueOffsets(cueBuffer, track.TrackNumber, out var cuePoints);
+            cueRefs = ParseCueRefs(cueBuffer, track.TrackNumber, out var cuePoints);
             stats.CuePoints = cuePoints;
         }
 
         locateWatch.Stop();
         stats.LocateMs = locateWatch.Elapsed.TotalMilliseconds;
-        Diag($"located: {clusterOffsets.Count} cue clusters for track {track.TrackNumber}, method pending");
+        Diag($"located: {cueRefs.Count} cue points for track {track.TrackNumber} "
+            + $"({cueRefs.Count(r => r.RelativePosition >= 0)} with a block offset), method pending");
 
         var readWatch = Stopwatch.StartNew();
 
-        if (clusterOffsets.Count > 0)
+        if (cueRefs.Count > 0)
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
 
             var seen = new HashSet<long>();
             var index = 0;
-            foreach (var offset in clusterOffsets)
+            foreach (var cueRef in cueRefs)
             {
-                var position = segmentDataStart + offset;
-                if (position < 0 || position >= reader.Length || !seen.Add(position))
+                var position = segmentDataStart + cueRef.ClusterOffset;
+                if (position < 0 || position >= reader.Length
+                    || !seen.Add(position * 31 + cueRef.RelativePosition))
                 {
                     continue;
                 }
@@ -450,9 +456,23 @@ public static class MkvSubtitleExtractor
                 }
 
                 index++;
-                if (progress is not null && (index % 16 == 0 || index == clusterOffsets.Count))
+                if (progress is not null && (index % 16 == 0 || index == cueRefs.Count))
                 {
-                    progress($"reading cluster {index}/{clusterOffsets.Count} from the cue index");
+                    progress($"reading subtitle {index}/{cueRefs.Count} ({(stats.BytesRead / 1e6):0.0} MB, {stats.ReadCalls} reads)");
+                }
+
+                stats.ClustersVisited++;
+
+                if (cueRef.RelativePosition >= 0)
+                {
+                    // The muxer recorded exactly where the block sits inside the cluster, so one
+                    // small read replaces walking that cluster's ~150 blocks to find it.
+                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats))
+                    {
+                        continue;
+                    }
+
+                    stats.IndexedMisses++;
                 }
 
                 if (!ReadCluster(reader, position, track, cues, stats, wideWindow: true))
@@ -497,6 +517,143 @@ public static class MkvSubtitleExtractor
         srtText = ToSrt(cues);
         stats.SubtitleBlocks = cues.Count;
         return srtText.Length > 0;
+    }
+
+    /// <summary>
+    /// Reads the single block a cue point refers to, jumping over the rest of the cluster with
+    /// CueRelativePosition. Returns false when that position does not hold a usable block, so
+    /// the caller falls back to walking the cluster.
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="clusterPosition">Position of the Cluster element's id.</param>
+    /// <param name="cueRef">Cue point.</param>
+    /// <param name="track">Track being extracted.</param>
+    /// <param name="cues">Collected subtitles.</param>
+    /// <param name="stats">Cost counters.</param>
+    /// <returns>True when the block was read.</returns>
+    private static bool ReadIndexedBlock(
+        BlobReader reader,
+        long clusterPosition,
+        CueRef cueRef,
+        SubtitleTrack track,
+        List<Cue> cues,
+        MkvExtractionStats stats)
+    {
+        if (!reader.TryReadElementHeaderAt(clusterPosition, out var clusterId, out var clusterSize, out var clusterHeader)
+            || clusterId != IdCluster
+            || clusterSize == ulong.MaxValue)
+        {
+            return false;
+        }
+
+        var clusterDataStart = clusterPosition + clusterHeader;
+        var clusterEnd = clusterDataStart + (long)clusterSize;
+        var blockPosition = clusterDataStart + cueRef.RelativePosition;
+        if (cueRef.RelativePosition < 0 || blockPosition >= clusterEnd || blockPosition >= reader.Length)
+        {
+            return false;
+        }
+
+        // The block's own time is its cluster's timecode plus the block's relative timecode.
+        // CueTime is not used as the base: it is the seek point's timestamp, which for the
+        // referenced block is already its own time, so adding the relative value on top
+        // double-counts it (measured against ffmpeg: +51 ms, +459 ms).
+        if (!TryReadClusterTimecode(reader, clusterDataStart, clusterEnd, out var clusterTimecode))
+        {
+            return false;
+        }
+
+        if (!reader.TryReadElementHeaderAt(blockPosition, out var blockId, out var blockSize, out var blockHeader)
+            || blockSize == ulong.MaxValue)
+        {
+            return false;
+        }
+
+        var dataStart = blockPosition + blockHeader;
+        var dataEnd = dataStart + (long)blockSize;
+
+        if (blockId == IdSimpleBlock)
+        {
+            return ReadBlock(reader, dataStart, dataEnd, clusterTimecode, track, cues, false, 0);
+        }
+
+        if (blockId != IdBlockGroup)
+        {
+            return false;
+        }
+
+        long duration = 0;
+        var blockStart = -1L;
+        var blockEnd = -1L;
+        var cursor = dataStart;
+        while (cursor < dataEnd)
+        {
+            if (!reader.TryReadElementHeaderAt(cursor, out var childId, out var childSize, out var childHeader)
+                || childSize == ulong.MaxValue)
+            {
+                break;
+            }
+
+            var childData = cursor + childHeader;
+            if (childId == IdBlock)
+            {
+                blockStart = childData;
+                blockEnd = childData + (long)childSize;
+            }
+            else if (childId == IdBlockDuration)
+            {
+                duration = (long)reader.ReadUnsigned(childData, (long)childSize);
+            }
+
+            cursor = childData + (long)childSize;
+        }
+
+        return blockStart >= 0
+            && blockEnd > blockStart
+            && ReadBlock(reader, blockStart, blockEnd, clusterTimecode, track, cues, true, duration);
+    }
+
+    /// <summary>
+    /// Reads the Timecode element that opens a cluster (some muxers put a CRC-32 in front of
+    /// it, so a couple of children are inspected).
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="clusterDataStart">First byte of the cluster's body.</param>
+    /// <param name="clusterEnd">One past the cluster's last byte.</param>
+    /// <param name="timecode">The cluster's timecode in milliseconds.</param>
+    /// <returns>True when it was found.</returns>
+    private static bool TryReadClusterTimecode(
+        BlobReader reader,
+        long clusterDataStart,
+        long clusterEnd,
+        out long timecode)
+    {
+        timecode = 0;
+        var cursor = clusterDataStart;
+        for (var inspected = 0; inspected < 4 && cursor < clusterEnd; inspected++)
+        {
+            if (!reader.TryReadElementHeaderAt(cursor, out var id, out var size, out var headerLength)
+                || size == ulong.MaxValue)
+            {
+                return false;
+            }
+
+            var dataStart = cursor + headerLength;
+            if (id == IdClusterTimecode)
+            {
+                timecode = (long)reader.ReadUnsigned(dataStart, (long)size);
+                return true;
+            }
+
+            if (id != IdCrc32 && id != IdVoid)
+            {
+                return false; // a block came first: this cluster has no leading timecode
+            }
+
+            cursor = dataStart + (long)size;
+        }
+
+        return false;
     }
 
     /// <summary>Reads a cluster: block headers first, payloads only for the wanted track.</summary>
@@ -948,13 +1105,17 @@ public static class MkvSubtitleExtractor
     }
 
     /// <summary>
-    /// Reads the cluster offsets the Cues element holds for one track. The whole index is
-    /// already in memory, so this costs no further reads — parsing it element by element
-    /// straight from the file is what made large indexes slow.
+    /// Reads the cue points the Cues element holds for one track: cluster offset, the block's
+    /// offset inside that cluster when the muxer recorded it, and the cue time. The whole index
+    /// is already in memory, so this costs no further reads.
     /// </summary>
-    private static List<long> ParseCueOffsets(byte[] payload, ulong trackNumber, out long cuePoints)
+    /// <param name="payload">Cues element body.</param>
+    /// <param name="trackNumber">Track whose cue points are wanted.</param>
+    /// <param name="cuePoints">Total cue points seen, for the log.</param>
+    /// <returns>One entry per cue point belonging to the track.</returns>
+    private static List<CueRef> ParseCueRefs(byte[] payload, ulong trackNumber, out long cuePoints)
     {
-        var offsets = new List<long>();
+        var refs = new List<CueRef>();
         cuePoints = 0;
         var offset = 0;
 
@@ -980,6 +1141,8 @@ public static class MkvSubtitleExtractor
                 var cursor = dataStart;
                 var matched = false;
                 long clusterPosition = -1;
+                long relativePosition = -1;
+                long cueTime = 0;
 
                 while (cursor < dataEnd)
                 {
@@ -996,7 +1159,11 @@ public static class MkvSubtitleExtractor
                         break;
                     }
 
-                    if (childId == IdCueTrackPositions)
+                    if (childId == IdCueTime)
+                    {
+                        cueTime = (long)ReadUnsignedBytes(payload.AsSpan(cursor, (int)childSize));
+                    }
+                    else if (childId == IdCueTrackPositions)
                     {
                         var positionsCursor = cursor;
                         ulong cueTrack = 0;
@@ -1023,6 +1190,10 @@ public static class MkvSubtitleExtractor
                             {
                                 clusterPosition = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
                             }
+                            else if (posId == IdCueRelativePosition)
+                            {
+                                relativePosition = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
+                            }
 
                             positionsCursor = posEnd;
                         }
@@ -1038,14 +1209,14 @@ public static class MkvSubtitleExtractor
 
                 if (matched && clusterPosition >= 0)
                 {
-                    offsets.Add(clusterPosition);
+                    refs.Add(new CueRef(clusterPosition, relativePosition, cueTime));
                 }
             }
 
             offset = dataEnd;
         }
 
-        return offsets;
+        return refs;
     }
 
     /// <summary>
@@ -1291,6 +1462,15 @@ public static class MkvSubtitleExtractor
 
         public bool IsAss => CodecId is "S_TEXT/ASS" or "S_SSA/ASS";
     }
+
+    /// <summary>
+    /// One cue point: where its cluster is, where the block sits inside that cluster (when the
+    /// muxer recorded it) and the cue's timecode in milliseconds.
+    /// </summary>
+    /// <param name="ClusterOffset">Cluster element offset, relative to the segment data.</param>
+    /// <param name="RelativePosition">Block offset inside the cluster, or -1 when absent.</param>
+    /// <param name="CueTimeMs">Cue timecode in milliseconds.</param>
+    private sealed record CueRef(long ClusterOffset, long RelativePosition, long CueTimeMs);
 
     private sealed class Cue
     {
