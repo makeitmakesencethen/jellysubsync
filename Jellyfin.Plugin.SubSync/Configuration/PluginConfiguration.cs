@@ -23,12 +23,6 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ConfigVersion { get; set; }
 
     /// <summary>
-    /// Gets or sets how many tasks may read heavily from one storage volume at the same
-    /// time (1-4). Higher overlaps more work but makes a single disk serve several readers.
-    /// </summary>
-    public int HeavyReadsPerVolume { get; set; } = 2;
-
-    /// <summary>
     /// Gets or sets how long a single embedded-subtitle extraction may take before it is
     /// aborted with a clear error (minutes). Guards against a stuck or pathologically slow
     /// read looking like a hang in the UI.

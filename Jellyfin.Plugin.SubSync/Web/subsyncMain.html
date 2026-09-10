@@ -231,14 +231,8 @@
                                         for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra
                                         subtitle and produces identical results. Fast only helps when several subtitles share one
                                         file (a movie with many tracks, or re-syncing the same file later).
-                                        Every mode produces the same alignments, and parallel runs are I/O aware: only one
-                                        task reads heavily from a given volume at a time, so workers no longer crawl together
-                                        when they share a disk.
+                                        Every mode produces the same alignments.
                                     </div>
-                                </div>
-                                <div class="ss-field">
-                                    <input is="emby-input" type="number" id="ss-heavyreads" label="Heavy reads per storage volume" min="1" max="4" />
-                                    <div class="fieldDescription">How many tasks may read heavily (whole-file extraction or a first-time audio analysis) from the same disk at once. 1 is safest for a single HDD; 2-3 gives more overlap. Default: 2.</div>
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
@@ -556,8 +550,6 @@
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'auto';
                     $('ss-workers').value = c.ParallelWorkers || 4;
-                    $('ss-heavyreads').value = c.HeavyReadsPerVolume || 2;
-                    syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
                     renderLangChips();
                 });
             }
@@ -577,7 +569,6 @@
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'auto';
                     c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
-                    c.HeavyReadsPerVolume = Math.min(4, Math.max(1, parseInt($('ss-heavyreads').value, 10) || 2));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';

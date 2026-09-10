@@ -4,7 +4,7 @@
     <RootNamespace>Jellyfin.Plugin.SubSync</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.1.0.19</Version>
+    <Version>1.1.0.20</Version>
     <AssemblyVersion>1.1.0.19</AssemblyVersion>
     <FileVersion>1.1.0.19</FileVersion>
   </PropertyGroup>

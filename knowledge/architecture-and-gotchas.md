@@ -253,14 +253,13 @@ logs the decision.
 
 - `Limit` — worker count (parallel modes only).
 - `IsHeavyIo` — true when the job must read a lot (embedded extraction, or an audio
-  analysis with no cached speech signal). At most `HeavyIoPerVolume` heavy jobs per
-  `VolumeOf` volume enter a wave (`HeavyReadsPerVolume`, default 2, clamped 1-4). One is
-  safest for a single HDD but serialises a one-volume library and leaves every worker
-  idle; two keeps the disk honest while still overlapping work. This is the knob to lower
-  if a disk is clearly the bottleneck and to raise when it has headroom.
-- `CanShareMediaFile` — a second subtitle of a file may join the wave only when that
-  file's speech analysis is cached, i.e. when the extra job reads nothing. Heavy jobs never
-  share a file.
+  analysis with no cached speech signal). It is used for one rule only: a second job for a
+  media file may join a wave solely when that file's speech analysis is already cached, so
+  two workers never race to build the same cache entry.
+- Waves are bounded by `ParallelWorkers` **alone**. There is deliberately no per-volume
+  budget: the OS sees the real device queue and schedules better than a path through the
+  mount table does, and any such gate silently drops a wave below the requested worker
+  count (which showed up as "why is parallel running one file at a time?").
 
 `MediaVolume.Of` maps a path to its mount point + device via `/proc/mounts` (longest match
 wins), falling back to the path root where that file does not exist.

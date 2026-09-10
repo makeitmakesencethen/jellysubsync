@@ -58,8 +58,6 @@ All notable changes to this plugin are documented here. Versions follow
 - Fixed: parallel runs on a **single-volume library effectively ran one task at a time**.
   The per-volume heavy-read gate allowed exactly one heavy reader, and with an uncached
   library every first analysis is heavy — so four workers sat idle. The gate now takes a
-  budget (`HeavyReadsPerVolume`, default **2**, 1-4 in Settings) so work overlaps while a
-  disk still never serves four readers at once.
 - Fixed: the per-worker progress rows vanished under the automatic strategy — the panel
   keyed on an explicit parallel mode, and `auto` is resolved only once the run starts. It
   now shows whenever anything is running, and the run line names the strategy and worker
@@ -78,7 +76,7 @@ All notable changes to this plugin are documented here. Versions follow
   subtitles of one file analyse the audio once and reuse it; several files run in parallel
   with each file's analysis reused. The explicit modes remain as a troubleshooting override
   in Settings.
-- Added: **storage-aware scheduling** — at most one heavy reader per volume per wave
+- Added: storage-aware scheduling — later removed in 1.1.0.20 as unnecessary
   (`MediaVolume.Of` maps a path to its mount point/device), so parallel workers sharing a
   disk no longer stall together; tasks whose audio analysis is already cached read nothing
   and still run fully in parallel. Several subtitles of one file may now share a wave once
@@ -193,4 +191,14 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.
+  FIFO batch queue with history that survives page reloads.## [1.1.0.20]
+
+### Removed
+- The **per-volume heavy-read limit** is gone, along with its `HeavyReadsPerVolume` setting.
+  Waves are bounded by `Parallel workers` and nothing else, so parallel work now runs at the
+  width you ask for — four workers means four tasks, whether or not they sit on one disk.
+  Storage scheduling is left to the OS, which sees the real device queue. The one remaining
+  rule is correctness, not throttling: two subtitles of the *same* media file never run
+  before that file's speech analysis is cached, so they cannot race to build it.
+
+
