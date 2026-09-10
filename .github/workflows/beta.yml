@@ -1,17 +1,12 @@
 name: beta
 
-# Builds the `beta` branch into a testable plugin zip and attaches it to a
-# GitHub PRE-RELEASE. Deliberately publishes NO catalog: a second catalog would
-# show up as a second entry in everyone's plugin list (same plugin GUID), which
-# is confusing. Test builds are therefore pulled deliberately:
+# Builds the `beta` branch and publishes it as a SEPARATE catalog at
+#   https://<owner>.github.io/<repo>/beta/manifest.json
+# Stable users (who added the root manifest.json) are never affected: the beta
+# catalog is a different URL that must be added explicitly in Jellyfin.
 #
-#   Local test (your own Jellyfin):
-#     unzip the attached asset, then copy its contents into the installed plugin
-#     folder and restart Jellyfin (see CONTRIBUTING.md — "Testing without
-#     publishing to everyone").
-#
-# Promotion to stable stays: merge `beta` into `master`, bump version +
-# CHANGELOG, tag vX.Y.Z → the stable release workflow publishes the catalog.
+# Flow: work on `beta` → add the beta catalog in your test Jellyfin → install and
+# test → when happy, merge `beta` into `master` and cut a normal release.
 
 on:
   push:
@@ -50,31 +45,50 @@ jobs:
             /tmp/ffbuild/bin/ffsubsync --distpath /tmp/ffbin
           test -x /tmp/ffbin/ffsubsync/ffsubsync
 
-      - name: Package test zip
+      - name: Package plugin zip
         shell: bash
         run: |
           set -euo pipefail
           VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
-          mkdir -p staging dist
+          mkdir -p staging dist/beta
           cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll staging/
           cp Jellyfin.Plugin.SubSync/meta.json staging/
           mkdir -p "staging/ffsubsync/linux-x64"
           cp -r /tmp/ffbin/ffsubsync/ffsubsync "staging/ffsubsync/linux-x64/ffsubsync"
           cp -r /tmp/ffbin/ffsubsync/_internal "staging/ffsubsync/linux-x64/_internal"
-          (cd staging && zip -q -r "../dist/Jellyfin.Plugin.SubSync_${VER}-test.zip" .)
-          echo "VER=$VER" >> "$GITHUB_ENV"
+          (cd staging && zip -q -r "../dist/beta/Jellyfin.Plugin.SubSync_${VER}.zip" .)
 
-      - name: Attach as pre-release
-        uses: softprops/action-gh-release@v2
+      - name: Write beta catalog manifest
+        shell: bash
+        env:
+          OWNER: "${{ github.repository_owner }}"
+          REPO: "${{ github.repository }}"
+          REF: "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          ZIP="dist/beta/Jellyfin.Plugin.SubSync_${VER}.zip"
+          CHECKSUM="$(md5sum "$ZIP" | cut -d' ' -f1)"
+          python3 scripts/write_manifest.py \
+            manifest.json "$ZIP" "$CHECKSUM" \
+            "https://${OWNER}.github.io/${REPO#*/}/beta" \
+            "https://github.com/${REPO}/tree/beta" \
+            dist/beta/manifest.json "$OWNER"
+          # Mark it clearly as the beta channel so both catalogs are tellable apart.
+          python3 - <<'PY'
+          import json
+          path = 'dist/beta/manifest.json'
+          data = json.load(open(path))
+          data[0]['name'] = data[0]['name'] + ' (Beta)'
+          json.dump(data, open(path, 'w'), indent=2)
+          PY
+          cat dist/beta/manifest.json
+
+      # Deploys only the beta/ subfolder; keep_files preserves the stable
+      # manifest, zips and images already on gh-pages.
+      - name: Deploy beta to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          tag_name: v${{ env.VER }}-test.${{ github.run_number }}
-          name: "SubSync ${{ env.VER }} (test build ${{ github.run_number }})"
-          prerelease: true
-          body: |
-            Automated test build from the `beta` branch (commit ${{ github.sha }}).
-
-            Not published to the plugin catalog — install it manually for testing
-            and report what you find.
-
-            ${{ github.event.head_commit.message }}
-          files: dist/Jellyfin.Plugin.SubSync_*.zip
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          keep_files: true
