@@ -96,19 +96,20 @@
 
                         <div class="checkboxContainer checkboxContainer-withDescription">
                             <label class="emby-checkbox-label">
-                                <input is="emby-checkbox" type="checkbox" id="FastMkvExtraction" name="FastMkvExtraction" />
-                                <span>Read embedded Matroska subtitles via the file's cue index</span>
+                                <input is="emby-checkbox" type="checkbox" id="FastIndexedExtraction" name="FastIndexedExtraction" />
+                                <span>Read embedded subtitles through the container's own index</span>
                             </label>
                             <div class="fieldDescription checkboxFieldDescription">
-                                Reads the subtitle blocks from the clusters the Matroska cue index points at instead of
+                                Reads subtitle samples from the Matroska cue index or the MP4 sample table instead of
                                 demuxing the entire file (measured 0.2 s vs 2.3 s on a 1.7 GB file). Falls back to ffmpeg
-                                automatically for anything it cannot handle.
+                                automatically for anything it cannot handle, and reports the reason in the log.
                             </div>
                         </div>
 
                         <div class="selectContainer">
                             <label class="selectLabel" for="MultiSyncMode">Multi-subtitle sync mode</label>
                             <select is="emby-select" id="MultiSyncMode" name="MultiSyncMode">
+                                <option value="auto">Automatic — chosen from the work (recommended)</option>
                                 <option value="normal">Normal — one at a time (analyses audio every run)</option>
                                 <option value="parallel">Parallel — several subtitles at once</option>
                                 <option value="fast">Fast — reuse the first run's audio analysis</option>
@@ -126,6 +127,12 @@
                             <label class="inputLabel inputLabelUnfocused" for="ParallelWorkers">Parallel workers</label>
                             <input is="emby-input" type="number" id="ParallelWorkers" name="ParallelWorkers" min="1" max="8" />
                             <div class="fieldDescription">How many subtitles run at once in Parallel mode (1-8). Default: 4. A wave always covers different media files — several tracks of the same file never run at once. Each worker is CPU-bound and holds a few hundred MB while analysing audio.</div>
+                        </div>
+
+                        <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="ExtractionTimeoutMinutes">Subtitle extraction timeout (minutes)</label>
+                            <input is="emby-input" type="number" id="ExtractionTimeoutMinutes" name="ExtractionTimeoutMinutes" min="1" max="240" />
+                            <div class="fieldDescription">How long one embedded-subtitle extraction may take before it fails with a clear message instead of appearing to hang. Default: 20.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -256,7 +263,8 @@
                         document.querySelector('#OutputEncoding').value = config.OutputEncoding || 'utf-8';
                         document.querySelector('#UseGoldenSectionSearch').checked = config.UseGoldenSectionSearch || false;
                         document.querySelector('#SyncModeCopy').value = config.SyncModeCopy !== false ? 'true' : 'false';
-                        document.querySelector('#FastMkvExtraction').checked = config.FastMkvExtraction !== false;
+                        document.querySelector('#FastIndexedExtraction').checked = config.FastIndexedExtraction !== false;
+                        document.querySelector('#ExtractionTimeoutMinutes').value = config.ExtractionTimeoutMinutes || 20;
                         document.querySelector('#MultiSyncMode').value = config.MultiSyncMode || 'normal';
                         document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 4;
                         document.querySelector('#SyncLanguages').value = (config.SyncLanguages || []).join(', ');
@@ -311,7 +319,8 @@
                         config.OutputEncoding = document.querySelector('#OutputEncoding').value || 'utf-8';
                         config.UseGoldenSectionSearch = document.querySelector('#UseGoldenSectionSearch').checked;
                         config.SyncModeCopy = document.querySelector('#SyncModeCopy').value === 'true';
-                        config.FastMkvExtraction = document.querySelector('#FastMkvExtraction').checked;
+                        config.FastIndexedExtraction = document.querySelector('#FastIndexedExtraction').checked;
+                        config.ExtractionTimeoutMinutes = Math.min(240, Math.max(1, parseInt(document.querySelector('#ExtractionTimeoutMinutes').value, 10) || 20));
                         config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
                         config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
                         config.SyncLanguages = document.querySelector('#SyncLanguages').value

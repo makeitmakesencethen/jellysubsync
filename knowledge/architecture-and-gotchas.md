@@ -221,3 +221,43 @@ correct track:
 
 The choice changes the derived speech signal, so `(vad method, reference stream)` is part of
 the `SpeechCache` key.
+
+
+## Extraction method chain and the stall watchdog
+
+`SubSyncService.ExtractEmbeddedAsync` tries methods cheapest-first and returns which one
+worked:
+
+1. `MkvSubtitleExtractor` — Matroska cue index (text codecs only).
+2. `Mp4SubtitleExtractor` — MP4/MOV `stbl` sample table (`tx3g`/`mov_text`, `text`).
+3. `ExtractSubtitle` — ffmpeg demux, which reads the whole file.
+
+Each skipped method logs its reason (`matroska-cues: no cue index`, `mp4-sample-table:
+codec c608 needs ffmpeg`, …), so a slow extraction can be traced to a cause. Step 3 runs
+under `ExtractionTimeoutMinutes` (default 20) and fails with a message naming the file
+size, the timeout and the skipped reasons — a pathologically slow read then surfaces as an
+error instead of a progress bar stuck at 5% (the phase extraction sets).
+
+Why this matters: four parallel workers each falling back to ffmpeg on the same volume is
+exactly how "all workers stuck at 5%" happens. Index reads remove the read entirely; the
+volume gate below stops the rest from competing.
+
+## Scheduling: auto mode, volume gating, media sharing
+
+`SyncJobMode.ResolveAuto(totalTasks, distinctMediaFiles)` decides the mode when the setting
+is `auto` (the default): ≤1 task → `normal`; one file → `fast`; several files →
+`ultimate`. `ResolveModeForBatch` applies it to the batch's jobs before wave selection and
+logs the decision.
+
+`SubSyncService.SelectWave` takes a `WavePolicy`:
+
+- `Limit` — worker count (parallel modes only).
+- `IsHeavyIo` — true when the job must read a lot (embedded extraction, or an audio
+  analysis with no cached speech signal). At most one heavy job per `VolumeOf` volume
+  enters a wave; that is what keeps a single disk from serving four readers at once.
+- `CanShareMediaFile` — a second subtitle of a file may join the wave only when that
+  file's speech analysis is cached, i.e. when the extra job reads nothing. Heavy jobs never
+  share a file.
+
+`MediaVolume.Of` maps a path to its mount point + device via `/proc/mounts` (longest match
+wins), falling back to the path root where that file does not exist.

@@ -151,12 +151,6 @@
                                 <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
                                     <option value="">All languages</option>
                                 </select>
-                                <select is="emby-select" id="ss-batchmode" class="ss-compact" label="Mode" style="max-width:260px;">
-                                    <option value="normal">Normal</option>
-                                    <option value="parallel">Parallel</option>
-                                    <option value="fast">Fast (reuse audio analysis)</option>
-                                    <option value="ultimate">Ultimate (parallel + reuse)</option>
-                                </select>
                                 <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
@@ -203,14 +197,15 @@
                                     <div class="checkboxContainer checkboxContainer-withDescription">
                                         <label class="emby-checkbox-label">
                                             <input is="emby-checkbox" type="checkbox" id="ss-fastmkv" />
-                                            <span>Read embedded Matroska subtitles via the file's cue index</span>
+                                            <span>Read embedded subtitles through the container's own index</span>
                                         </label>
                                         <div class="fieldDescription checkboxFieldDescription">
-                                            Instead of demuxing the whole container for a few kilobytes of text, the
-                                            subtitle blocks are read straight from the clusters the file's cue index points
-                                            at. On a 1.7 GB file that is ~0.2 s instead of ~2.3 s, and it avoids a full read of
-                                            a NAS-hosted file. Anything it cannot handle (image tracks, laced or compressed
-                                            blocks, missing index) falls back to ffmpeg automatically.
+                                            Instead of demuxing the whole file for a few kilobytes of text, subtitle
+                                            samples are read straight from the index the container already carries — the
+                                            Matroska cue index or the MP4 sample table. On a 1.7 GB file that is ~0.2 s
+                                            instead of ~2.3 s, and it avoids a full read of a NAS-hosted file. Anything the
+                                            index cannot describe (image tracks, laced/compressed blocks, exotic codecs, a
+                                            missing index) falls back to ffmpeg automatically, with the reason logged.
                                         </div>
                                     </div>
                                 </div>
@@ -218,12 +213,17 @@
                                 <h3 class="ss-subhead">Multi-subtitle sync mode</h3>
                                 <div class="ss-field">
                                     <select is="emby-select" id="ss-multimode" label="When one sync covers several subtitles">
-                                        <option value="normal">Normal — one at a time (default)</option>
-                                        <option value="parallel">Parallel — several at once</option>
-                                        <option value="fast">Fast — reuse the first run's audio analysis</option>
-                                        <option value="ultimate">Ultimate — parallel + reuse (fastest)</option>
+                                        <option value="auto">Automatic — chosen from the work (recommended)</option>
+                                        <option value="normal">Normal — one at a time</option>
+                                        <option value="parallel">Parallel — several files at once</option>
+                                        <option value="fast">Fast — reuse each file's audio analysis</option>
+                                        <option value="ultimate">Ultimate — parallel + reuse</option>
                                     </select>
                                     <div class="fieldDescription">
+                                        <strong>Automatic</strong> (default) picks per run: one subtitle on one file stays sequential;
+                                        several subtitles of one file analyse the audio once and reuse it; several files run in
+                                        parallel with each file's analysis reused. The other options force a specific behaviour —
+                                        they exist for troubleshooting.
                                         <strong>Normal</strong> syncs one subtitle at a time and analyses the audio for each.
                                         <strong>Parallel</strong> runs several subtitles of the same media file at once (CPU-bound, a
                                         few hundred MB per worker — keep it low on slow storage).
@@ -231,9 +231,9 @@
                                         for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra
                                         subtitle and produces identical results. Fast only helps when several subtitles share one
                                         file (a movie with many tracks, or re-syncing the same file later).
-                                        <strong>Ultimate</strong> combines both: several media files at once, and each file's audio
-                                        analysis reused by its remaining subtitles — the fastest way through a large selection.
-                                        Every mode produces the same alignments.
+                                        Every mode produces the same alignments, and parallel runs are I/O aware: only one
+                                        task reads heavily from a given volume at a time, so workers no longer crawl together
+                                        when they share a disk.
                                     </div>
                                 </div>
                                 <div class="ss-field">
@@ -535,8 +535,6 @@
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'normal';
-                    batchMode = c.MultiSyncMode || 'normal';
-                    if ($('ss-batchmode')) $('ss-batchmode').value = batchMode;
                     $('ss-workers').value = c.ParallelWorkers || 4;
                     syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
                     renderLangChips();
@@ -1151,7 +1149,7 @@
                 }
                 logLine('Building queue for ' + items.length + ' picked file' + (items.length === 1 ? '' : 's')
                     + (selLangs.length ? ' (' + selLangs.map(langLabel).join(' + ') + ' subtitles only)' : '')
-                    + ' \u2014 mode: ' + batchMode + '\u2026');
+                    + '\u2026');
                 var done = 0;
 
                 var all = [];
@@ -1186,7 +1184,6 @@
                         method: 'POST',
                         body: JSON.stringify({
                             label: label,
-                            mode: batchMode,
                             tasks: all.map(function (t) {
                                 return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
                             })
@@ -1961,14 +1958,6 @@
                     renderLangChips();
                 });
             }
-            var batchModeSel = $('ss-batchmode');
-            var batchMode = 'normal';
-            if (batchModeSel) {
-                batchModeSel.addEventListener('change', function () {
-                    batchMode = batchModeSel.value || 'normal';
-                });
-            }
-
             var selLangSel = $('ss-sellang');
             if (selLangSel) {
                 selLangSel.addEventListener('change', function () {

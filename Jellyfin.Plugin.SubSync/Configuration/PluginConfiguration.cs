@@ -9,12 +9,19 @@ namespace Jellyfin.Plugin.SubSync.Configuration;
 public class PluginConfiguration : BasePluginConfiguration
 {
     /// <summary>
-    /// Gets or sets whether embedded subtitles in Matroska files are read via the file's
-    /// cue index instead of being demuxed with ffmpeg. This is a pure speed-up (indexed
-    /// reads touch kilobytes instead of the whole file) and falls back to ffmpeg for
-    /// anything it cannot handle.
+    /// Gets or sets whether embedded subtitles are read through the container's own index
+    /// (Matroska cues, MP4 sample table) instead of being demuxed with ffmpeg. This is a
+    /// pure speed-up — indexed reads touch kilobytes instead of the whole file — and falls
+    /// back to ffmpeg for anything it cannot handle.
     /// </summary>
-    public bool FastMkvExtraction { get; set; } = true;
+    public bool FastIndexedExtraction { get; set; } = true;
+
+    /// <summary>
+    /// Gets or sets how long a single embedded-subtitle extraction may take before it is
+    /// aborted with a clear error (minutes). Guards against a stuck or pathologically slow
+    /// read looking like a hang in the UI.
+    /// </summary>
+    public int ExtractionTimeoutMinutes { get; set; } = 20;
 
     /// <summary>
     /// Gets or sets how multiple subtitles of the same media file are synced.

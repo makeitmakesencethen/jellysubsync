@@ -815,27 +815,148 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Picks the next wave of jobs to run: same batch, same mode, at most one job per media
-    /// file, up to <paramref name="limit"/> jobs. Batches never interleave, so queue order
-    /// between them is preserved; the one-file-one-slot rule keeps parallel workers off the
-    /// same file (two processes on one file would repeat the same audio analysis).
+    /// Policy for building a wave: the scheduling rules that depend on the machine and the
+    /// files rather than on the queue alone.
+    /// </summary>
+    public sealed class WavePolicy
+    {
+        /// <summary>Gets or sets the maximum number of jobs in a wave.</summary>
+        public int Limit { get; set; } = 1;
+
+        /// <summary>
+        /// Gets or sets a predicate saying whether a second job for the same media file may
+        /// join the wave. True once that file's speech analysis is cached — the extra job
+        /// then reads nothing from storage and only burns CPU.
+        /// </summary>
+        public Func<SyncJob, bool>? CanShareMediaFile { get; set; }
+
+        /// <summary>Gets or sets a predicate identifying the storage volume of a job.</summary>
+        public Func<SyncJob, string>? VolumeOf { get; set; }
+
+        /// <summary>
+        /// Gets or sets a predicate saying whether a job will read a lot of data (embedded
+        /// extraction or an audio analysis whose result is not cached). Only one such job
+        /// runs per volume per wave — otherwise every worker on that disk crawls at once.
+        /// </summary>
+        public Func<SyncJob, bool>? IsHeavyIo { get; set; }
+    }
+
+    /// <summary>
+    /// Resolves the effective mode for a job's batch. <c>auto</c> (the default) is decided
+    /// from the shape of the work: a single subtitle stays sequential, several subtitles of
+    /// one file reuse that file's speech analysis, and several files run in parallel with
+    /// per-file reuse. Explicit modes are honoured as-is — that is what the manual override
+    /// in Settings is for.
+    /// </summary>
+    /// <param name="head">Job at the head of the queue.</param>
+    /// <returns>The effective mode, written back onto the batch's auto jobs.</returns>
+    private string ResolveModeForBatch(SyncJob head)
+    {
+        var mode = NormalizeMode(head.Mode);
+        if (mode != SyncJobMode.Auto)
+        {
+            return mode;
+        }
+
+        var batchJobs = _jobs.Values
+            .Where(j => head.BatchId is null ? j.BatchId is null : j.BatchId == head.BatchId)
+            .Where(j => j.Status is SyncJobStatus.Queued or SyncJobStatus.Running)
+            .ToList();
+
+        var files = batchJobs.Select(j => j.ItemId).Distinct().Count();
+        var resolved = SyncJobMode.ResolveAuto(batchJobs.Count, files);
+
+        foreach (var job in batchJobs)
+        {
+            if (NormalizeMode(job.Mode) == SyncJobMode.Auto)
+            {
+                job.Mode = resolved;
+            }
+        }
+
+        _logger.LogInformation(
+            "Auto mode for batch {Batch}: {Tasks} task(s) across {Files} file(s) -> {Mode}",
+            head.BatchId ?? "(standalone)", batchJobs.Count, files, SyncJobMode.Describe(resolved));
+        return resolved;
+    }
+
+    /// <summary>
+    /// True when a job will read a lot from storage: it must extract an embedded subtitle,
+    /// or run a speech analysis whose result is not cached yet.
+    /// </summary>
+    private bool JobNeedsHeavyIo(SyncJob job, string mode)
+    {
+        if (!_jobContexts.TryGetValue(job.Id, out var ctx))
+        {
+            return false;
+        }
+
+        if (!ctx.Stream.IsExternal)
+        {
+            return true; // embedded extraction reads the container
+        }
+
+        return SyncJobMode.UsesSpeechCache(mode) && !SpeechIsCached(job);
+    }
+
+    /// <summary>
+    /// True when this job's media file already has its speech analysis cached, so it can run
+    /// without touching storage (and may share the file with another worker).
+    /// </summary>
+    private bool SpeechIsCached(SyncJob job)
+    {
+        try
+        {
+            if (!_jobContexts.TryGetValue(job.Id, out var ctx))
+            {
+                return false;
+            }
+
+            var key = SpeechCache.KeyFor(
+                ctx.Video.Path,
+                (ctx.Config.VadMethod ?? "subs_then_webrtc") + "|ref=" + SpeechCacheReferenceHint(job),
+                EngineIdentity());
+            return SpeechCache.TryGet(key) is not null;
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Reference hint used for the cache key when only the job is known.</summary>
+    private string SpeechCacheReferenceHint(SyncJob job) =>
+        _jobContexts.TryGetValue(job.Id, out var ctx) && ctx.Stream.IsExternal ? "auto" : "embedded";
+
+    /// <summary>Identity of the engine that shapes a speech signal.</summary>
+    private string EngineIdentity() => string.Join(
+        "|",
+        BundledFfSubSyncVersion,
+        typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+
+    /// <summary>
+    /// Picks the next wave of jobs to run: same batch, same mode, up to the policy's limit,
+    /// with storage-aware gating. Batches never interleave, so queue order between them is
+    /// preserved.
     /// </summary>
     /// <param name="queuedInOrder">Queued jobs in queue order.</param>
-    /// <param name="headMode">Mode of the job at the head of the queue.</param>
+    /// <param name="headMode">Resolved mode at the head of the queue.</param>
     /// <param name="headBatchId">Batch id of the job at the head of the queue.</param>
-    /// <param name="limit">Maximum number of jobs in the wave.</param>
+    /// <param name="policy">Scheduling policy (limit, media sharing, volume gating).</param>
     /// <returns>The wave, in queue order.</returns>
     public static List<SyncJob> SelectWave(
         IEnumerable<SyncJob> queuedInOrder,
         string headMode,
         string? headBatchId,
-        int limit)
+        WavePolicy policy)
     {
         var wave = new List<SyncJob>();
         var claimedItems = new HashSet<Guid>();
+        var busyVolumes = new HashSet<string>(StringComparer.Ordinal);
+
         foreach (var candidate in queuedInOrder)
         {
-            if (wave.Count >= limit)
+            if (wave.Count >= policy.Limit)
             {
                 break;
             }
@@ -850,9 +971,27 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
+            var heavy = policy.IsHeavyIo?.Invoke(candidate) ?? false;
+            var volume = policy.VolumeOf?.Invoke(candidate) ?? "unknown";
+
+            if (heavy && busyVolumes.Contains(volume))
+            {
+                continue; // one heavy reader per volume at a time
+            }
+
             if (!claimedItems.Add(candidate.ItemId))
             {
-                continue;
+                // Another subtitle of a file already in this wave: allowed only when that
+                // file's speech analysis is cached (no read, just CPU).
+                if (heavy || policy.CanShareMediaFile?.Invoke(candidate) != true)
+                {
+                    continue;
+                }
+            }
+
+            if (heavy)
+            {
+                busyVolumes.Add(volume);
             }
 
             wave.Add(candidate);
@@ -860,6 +999,21 @@ public class SubSyncService : IDisposable
 
         return wave;
     }
+
+    /// <summary>
+    /// Convenience overload for a plain wave without storage awareness (used by tests).
+    /// </summary>
+    /// <param name="queuedInOrder">Queued jobs in queue order.</param>
+    /// <param name="headMode">Resolved mode.</param>
+    /// <param name="headBatchId">Batch id.</param>
+    /// <param name="limit">Wave size limit.</param>
+    /// <returns>The wave, in queue order.</returns>
+    public static List<SyncJob> SelectWave(
+        IEnumerable<SyncJob> queuedInOrder,
+        string headMode,
+        string? headBatchId,
+        int limit) =>
+        SelectWave(queuedInOrder, headMode, headBatchId, new WavePolicy { Limit = limit });
 
     private static string NormalizeMode(string? mode) => SyncJobMode.Normalize(mode);
 
@@ -904,7 +1058,7 @@ public class SubSyncService : IDisposable
                 else
                 {
                     var config = Plugin.Instance?.Configuration;
-                    var headMode = NormalizeMode(head.Mode);
+                    var headMode = ResolveModeForBatch(head);
                     var limit = IsParallelMode(headMode)
                         ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
                         : 1;
@@ -913,7 +1067,13 @@ public class SubSyncService : IDisposable
                         _runOrder.Where(j => j.Status == SyncJobStatus.Queued),
                         headMode,
                         head.BatchId,
-                        limit);
+                        new WavePolicy
+                        {
+                            Limit = limit,
+                            VolumeOf = job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var c) ? c.Video.Path : null),
+                            IsHeavyIo = job => JobNeedsHeavyIo(job, headMode),
+                            CanShareMediaFile = job => SpeechIsCached(job)
+                        });
                 }
             }
 
@@ -1514,35 +1674,9 @@ public class SubSyncService : IDisposable
                     "Embedded sync of {Video}: deriving the speech signal from '{Reference}'",
                     videoPath, referenceStream);
 
-                // Matroska carries a cue index, so a text subtitle can be read straight
-                // from its clusters (kilobytes) instead of demuxing the whole file
-                // (one full read — minutes for a big file over a NAS).
-                var extractedFast = false;
-                if (config.FastMkvExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
-                {
-                    var watch = System.Diagnostics.Stopwatch.StartNew();
-                    if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleStreamOrdinal, out var indexedText, out var skipReason))
-                    {
-                        watch.Stop();
-                        await File.WriteAllTextAsync(subtitleInputPath, indexedText, new System.Text.UTF8Encoding(false)).ConfigureAwait(false);
-                        extractedFast = true;
-                        _logger.LogInformation(
-                            "Extracted embedded subtitle via the Matroska cue index in {Elapsed} ms ({Cues} cues) from {Video}",
-                            watch.ElapsedMilliseconds, indexedText.Split("-->").Length - 1, videoPath);
-                    }
-                    else
-                    {
-                        _logger.LogInformation(
-                            "Indexed Matroska extraction not used for {Video} ({Reason}) — falling back to ffmpeg",
-                            videoPath, skipReason);
-                    }
-                }
-
-                if (!extractedFast)
-                {
-                    _logger.LogInformation("Extracting embedded subtitle (container stream {Stream}) from {Video}", containerIndex, videoPath);
-                    await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath, cancellationToken).ConfigureAwait(false);
-                }
+                var extractionMethod = await ExtractEmbeddedAsync(
+                    videoPath, subtitleStreamOrdinal, containerIndex, subtitleInputPath, config, cancellationToken).ConfigureAwait(false);
+                job.Phase = "Extracting subtitle (" + extractionMethod + ")";
             }
 
             // Step 2: Run ffsubsync → temp output
@@ -2023,6 +2157,106 @@ public class SubSyncService : IDisposable
         }
 
         return args;
+    }
+
+    /// <summary>
+    /// Extracts an embedded subtitle using the cheapest applicable method, and reports which
+    /// one worked:
+    ///
+    /// 1. the container's own index — Matroska <c>Cues</c>, MP4 <c>stbl</c> (kilobytes read);
+    /// 2. ffmpeg, which demuxes the whole file (the only option for exotic codecs or files
+    ///    without an index), guarded by a timeout so a stuck or very slow read fails with a
+    ///    useful message instead of looking like a hang.
+    ///
+    /// Every skipped method logs why, so a slow path can always be traced back to its cause.
+    /// </summary>
+    /// <param name="videoPath">Media file.</param>
+    /// <param name="subtitleOrdinal">0-based index among subtitle streams.</param>
+    /// <param name="containerIndex">Real container stream index (for ffmpeg -map).</param>
+    /// <param name="outputPath">Where to write the SRT.</param>
+    /// <param name="config">Plugin configuration.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The method that produced the subtitle ("matroska-cues", "mp4-sample-table" or "ffmpeg").</returns>
+    private async Task<string> ExtractEmbeddedAsync(
+        string videoPath,
+        int subtitleOrdinal,
+        int containerIndex,
+        string outputPath,
+        Configuration.PluginConfiguration config,
+        CancellationToken cancellationToken)
+    {
+        var utf8 = new System.Text.UTF8Encoding(false);
+        var skipped = new List<string>();
+
+        if (config.FastIndexedExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why))
+            {
+                await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Extracted embedded subtitle via the Matroska cue index in {Ms} ms ({Cues} cues) from {Video}",
+                    watch.ElapsedMilliseconds, SrtWriter.CountCues(srt), videoPath);
+                return "matroska-cues";
+            }
+
+            skipped.Add("matroska-cues: " + why);
+        }
+
+        if (config.FastIndexedExtraction && Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
+        {
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            if (Mp4SubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why))
+            {
+                await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
+                _logger.LogInformation(
+                    "Extracted embedded subtitle via the MP4 sample table in {Ms} ms ({Cues} cues) from {Video}",
+                    watch.ElapsedMilliseconds, SrtWriter.CountCues(srt), videoPath);
+                return "mp4-sample-table";
+            }
+
+            skipped.Add("mp4-sample-table: " + why);
+        }
+
+        if (!config.FastIndexedExtraction)
+        {
+            skipped.Add("indexed extraction is switched off in the settings");
+        }
+
+        double sizeMb = 0;
+        try
+        {
+            sizeMb = new FileInfo(videoPath).Length / (1024.0 * 1024.0);
+        }
+        catch (Exception)
+        {
+            // Size is only used for the log line.
+        }
+
+        var timeout = TimeSpan.FromMinutes(Math.Clamp(config.ExtractionTimeoutMinutes, 1, 240));
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutCts.CancelAfter(timeout);
+        var fallbackWatch = System.Diagnostics.Stopwatch.StartNew();
+
+        _logger.LogInformation(
+            "Falling back to ffmpeg extraction for {Video} ({Size:0} MB, up to {Minutes} min) — indexed reads not usable: {Reasons}",
+            videoPath, sizeMb, timeout.TotalMinutes,
+            skipped.Count == 0 ? "no index reader matched this container" : string.Join("; ", skipped));
+
+        try
+        {
+            await ExtractSubtitle(videoPath, containerIndex, outputPath, timeoutCts.Token).ConfigureAwait(false);
+            _logger.LogInformation(
+                "ffmpeg extraction finished in {Ms} ms for {Video}", fallbackWatch.ElapsedMilliseconds, videoPath);
+            return "ffmpeg";
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new InvalidOperationException(
+                $"Subtitle extraction timed out after {timeout.TotalMinutes:0} minutes for a {sizeMb:0} MB file. "
+                + $"Indexed extraction could not be used ({string.Join("; ", skipped)}), so ffmpeg had to read the whole file — "
+                + "this usually means the media sits on a slow or busy mount, or the file needs remuxing to carry an index.");
+        }
     }
 
     private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath, CancellationToken cancellationToken = default)

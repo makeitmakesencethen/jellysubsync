@@ -51,6 +51,23 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Added: **automatic sync strategy** — the mode picker is gone from the Sync tab. `auto`
+  (now the default) decides per run: one subtitle on one file stays sequential; several
+  subtitles of one file analyse the audio once and reuse it; several files run in parallel
+  with each file's analysis reused. The explicit modes remain as a troubleshooting override
+  in Settings.
+- Added: **storage-aware scheduling** — at most one heavy reader per volume per wave
+  (`MediaVolume.Of` maps a path to its mount point/device), so parallel workers sharing a
+  disk no longer stall together; tasks whose audio analysis is already cached read nothing
+  and still run fully in parallel. Several subtitles of one file may now share a wave once
+  that file's speech signal is cached.
+- Added: **MP4/MOV index extraction** — embedded `tx3g`/`mov_text` subtitles are read
+  through the file's sample table instead of demuxing it (verified against ffmpeg: 200/200
+  cues, identical text, 0.000 s timing difference). The extraction chain is now Matroska
+  cues → MP4 sample table → ffmpeg, each skipped method logging its reason.
+- Added: **extraction timeout** (`ExtractionTimeoutMinutes`, default 20) — a slow or stuck
+  ffmpeg fallback now fails with a message naming the file size, the timeout and why the
+  indexed readers could not be used, instead of showing a progress bar frozen at 5%.
 - Fixed: **embedded subtitles could be aligned against themselves.** ffsubsync's default
   detector (`subs_then_*`) prefers a file's embedded text subtitle as the speech signal —
   but when the subtitle being synced *is* that embedded track, the alignment can only
