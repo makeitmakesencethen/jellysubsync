@@ -294,6 +294,19 @@ logs the decision.
   analysis with no cached speech signal). It is used for one rule only: a second job for a
   media file may join a wave solely when that file's speech analysis is already cached, so
   two workers never race to build the same cache entry.
+- **Which stream is the reference decides whether the speech cache applies.** For an embedded
+  track the selector prefers a *sibling text subtitle* stream (`s:N`) and only falls back to
+  `a:0`; the speech cache is keyed on audio references, so the sibling path deliberately has no
+  cache. Measured on a 1h52m remux: sibling-subtitle reference 0.6 s per track, audio reference
+  with stored speech 1.4 s, audio reference analysing 12.6 s. So do not add caching for the
+  sibling path — it saves ~0.5 s a track — and do not read "it analyses every time" as a bug
+  without checking `Embedded sync of <file>: deriving the speech signal from '<reference>'` in the
+  log first.
+- **A sibling-subtitle reference cannot see a shift shared by every subtitle of a file.** It
+  compares two tracks on the same timeline, so a whole-file offset returns `+0 ms` and nothing
+  changes. Only an audio reference can see that case. Keep this in mind before "fixing" a run that
+  reports 0 for all tracks: it may simply be correct, or it may be blind, and the difference is
+  whether the subtitles are actually mistimed on playback.
 - **Embedded extraction has a floor, and it is latency, not volume.** A file with subtitle cue
   points costs ~1 read of ~4 KB per cue (measured: 326 cues = 342-371 kernel reads, 1.3 MB,
   0.08% of the file). Do not try to "optimise" it further by reading bigger windows — the next cue
