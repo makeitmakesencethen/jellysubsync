@@ -1638,6 +1638,8 @@
                         var badge = modeBadge(view.Mode || view.mode);
                         if (badge) bits.push(badge);
                         var workerLimit = view.WorkerLimit || view.workerLimit || 0;
+                        var runningVersion = view.PluginVersion || view.pluginVersion;
+                        if (runningVersion) bits.push('v' + runningVersion);
                         if (workersNow > 1 || (workerLimit > 1 && total > workersNow)) {
                             bits.push(workerLimit > 0 ? workersNow + '/' + workerLimit + ' workers' : workersNow + ' workers');
                         }

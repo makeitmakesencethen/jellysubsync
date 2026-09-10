@@ -1208,6 +1208,33 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Reads the "done/total" counters out of an extraction progress line.
+    ///
+    /// The extractor reports "reading subtitle 128/326 · 1.3 MB, 341 reads · …"; the fraction is
+    /// what lets the progress bar follow real work instead of standing still.
+    /// </summary>
+    /// <param name="line">Progress text from an extractor.</param>
+    /// <returns>The completed fraction in 0..1, or null when the line has no counters.</returns>
+    public static double? ExtractionFraction(string? line)
+    {
+        if (string.IsNullOrEmpty(line))
+        {
+            return null;
+        }
+
+        var match = System.Text.RegularExpressions.Regex.Match(line, @"(\d+)\s*/\s*(\d+)");
+        if (!match.Success
+            || !double.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var done)
+            || !double.TryParse(match.Groups[2].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var total)
+            || total <= 0)
+        {
+            return null;
+        }
+
+        return Math.Clamp(done / total, 0.0, 1.0);
+    }
+
+    /// <summary>
     /// Decides which queued jobs may start right now, given how many are already running.
     ///
     /// This is the difference between a worker pool and a group scheduler: the available slots
@@ -2559,7 +2586,17 @@ public class SubSyncService : IDisposable
         {
             job.Phase = "Extracting subtitle from the Matroska index";
             var watch = System.Diagnostics.Stopwatch.StartNew();
-            var progress = new Action<string>(line => job.Phase = "Extracting subtitle: " + line);
+            var progress = new Action<string>(line =>
+            {
+                job.Phase = "Extracting subtitle: " + line;
+
+                // Advance the bar with the work actually done. Without this the whole extraction
+                // sat at a frozen 5%, which made four independent workers look synchronised.
+                if (ExtractionFraction(line) is { } fraction)
+                {
+                    job.Progress = 0.05 + (0.15 * fraction); // 5% → 20% is the extraction window
+                }
+            });
             if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why, progress, out var stats, cancellationToken))
             {
                 await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);

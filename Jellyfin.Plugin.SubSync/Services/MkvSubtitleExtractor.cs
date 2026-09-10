@@ -42,6 +42,18 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets the time spent reading it, in milliseconds.</summary>
     public double ReadMs { get; set; }
 
+    /// <summary>Gets or sets bytes the kernel read on this process's behalf, or -1 if unknown.</summary>
+    public long KernelBytesRead { get; set; } = -1;
+
+    /// <summary>Gets or sets read syscalls the kernel performed, or -1 if unknown.</summary>
+    public long KernelReadCalls { get; set; } = -1;
+
+    /// <summary>Gets or sets average milliseconds per read call.</summary>
+    public double ReadLatencyMs { get; set; }
+
+    /// <summary>Gets or sets subtitle blocks decoded per second.</summary>
+    public double BlocksPerSecond { get; set; }
+
     /// <summary>Gets or sets the total time, in milliseconds.</summary>
     public double TotalMs { get; set; }
 
@@ -58,7 +70,14 @@ public sealed class MkvExtractionStats
             ReadCalls,
             TotalMs,
             LocateMs,
-            ReadMs);
+            ReadMs)
+        + string.Format(
+            CultureInfo.InvariantCulture,
+            " | {0:0.0} ms/read, {1:0} blocks/s, kernel {2} bytes in {3} calls",
+            ReadLatencyMs,
+            BlocksPerSecond,
+            KernelBytesRead,
+            KernelReadCalls);
 }
 
 /// <summary>
@@ -432,6 +451,7 @@ public static class MkvSubtitleExtractor
             + $"({cueRefs.Count(r => r.RelativePosition >= 0)} with a block offset), method pending");
 
         var readWatch = Stopwatch.StartNew();
+        var (kernelBytesAtStart, kernelCallsAtStart) = KernelIo();
 
         if (cueRefs.Count > 0)
         {
@@ -456,9 +476,46 @@ public static class MkvSubtitleExtractor
                 }
 
                 index++;
+
+                // Live counters: these used to be filled in only after the extraction finished,
+                // so the line read "0.0 MB, 0 reads" while it was reading.
+                stats.BytesRead = reader.BytesRead;
+                stats.ReadCalls = reader.ReadCalls;
+
                 if (progress is not null && (index % 16 == 0 || index == cueRefs.Count))
                 {
-                    progress($"reading subtitle {index}/{cueRefs.Count} ({(stats.BytesRead / 1e6):0.0} MB, {stats.ReadCalls} reads)");
+                    var elapsedMs = readWatch.Elapsed.TotalMilliseconds;
+                    stats.ReadLatencyMs = elapsedMs / Math.Max(1, stats.ReadCalls);
+                    stats.BlocksPerSecond = stats.ReadLatencyMs <= 0
+                        ? 0
+                        : index / (elapsedMs / 1000.0);
+                    var (kernelBytesNow, kernelCallsNow) = KernelIo();
+                    if (kernelBytesNow >= 0 && kernelBytesAtStart >= 0)
+                    {
+                        stats.KernelBytesRead = kernelBytesNow - kernelBytesAtStart;
+                        stats.KernelReadCalls = kernelCallsNow - kernelCallsAtStart;
+                        progress(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "reading subtitle {0}/{1} · {2:0.0} MB, {3} reads · {4:0.0} ms/read · {5:0} cues/s",
+                            index,
+                            cueRefs.Count,
+                            stats.KernelBytesRead / 1e6,
+                            stats.KernelReadCalls,
+                            stats.ReadLatencyMs,
+                            stats.BlocksPerSecond));
+                    }
+                    else
+                    {
+                        progress(string.Format(
+                            CultureInfo.InvariantCulture,
+                            "reading subtitle {0}/{1} · {2:0.0} MB, {3} reads · {4:0.0} ms/read · {5:0} cues/s",
+                            index,
+                            cueRefs.Count,
+                            stats.BytesRead / 1e6,
+                            stats.ReadCalls,
+                            stats.ReadLatencyMs,
+                            stats.BlocksPerSecond));
+                    }
                 }
 
                 stats.ClustersVisited++;
@@ -517,6 +574,44 @@ public static class MkvSubtitleExtractor
         srtText = ToSrt(cues);
         stats.SubtitleBlocks = cues.Count;
         return srtText.Length > 0;
+    }
+
+    /// <summary>
+    /// Bytes and read calls as the kernel sees them (<c>/proc/self/io</c>), when readable.
+    ///
+    /// The reader's own counters describe what it asked for; these describe what happened, which
+    /// is what any claim about cost has to rest on.
+    /// </summary>
+    /// <returns>Bytes read and read syscalls, or (-1, -1) when unavailable.</returns>
+    public static (long Bytes, long Calls) KernelIo()
+    {
+        if (!OperatingSystem.IsLinux())
+        {
+            return (-1, -1);
+        }
+
+        try
+        {
+            long bytes = -1;
+            long calls = -1;
+            foreach (var line in File.ReadLines("/proc/self/io"))
+            {
+                if (line.StartsWith("rchar:", StringComparison.Ordinal))
+                {
+                    bytes = long.Parse(line.AsSpan(6).Trim(), CultureInfo.InvariantCulture);
+                }
+                else if (line.StartsWith("syscr:", StringComparison.Ordinal))
+                {
+                    calls = long.Parse(line.AsSpan(6).Trim(), CultureInfo.InvariantCulture);
+                }
+            }
+
+            return (bytes, calls);
+        }
+        catch
+        {
+            return (-1, -1);
+        }
     }
 
     /// <summary>

@@ -294,6 +294,15 @@ logs the decision.
   analysis with no cached speech signal). It is used for one rule only: a second job for a
   media file may join a wave solely when that file's speech analysis is already cached, so
   two workers never race to build the same cache entry.
+- **Embedded extraction has a floor, and it is latency, not volume.** A file with subtitle cue
+  points costs ~1 read of ~4 KB per cue (measured: 326 cues = 342-371 kernel reads, 1.3 MB,
+  0.08% of the file). Do not try to "optimise" it further by reading bigger windows — the next cue
+  is a cluster away, so a bigger read buys nothing and costs bandwidth. Extraction time is
+  `cues × storage read latency`, and several workers on one disk multiply that latency for every
+  worker. Report `ms/read` rather than claiming a speed-up.
+- Never report progress from counters that are filled in at the end of an operation: it produced
+  a literal "0.0 MB, 0 reads" through an entire extraction. Fill counters live, and where possible
+  cross-check them against the kernel (`/proc/self/io`).
 - The queue is a **worker pool, not a wave barrier**: `PlanStart` computes the free slots
   (`limit − running`) and starts that many jobs; each finishing job wakes the pump to refill its
   own slot. Group semantics (awaiting a whole wave) wasted every finished worker's time and made

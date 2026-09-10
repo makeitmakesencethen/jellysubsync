@@ -191,7 +191,35 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.28]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.29]
+
+### Fixed
+- **Extraction progress is now honest and checkable.** The line printed counters that were only
+  filled in after extraction finished, so it read `0.0 MB, 0 reads` the whole time — a claim about
+  cost that could not be checked while it was being paid. Counters are live, and bytes/reads come
+  from the kernel (`/proc/self/io`) as well as the reader, so the two must agree.
+- **The line reports latency**: `reading subtitle 128/326 · 1.3 MB, 371 reads · 0.1 ms/read · 26
+  cues/s`. On storage where a read costs 12 ms, 330 reads is 4 s; where it costs 50 ms, it is
+  16 s — which is what a shared disk head does to several workers at once.
+- **The extraction bar moves.** The Matroska path only ever set the phase text, leaving every
+  worker frozen at 5% — four independent workers looked synchronised because the number under
+  them did not change, even though their cue counts differed. The bar now follows the cue
+  fraction (5% → 20%).
+- **The running version is shown** in the run line, so which build is in use is never a guess.
+
+### Measured
+A fixture shaped like the reported episodes (326 subtitle cue points, 5 MB clusters, 1.7 GB
+apparent; no library file involved):
+
+  read calls  342–371 (kernel-verified)   ≈1.1 reads per cue
+  bytes read  1.3–1.4 MB                  ≈4 KB per cue, 0.08% of the file
+  output      326 cues, byte-identical to ffmpeg's extraction
+
+Embedded subtitles sit in scattered clusters; one small read each is the floor, so extraction
+time is that floor times storage read latency (times contention when several workers share one
+disk). The line now states the multiplier instead of leaving it to interpretation.
+
+## [1.1.0.28]
 
 ### Fixed
 - **Any worker count is honoured.** The setting was capped or rewritten in five places: the
