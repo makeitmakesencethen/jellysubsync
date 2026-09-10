@@ -2119,7 +2119,8 @@ public class SubSyncService : IDisposable
                 {
                     ParseFfSubSyncStderr(line, job);
                 },
-                cancellationToken).ConfigureAwait(false);
+                cancellationToken,
+                singleThreaded: true).ConfigureAwait(false);
 
             if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
             {
@@ -3007,12 +3008,52 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Environment variables that keep a numeric library inside one thread.
+    ///
+    /// ffsubsync's numpy/BLAS backend otherwise opens up to four threads per process (measured:
+    /// peak 4 threads unpinned against peak 1 pinned, same work). Worker count and thread count
+    /// multiply, so several workers on a small box demand more threads than the box has cores -
+    /// visible only as a load average above the core count.
+    /// </summary>
+    private static readonly string[] SingleThreadVariables =
+    {
+        "OMP_NUM_THREADS",
+        "OPENBLAS_NUM_THREADS",
+        "MKL_NUM_THREADS",
+        "NUMEXPR_NUM_THREADS",
+        "VECLIB_MAXIMUM_THREADS"
+    };
+
+    /// <summary>
+    /// Restricts a child process to a single compute thread.
+    ///
+    /// The worker count is the setting that expresses how much parallelism is wanted, so the
+    /// process must not silently add threads on top of it. Children inherit this, so an ffmpeg
+    /// spawned by ffsubsync stays inside the same budget.
+    /// </summary>
+    /// <param name="startInfo">Process to restrict.</param>
+    private static void PinToSingleThread(ProcessStartInfo startInfo)
+    {
+        foreach (var name in SingleThreadVariables)
+        {
+            startInfo.Environment[name] = "1";
+        }
+    }
+
+    /// <summary>
     /// Runs a process and calls back with each stderr line in real-time.
     /// Used for ffsubsync to parse tqdm progress and phase messages.
     /// </summary>
+    /// <param name="executable">Program to run.</param>
+    /// <param name="arguments">Arguments, passed as argv.</param>
+    /// <param name="workingDir">Working directory, or null.</param>
+    /// <param name="onStderrLine">Callback per stderr line.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="singleThreaded">Whether to keep the child inside one compute thread.</param>
+    /// <returns>The exit code.</returns>
     private async Task<int> RunProcessWithStderrCallbackAsync(
         string executable, IReadOnlyList<string> arguments, string? workingDir,
-        Action<string>? onStderrLine, CancellationToken cancellationToken)
+        Action<string>? onStderrLine, CancellationToken cancellationToken, bool singleThreaded = false)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
@@ -3023,6 +3064,11 @@ public class SubSyncService : IDisposable
             UseShellExecute = false,
             CreateNoWindow = true
         };
+
+        if (singleThreaded)
+        {
+            PinToSingleThread(process.StartInfo);
+        }
 
         foreach (var argument in arguments)
         {

@@ -191,7 +191,22 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.30]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.31]
+
+### Fixed
+- **One worker no longer opens four threads.** Measured on a real 1h52m remux: the bundled
+  ffsubsync's numeric libraries peak at 4 threads per process; pinned, they peak at 1 while doing
+  the same work at the same share of a core. Worker count and thread count multiply, so four
+  workers on a four-core box were demanding up to sixteen threads — a load average above the core
+  count with no visible cause. `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`,
+  `NUMEXPR_NUM_THREADS` and `VECLIB_MAXIMUM_THREADS` are set to 1 for the ffsubsync process (its
+  children inherit them). The worker setting remains the only thing that decides parallelism.
+- **The version no longer contradicts itself.** The catalog served 1.1.0.30 while the assembly
+  still said 1.1.0.19, because `<AssemblyVersion>`/`<FileVersion>` had not moved since that
+  release — and the version shown in the interface is read from the assembly. Both now expand from
+  `<Version>`; the built DLL contains exactly one version string, `1.1.0.31`.
+
+## [1.1.0.30]
 
 ### Fixed
 - **The end-of-extraction summary carries the same numbers as the live lines.** It printed
