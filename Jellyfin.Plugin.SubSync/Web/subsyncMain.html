@@ -237,6 +237,10 @@
                                     </div>
                                 </div>
                                 <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-heavyreads" label="Heavy reads per storage volume" min="1" max="4" />
+                                    <div class="fieldDescription">How many tasks may read heavily (whole-file extraction or a first-time audio analysis) from the same disk at once. 1 is safest for a single HDD; 2-3 gives more overlap. Default: 2.</div>
+                                </div>
+                                <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
                                     <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
                                 </div>
@@ -482,13 +486,21 @@
             // One row per task currently syncing. Only parallel/ultimate modes have
             // more than one, but the panel is harmless for a single task and makes the
             // phase visible while it works.
+            function modeBadge(mode) {
+                switch ((mode || '').toLowerCase()) {
+                    case 'ultimate': return 'parallel + reusing audio analysis';
+                    case 'parallel': return 'parallel';
+                    case 'fast': return 'reusing audio analysis';
+                    case 'auto': return 'automatic';
+                    default: return 'single';
+                }
+            }
+
             function renderWorkerRows(view) {
                 var box = $('ss-workers');
                 if (!box) return;
                 var running = (view && (view.RunningTasks || view.runningTasks)) || [];
-                var mode = (view && (view.Mode || view.mode)) || 'normal';
-                var parallel = mode === 'parallel' || mode === 'ultimate';
-                if (!running.length || (!parallel && running.length < 2)) {
+                if (running.length === 0) {
                     box.classList.add('ss-hidden');
                     box.innerHTML = '';
                     return;
@@ -536,6 +548,7 @@
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'normal';
                     $('ss-workers').value = c.ParallelWorkers || 4;
+                    $('ss-heavyreads').value = c.HeavyReadsPerVolume || 2;
                     syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
                     renderLangChips();
                 });
@@ -556,6 +569,7 @@
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'normal';
                     c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
+                    c.HeavyReadsPerVolume = Math.min(4, Math.max(1, parseInt($('ss-heavyreads').value, 10) || 2));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';
@@ -1569,16 +1583,18 @@
                             if (iid && episodeIds.indexOf(iid) < 0) episodeIds.push(iid);
                         });
                         var totalEp = episodeIds.length;
+                        var badge = modeBadge(view.Mode || view.mode) + ' \u00b7 ' + (view.RunningTasks || view.runningTasks || []).length + ' worker' +
+                            (((view.RunningTasks || view.runningTasks || []).length === 1) ? '' : 's');
                         if (current) {
                             var cTitle = current.Title || current.title || '';
                             var phase = current.Phase || current.phase || '';
                             var curIid = current.ItemId || current.itemId;
                             var epPos = episodeIds.indexOf(curIid) + 1;
                             if (totalEp > 1) {
-                                $('ss-run-label').textContent = 'Episode ' + epPos + '/' + totalEp +
+                                $('ss-run-label').textContent = badge + ' \u00b7 episode ' + epPos + '/' + totalEp +
                                     ' \u00b7 task ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
                             } else {
-                                $('ss-run-label').textContent = 'Syncing ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
+                                $('ss-run-label').textContent = badge + ' \u00b7 task ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
                             }
                             $('ss-phase').textContent = phase;
                             var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);

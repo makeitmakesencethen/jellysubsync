@@ -834,6 +834,14 @@ public class SubSyncService : IDisposable
         public Func<SyncJob, string>? VolumeOf { get; set; }
 
         /// <summary>
+        /// Gets or sets how many jobs may read heavily from one volume in the same wave.
+        /// One is safest for a single spinning disk or a saturated link but leaves workers
+        /// idle; the default allows a little overlap without letting four readers fight over
+        /// one device.
+        /// </summary>
+        public int HeavyIoPerVolume { get; set; } = 2;
+
+        /// <summary>
         /// Gets or sets a predicate saying whether a job will read a lot of data (embedded
         /// extraction or an audio analysis whose result is not cached). Only one such job
         /// runs per volume per wave — otherwise every worker on that disk crawls at once.
@@ -952,7 +960,8 @@ public class SubSyncService : IDisposable
     {
         var wave = new List<SyncJob>();
         var claimedItems = new HashSet<Guid>();
-        var busyVolumes = new HashSet<string>(StringComparer.Ordinal);
+        var heavyPerVolume = new Dictionary<string, int>(StringComparer.Ordinal);
+        var heavyBudget = policy.HeavyIoPerVolume < 1 ? 1 : policy.HeavyIoPerVolume;
 
         foreach (var candidate in queuedInOrder)
         {
@@ -974,9 +983,9 @@ public class SubSyncService : IDisposable
             var heavy = policy.IsHeavyIo?.Invoke(candidate) ?? false;
             var volume = policy.VolumeOf?.Invoke(candidate) ?? "unknown";
 
-            if (heavy && busyVolumes.Contains(volume))
+            if (heavy && heavyPerVolume.TryGetValue(volume, out var already) && already >= heavyBudget)
             {
-                continue; // one heavy reader per volume at a time
+                continue; // this volume already has its share of heavy readers in this wave
             }
 
             if (!claimedItems.Add(candidate.ItemId))
@@ -991,7 +1000,7 @@ public class SubSyncService : IDisposable
 
             if (heavy)
             {
-                busyVolumes.Add(volume);
+                heavyPerVolume[volume] = heavyPerVolume.TryGetValue(volume, out var current) ? current + 1 : 1;
             }
 
             wave.Add(candidate);
@@ -1070,6 +1079,7 @@ public class SubSyncService : IDisposable
                         new WavePolicy
                         {
                             Limit = limit,
+                            HeavyIoPerVolume = Math.Clamp(config?.HeavyReadsPerVolume ?? 2, 1, 4),
                             VolumeOf = job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var c) ? c.Video.Path : null),
                             IsHeavyIo = job => JobNeedsHeavyIo(job, headMode),
                             CanShareMediaFile = job => SpeechIsCached(job)

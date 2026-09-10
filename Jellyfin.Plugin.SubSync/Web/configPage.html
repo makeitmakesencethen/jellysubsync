@@ -130,6 +130,12 @@
                         </div>
 
                         <div class="inputContainer">
+                            <label class="inputLabel inputLabelUnfocused" for="HeavyReadsPerVolume">Heavy reads per storage volume</label>
+                            <input is="emby-input" type="number" id="HeavyReadsPerVolume" name="HeavyReadsPerVolume" min="1" max="4" />
+                            <div class="fieldDescription">How many tasks may read heavily from the same disk at once (parallel modes). 1 for a single HDD, 2-3 for more overlap. Default: 2.</div>
+                        </div>
+
+                        <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ExtractionTimeoutMinutes">Subtitle extraction timeout (minutes)</label>
                             <input is="emby-input" type="number" id="ExtractionTimeoutMinutes" name="ExtractionTimeoutMinutes" min="1" max="240" />
                             <div class="fieldDescription">How long one embedded-subtitle extraction may take before it fails with a clear message instead of appearing to hang. Default: 20.</div>
@@ -265,6 +271,7 @@
                         document.querySelector('#SyncModeCopy').value = config.SyncModeCopy !== false ? 'true' : 'false';
                         document.querySelector('#FastIndexedExtraction').checked = config.FastIndexedExtraction !== false;
                         document.querySelector('#ExtractionTimeoutMinutes').value = config.ExtractionTimeoutMinutes || 20;
+                        document.querySelector('#HeavyReadsPerVolume').value = config.HeavyReadsPerVolume || 2;
                         document.querySelector('#MultiSyncMode').value = config.MultiSyncMode || 'normal';
                         document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 4;
                         document.querySelector('#SyncLanguages').value = (config.SyncLanguages || []).join(', ');
@@ -321,6 +328,7 @@
                         config.SyncModeCopy = document.querySelector('#SyncModeCopy').value === 'true';
                         config.FastIndexedExtraction = document.querySelector('#FastIndexedExtraction').checked;
                         config.ExtractionTimeoutMinutes = Math.min(240, Math.max(1, parseInt(document.querySelector('#ExtractionTimeoutMinutes').value, 10) || 20));
+                        config.HeavyReadsPerVolume = Math.min(4, Math.max(1, parseInt(document.querySelector('#HeavyReadsPerVolume').value, 10) || 2));
                         config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
                         config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
                         config.SyncLanguages = document.querySelector('#SyncLanguages').value

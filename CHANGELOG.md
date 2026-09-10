@@ -51,6 +51,15 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Fixed: parallel runs on a **single-volume library effectively ran one task at a time**.
+  The per-volume heavy-read gate allowed exactly one heavy reader, and with an uncached
+  library every first analysis is heavy — so four workers sat idle. The gate now takes a
+  budget (`HeavyReadsPerVolume`, default **2**, 1-4 in Settings) so work overlaps while a
+  disk still never serves four readers at once.
+- Fixed: the per-worker progress rows vanished under the automatic strategy — the panel
+  keyed on an explicit parallel mode, and `auto` is resolved only once the run starts. It
+  now shows whenever anything is running, and the run line names the strategy and worker
+  count (`parallel + reusing audio analysis · 2 workers · task 12/284: …`).
 - Added: **automatic sync strategy** — the mode picker is gone from the Sync tab. `auto`
   (now the default) decides per run: one subtitle on one file stays sequential; several
   subtitles of one file analyse the audio once and reuse it; several files run in parallel

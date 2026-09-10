@@ -253,8 +253,11 @@ logs the decision.
 
 - `Limit` — worker count (parallel modes only).
 - `IsHeavyIo` — true when the job must read a lot (embedded extraction, or an audio
-  analysis with no cached speech signal). At most one heavy job per `VolumeOf` volume
-  enters a wave; that is what keeps a single disk from serving four readers at once.
+  analysis with no cached speech signal). At most `HeavyIoPerVolume` heavy jobs per
+  `VolumeOf` volume enter a wave (`HeavyReadsPerVolume`, default 2, clamped 1-4). One is
+  safest for a single HDD but serialises a one-volume library and leaves every worker
+  idle; two keeps the disk honest while still overlapping work. This is the knob to lower
+  if a disk is clearly the bottleneck and to raise when it has headroom.
 - `CanShareMediaFile` — a second subtitle of a file may join the wave only when that
   file's speech analysis is cached, i.e. when the extra job reads nothing. Heavy jobs never
   share a file.
