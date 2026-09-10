@@ -545,6 +545,22 @@ Check("a line without counters has no fraction", SubSyncService.ExtractionFracti
 Check("a zero total cannot divide by zero", SubSyncService.ExtractionFraction("reading subtitle 5/0") is null);
 Check("null is tolerated", SubSyncService.ExtractionFraction(null) is null);
 
+// ---------------- Sync phases name what actually happens ----------------
+// A sibling-subtitle reference keeps the cheap path (0.6 s/track); conflating its label with
+// "Analysing the audio" made every subtitle of a file look like a repeated audio analysis.
+Check("a reused analysis says so",
+    SubSyncService.SyncPhaseLabel(true, true) == "Syncing (from cache)",
+    SubSyncService.SyncPhaseLabel(true, true));
+Check("the audio path says it analyses the audio",
+    SubSyncService.SyncPhaseLabel(false, true) == "Syncing (analysing the audio)",
+    SubSyncService.SyncPhaseLabel(false, true));
+Check("a sibling subtitle reference says so, not 'analysing speech'",
+    SubSyncService.SyncPhaseLabel(false, false) == "Syncing (using another subtitle track)",
+    SubSyncService.SyncPhaseLabel(false, false));
+Check("no label claims speech analysis when none happens",
+    !SubSyncService.SyncPhaseLabel(false, false).Contains("analysing", StringComparison.OrdinalIgnoreCase)
+    && !SubSyncService.SyncPhaseLabel(false, false).Contains("analyzing", StringComparison.OrdinalIgnoreCase));
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 

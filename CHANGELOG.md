@@ -191,7 +191,28 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.32]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.33]
+
+### Fixed
+- **The sync phase now names what ffsubsync actually does.** Three different situations shared
+  one label, so a cheap 0.6 s subtitle comparison looked like a fresh audio analysis on every
+  subtitle of the same file:
+  - `Syncing (from cache)` — the stored speech analysis is being reused (this was "reusing the
+    audio analysis", now stated in the terms you asked for),
+  - `Syncing (analysing the audio)` — the audio is actually being analysed,
+  - `Syncing (using another subtitle track)` — a sibling subtitle track is the reference, so no
+    audio work happens at all (this path previously kept the placeholder "Analyzing speech" set
+    before the branch, which is what made it look like repeated analysis).
+
+  Deciding the label moved into one testable helper, with checks asserting that no label claims
+  speech analysis when none happens.
+
+### Changed
+- **The language dropdown says `LOADING <done>/<total>` while it reads subtitle lists**, and is
+  disabled until the list is in. Showing "All languages" before anything had been read claimed a
+  completeness the list did not have yet.
+
+## [1.1.0.32]
 
 ### Reverted
 - **Thread pinning removed.** 1.1.0.31 forced ffsubsync's numeric libraries to one thread per

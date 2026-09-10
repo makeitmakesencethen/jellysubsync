@@ -1,0 +1,18 @@
+Name what ffsubsync actually does, and show LOADING while languages are read
+
+Three situations shared one progress label. With a sibling-subtitle reference (the usual path for
+embedded tracks in a file with several text tracks) the phase kept the placeholder "Analyzing
+speech" that was set before the branch was decided, so an 0.6 s subtitle comparison looked like a
+fresh audio analysis on every subtitle of the same file - reported as "it analyses the same
+episode each sub when it is supposed to use cache".
+
+The label now comes from one testable helper: "Syncing (from cache)" when the stored analysis is
+reused, "Syncing (analysing the audio)" when the audio is analysed, and "Syncing (using another
+subtitle track)" when a sibling track is the reference and no audio work happens. Checks assert
+that no label claims speech analysis when none occurs.
+
+The language dropdown showed "All languages" while it was still querying subtitle lists, claiming
+completeness it did not have. It now shows LOADING with the real count and is disabled until the
+list is in.
+
+Version 1.1.0.33.

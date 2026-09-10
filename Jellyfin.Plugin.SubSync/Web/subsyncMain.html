@@ -813,24 +813,39 @@
                 // disturbing the option the user picked.
                 var langSel = $('ss-sellang');
                 if (langSel) {
-                    // Only rebuild when the discovered language set actually changed,
-                    // so a re-render never closes the open dropdown.
-                    var codes = Object.keys(langScan.langs).sort(function (a, b) {
-                        return langLabel(a).localeCompare(langLabel(b));
-                    });
-                    var sig = codes.join(',') + '|' + selLangs.join(',');
-                    if (sig !== langScan.signature) {
-                        langScan.signature = sig;
-                        var first = selLangs.length ? 'Add another language\u2026' : 'All languages';
-                        var opts = '<option value="">' + first + '</option>';
-                        codes.forEach(function (c) {
-                            if (selLangs.indexOf(c) !== -1) return;
-                            opts += '<option value="' + esc(c) + '">' + esc(langLabel(c))
-                                + ' (' + langScan.langs[c] + ')</option>';
+                    if (langScan.running) {
+                        // The lists are still being read: an option list that says "All languages"
+                        // before anything has been read claims a completeness it does not have.
+                        var progress = langScan.total
+                            ? 'LOADING ' + langScan.done + '/' + langScan.total
+                            : 'LOADING';
+                        if (langScan.signature !== progress) {
+                            langScan.signature = progress;
+                            langSel.innerHTML = '<option value="">' + esc(progress) + '</option>';
+                        }
+                        langSel.disabled = true;
+                        langSel.value = '';
+                    } else {
+                        langSel.disabled = false;
+                        // Only rebuild when the discovered language set actually changed,
+                        // so a re-render never closes the open dropdown.
+                        var codes = Object.keys(langScan.langs).sort(function (a, b) {
+                            return langLabel(a).localeCompare(langLabel(b));
                         });
-                        langSel.innerHTML = opts;
+                        var sig = codes.join(',') + '|' + selLangs.join(',');
+                        if (sig !== langScan.signature) {
+                            langScan.signature = sig;
+                            var first = selLangs.length ? 'Add another language\u2026' : 'All languages';
+                            var opts = '<option value="">' + first + '</option>';
+                            codes.forEach(function (c) {
+                                if (selLangs.indexOf(c) !== -1) return;
+                                opts += '<option value="' + esc(c) + '">' + esc(langLabel(c))
+                                    + ' (' + langScan.langs[c] + ')</option>';
+                            });
+                            langSel.innerHTML = opts;
+                        }
+                        langSel.value = '';
                     }
-                    langSel.value = '';
                 }
 
                 var chips = $('ss-selchips');

@@ -1208,6 +1208,29 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Describes what ffsubsync is about to do, in the words of what it actually does.
+    ///
+    /// Three distinct situations, and conflating them is what made a 0.6 s subtitle comparison
+    /// look like a fresh audio analysis on every subtitle of the same file:
+    /// a stored analysis is reused, the audio is analysed, or another subtitle track of the file
+    /// is used as the reference.
+    /// </summary>
+    /// <param name="fromCache">Whether the stored speech analysis is being reused.</param>
+    /// <param name="audioReference">Whether the reference is the file's audio.</param>
+    /// <returns>Phase text for the job.</returns>
+    public static string SyncPhaseLabel(bool fromCache, bool audioReference)
+    {
+        if (fromCache)
+        {
+            return "Syncing (from cache)";
+        }
+
+        return audioReference
+            ? "Syncing (analysing the audio)"
+            : "Syncing (using another subtitle track)";
+    }
+
+    /// <summary>
     /// Reads the "done/total" counters out of an extraction progress line.
     ///
     /// The extractor reports "reading subtitle 128/326 · 1.3 MB, 341 reads · …"; the fraction is
@@ -2095,15 +2118,22 @@ public class SubSyncService : IDisposable
                 {
                     referencePath = cached;
                     usingCachedSpeech = true;
-                    job.Phase = "Syncing (reusing the audio analysis)";
+                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
                     _logger.LogInformation("Reusing the stored audio analysis for {Video}", videoPath);
                 }
                 else
                 {
                     referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
                     serializeSpeech = true;
-                    job.Phase = "Syncing (analysing the audio)";
+                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
                 }
+            }
+            else
+            {
+                // The reference is a sibling subtitle track, so ffsubsync compares subtitles and
+                // never touches the audio. Saying "Analyzing speech" here described work that does
+                // not happen, and made every track look like a repeated audio pass.
+                job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);
             }
 
             var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
