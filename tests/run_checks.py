@@ -561,6 +561,18 @@ Check("no label claims speech analysis when none happens",
     !SubSyncService.SyncPhaseLabel(false, false).Contains("analysing", StringComparison.OrdinalIgnoreCase)
     && !SubSyncService.SyncPhaseLabel(false, false).Contains("analyzing", StringComparison.OrdinalIgnoreCase));
 
+// ---------------- Reading the reference track out of the video once ----------------
+// Letting ffsubsync pull a subtitle stream out of the video makes it demux the whole file
+// (measured: 12.5 s, 8218 MB for an 8.2 GB episode, per subtitle). The reference is therefore
+// extracted once by our own reader and passed as a small file; the position has to be read out of
+// the stream specifier to do that.
+Check("a subtitle specifier yields its position", SubSyncService.SubtitleStreamOrdinal("s:3") == 3);
+Check("position zero is valid", SubSyncService.SubtitleStreamOrdinal("s:0") == 0);
+Check("audio is not a subtitle specifier", SubSyncService.SubtitleStreamOrdinal("a:0") == -1);
+Check("a missing specifier is rejected", SubSyncService.SubtitleStreamOrdinal(null) == -1);
+Check("junk is rejected", SubSyncService.SubtitleStreamOrdinal("s:") == -1 && SubSyncService.SubtitleStreamOrdinal("nonsense") == -1);
+Check("a negative position is rejected", SubSyncService.SubtitleStreamOrdinal("s:-2") == -1);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 

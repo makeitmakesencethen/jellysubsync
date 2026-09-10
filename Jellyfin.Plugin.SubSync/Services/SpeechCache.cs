@@ -77,6 +77,35 @@ public static class SpeechCache
     }
 
     /// <summary>
+    /// Path of the cached copy of a *reference subtitle* extracted from a media file.
+    ///
+    /// Why this exists: telling ffsubsync to take a subtitle stream straight out of the video
+    /// (--reference-stream s:N) makes it demux the whole file. Measured on an 8.2 GB episode:
+    /// 12.5 s and 8218 MB read for one subtitle, repeated for every subtitle of that file. The
+    /// same subtitle, extracted once by our own index reader and passed as a small file, costs
+    /// 0.6 s and 6.5 MB and produces identical output.
+    /// </summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <param name="streamSpec">ffmpeg stream specifier of the reference track, e.g. <c>s:1</c>.</param>
+    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
+    /// <returns>Path where that subtitle is (or will be) cached.</returns>
+    public static string ReferencePath(string videoPath, string streamSpec, string engineVersion) =>
+        Path.Combine(
+            Root,
+            KeyFor(videoPath, "reference-subtitle|" + streamSpec, engineVersion) + ".ref.srt");
+
+    /// <summary>Gets the cached reference subtitle for a media file, or null when absent.</summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <param name="streamSpec">ffmpeg stream specifier of the reference track.</param>
+    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
+    /// <returns>Path of the cached <c>.ref.srt</c>, or null.</returns>
+    public static string? TryGetReference(string videoPath, string streamSpec, string engineVersion)
+    {
+        var path = ReferencePath(videoPath, streamSpec, engineVersion);
+        return File.Exists(path) ? path : null;
+    }
+
+    /// <summary>
     /// Creates (or refreshes) the symlink that makes ffsubsync write its speech cache
     /// into <see cref="Root"/> instead of the media folder.
     /// </summary>
@@ -181,7 +210,8 @@ public static class SpeechCache
 
             var cutoff = DateTime.UtcNow - MaxAge;
             var entries = new List<FileInfo>();
-            foreach (var file in Directory.EnumerateFiles(Root, "*.npz"))
+            var patterns = new[] { "*.npz", "*.ref.srt" };
+            foreach (var file in patterns.SelectMany(pattern => Directory.EnumerateFiles(Root, pattern)))
             {
                 var info = new FileInfo(file);
                 if (info.LastWriteTimeUtc < cutoff || info.LastAccessTimeUtc < cutoff)

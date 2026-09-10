@@ -294,14 +294,17 @@ logs the decision.
   analysis with no cached speech signal). It is used for one rule only: a second job for a
   media file may join a wave solely when that file's speech analysis is already cached, so
   two workers never race to build the same cache entry.
-- **Which stream is the reference decides whether the speech cache applies.** For an embedded
-  track the selector prefers a *sibling text subtitle* stream (`s:N`) and only falls back to
-  `a:0`; the speech cache is keyed on audio references, so the sibling path deliberately has no
-  cache. Measured on a 1h52m remux: sibling-subtitle reference 0.6 s per track, audio reference
-  with stored speech 1.4 s, audio reference analysing 12.6 s. So do not add caching for the
-  sibling path — it saves ~0.5 s a track — and do not read "it analyses every time" as a bug
-  without checking `Embedded sync of <file>: deriving the speech signal from '<reference>'` in the
-  log first.
+- **Never let ffsubsync pull a subtitle stream out of the video.** `--reference-stream s:N` makes
+  ffsubsync demux the whole file to extract that stream: measured on an 8.2 GB episode, 12.5 s and
+  8218 MB read — per subtitle, so ten tracks meant ten full reads. The reference subtitle is
+  extracted once by our own container-index reader (29.5 ms, 0.1 MB), cached as `<key>.ref.srt`
+  beside the speech cache, and passed as a small file (0.6 s, 6.5 MB). Output is identical
+  (verified byte-for-byte against the stream reference). If the extraction fails, the old
+  stream-reference behaviour is kept rather than failing the sync.
+- **The speech cache covers audio references only.** A sibling-subtitle reference has no speech
+  signal to store (ffsubsync compares subtitles, which costs 0.6 s on a small file) — do not "fix"
+  its absence by caching it, and do not read "it analyses every time" as a bug without checking
+  `Embedded sync of <file>: deriving the speech signal from '<reference>'` in the log first.
 - **A sibling-subtitle reference cannot see a shift shared by every subtitle of a file.** It
   compares two tracks on the same timeline, so a whole-file offset returns `+0 ms` and nothing
   changes. Only an audio reference can see that case. Keep this in mind before "fixing" a run that

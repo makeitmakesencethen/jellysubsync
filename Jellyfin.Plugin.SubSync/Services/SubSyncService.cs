@@ -1208,6 +1208,28 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Reads the subtitle position out of an ffmpeg stream specifier such as <c>s:1</c>.
+    /// </summary>
+    /// <param name="streamSpec">Stream specifier from <see cref="SelectReferenceStream"/>.</param>
+    /// <returns>The 0-based position, or -1 when it names something else (audio, or nothing).</returns>
+    public static int SubtitleStreamOrdinal(string? streamSpec)
+    {
+        if (string.IsNullOrWhiteSpace(streamSpec)
+            || !streamSpec.StartsWith("s:", StringComparison.Ordinal))
+        {
+            return -1;
+        }
+
+        return int.TryParse(
+            streamSpec.AsSpan(2),
+            NumberStyles.Integer,
+            CultureInfo.InvariantCulture,
+            out var ordinal) && ordinal >= 0
+            ? ordinal
+            : -1;
+    }
+
+    /// <summary>
     /// Describes what ffsubsync is about to do, in the words of what it actually does.
     ///
     /// Three distinct situations, and conflating them is what made a 0.6 s subtitle comparison
@@ -2130,9 +2152,61 @@ public class SubSyncService : IDisposable
             }
             else
             {
-                // The reference is a sibling subtitle track, so ffsubsync compares subtitles and
-                // never touches the audio. Saying "Analyzing speech" here described work that does
-                // not happen, and made every track look like a repeated audio pass.
+                // The reference is a sibling subtitle track. That comparison is cheap, but letting
+                // ffsubsync pull the stream out of the video itself is not: it demuxes the whole
+                // file. Measured on an 8.2 GB episode: 12.5 s and 8218 MB read, repeated for every
+                // subtitle. So the reference subtitle is extracted once by our own reader, cached,
+                // and handed over as a small SRT - 0.6 s and 6.5 MB, identical output.
+                var referenceIdentity = string.Join(
+                    "|",
+                    ResolveFfSubSyncPath(),
+                    BundledFfSubSyncVersion,
+                    typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+                var referenceOrdinal = SubtitleStreamOrdinal(referenceStream);
+                var cachedReference = referenceOrdinal >= 0
+                    ? SpeechCache.TryGetReference(videoPath, referenceStream!, referenceIdentity)
+                    : null;
+
+                if (cachedReference is not null)
+                {
+                    referencePath = cachedReference;
+                    referenceStream = null;
+                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: false);
+                    _logger.LogInformation(
+                        "Reusing the extracted reference subtitle for {Video}", videoPath);
+                }
+                else if (referenceOrdinal >= 0)
+                {
+                    var referenceTarget = SpeechCache.ReferencePath(videoPath, referenceStream!, referenceIdentity);
+                    try
+                    {
+                        Directory.CreateDirectory(SpeechCache.Root);
+                        await ExtractEmbeddedAsync(
+                            videoPath,
+                            referenceOrdinal,
+                            -1,
+                            referenceTarget,
+                            config,
+                            job,
+                            video.RunTimeTicks,
+                            cancellationToken,
+                            allowFfmpegFallback: false).ConfigureAwait(false);
+                        referencePath = referenceTarget;
+                        referenceStream = null;
+                        _logger.LogInformation(
+                            "Extracted the reference subtitle once for {Video} ({Track})", videoPath, referenceStream ?? "s:" + referenceOrdinal);
+                    }
+                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    {
+                        // Fall back to the previous behaviour: let ffsubsync pull the stream. Slow,
+                        // but better than failing the sync.
+                        _logger.LogWarning(
+                            ex,
+                            "Could not extract the reference subtitle from {Video}; ffsubsync will demux the file instead",
+                            videoPath);
+                    }
+                }
+
                 job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);
             }
 
@@ -2598,6 +2672,11 @@ public class SubSyncService : IDisposable
     /// <param name="job">Job whose phase/progress is updated while extracting.</param>
     /// <param name="runTimeTicks">Total runtime from Jellyfin, used to turn ffmpeg's timestamps into progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
+    /// <param name="allowFfmpegFallback">
+    /// Whether to fall back to a whole-file ffmpeg demux. False when extracting a *reference*
+    /// subtitle, where that fallback would undo the saving it exists for; the caller then lets
+    /// ffsubsync pull the stream instead.
+    /// </param>
     /// <returns>The method that produced the subtitle ("matroska-cues", "mp4-sample-table" or "ffmpeg").</returns>
     private async Task<string> ExtractEmbeddedAsync(
         string videoPath,
@@ -2607,7 +2686,8 @@ public class SubSyncService : IDisposable
         Configuration.PluginConfiguration config,
         SyncJob job,
         long? runTimeTicks,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        bool allowFfmpegFallback = true)
     {
         var utf8 = new System.Text.UTF8Encoding(false);
         var skipped = new List<string>();
@@ -2658,6 +2738,15 @@ public class SubSyncService : IDisposable
         if (!config.FastIndexedExtraction)
         {
             skipped.Add("indexed extraction is switched off in the settings");
+        }
+
+        if (!allowFfmpegFallback)
+        {
+            // A reference subtitle: a whole-file demux here would cost exactly what this call
+            // exists to avoid. Let the caller keep ffsubsync's own (slower) way.
+            throw new InvalidOperationException(
+                "the subtitle could not be read from the container index: "
+                + (skipped.Count == 0 ? "no index reader matched this container" : string.Join("; ", skipped)));
         }
 
         double sizeMb = 0;

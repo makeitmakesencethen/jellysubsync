@@ -191,7 +191,27 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.33]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.34]
+
+### Fixed
+- **A sibling-subtitle reference no longer makes ffsubsync read the whole episode.** For an
+  embedded track the plugin points ffsubsync at the video and selects another subtitle stream as
+  the reference (`--reference-stream s:N`). ffsubsync then demuxes the **entire file** to pull
+  that stream out — measured on an 8.2 GB episode: **12.5 s, 8218 MB read**, and it happened again
+  for every subtitle of that file. Ten tracks meant ten full reads of the episode, which is what
+  looked like "it analyses the same episode each sub" and like a stall.
+
+  The reference subtitle is now extracted **once** by the plugin's own container-index reader
+  (measured: **29.5 ms, 0.1 MB**), cached next to the speech cache, and handed to ffsubsync as a
+  small SRT: **0.6 s, 6.5 MB** per subtitle. Later subtitles of the same file reuse the cached
+  copy — which is what the progress line reports as `Syncing (from cache)`.
+
+  Output is unchanged: the same subtitle extracted by our reader and by ffmpeg produce identical
+  results, and a sync against the extracted file is byte-identical to a sync against the stream
+  (both verified on the 8.2 GB file). If the reference cannot be extracted from the container
+  index, the previous behaviour is kept so a sync never fails over this.
+
+## [1.1.0.33]
 
 ### Fixed
 - **The sync phase now names what ffsubsync actually does.** Three different situations shared
