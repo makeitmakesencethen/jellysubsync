@@ -137,6 +137,9 @@ public class FfSubSyncInstallationStatus
     /// <summary>Gets or sets the ffsubsync version string, if installed.</summary>
     public string? FfSubSyncVersion { get; set; }
 
+    /// <summary>Gets or sets a summary of the cached speech analysis used by fast mode.</summary>
+    public string? SpeechCacheSummary { get; set; }
+
     /// <summary>Gets or sets the bundled ffsubsync version (plugin-shipped binary), if present.</summary>
     public string? BundledFfSubSyncVersion { get; set; }
 
@@ -449,6 +452,7 @@ public class SubSyncService : IDisposable
         }
 
         status.ResolvedBinaryPath = ResolveFfSubSyncPath();
+        status.SpeechCacheSummary = SpeechCache.Describe();
         return status;
     }
 
@@ -1391,6 +1395,7 @@ public class SubSyncService : IDisposable
                 // media file; DropLink removes the temporary symlink either way.
                 SpeechCache.Harvest(referencePath, speechKey);
                 SpeechCache.DropLink(speechKey);
+                SpeechCache.Prune();
             }
 
             if (!File.Exists(tempOutput))

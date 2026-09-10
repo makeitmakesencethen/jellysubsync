@@ -167,3 +167,21 @@ only applies to `parallel`.
 Measured (15-minute test media, bursts placed at the cue times): full run 2.98s vs 1.00s
 with the cached speech; the `.npz` is ~2 KB. Results were byte-identical between the audio
 path and the cached path for subtitles at three different offsets.
+
+
+### Speech cache lifecycle
+
+`SpeechCache.Root` is `<state>/speech-cache` (`Plugin.StatePath`), so entries live under
+Jellyfin's plugin data directory and never in a media folder. Each entry is one `.npz`
+holding the detected speech segments — kilobytes, not audio (measured: 1233 bytes for a
+4-minute test file, 2004 bytes for a 15-minute one; it scales with the number of speech
+segments, so a talky 2-hour film stays in the tens of KB).
+
+- Written on a fast-mode cache miss (`--serialize-speech` against a symlink in the cache).
+- `Prune()` runs after every new entry: first anything older than 30 days (write or access
+  time), then oldest-first until the total fits in 250 MB. Orphans left behind when media
+  is re-encoded (new key) are removed by the age rule.
+- `Clear()` backs the Settings "Clear cache" button and the `POST SubSync/SpeechCache/Clear`
+  route; size is reported as `SpeechCacheSummary` in `GET SubSync/InstallationStatus`.
+- Temporary symlinks are deleted after each run (`DropLink`), so the directory holds only
+  `.npz` entries.

@@ -22,6 +22,12 @@ namespace Jellyfin.Plugin.SubSync.Services;
 /// </summary>
 public static class SpeechCache
 {
+    /// <summary>Entries older than this are pruned when a new entry is written.</summary>
+    public static readonly TimeSpan MaxAge = TimeSpan.FromDays(30);
+
+    /// <summary>Total cache size cap; oldest entries are dropped beyond this.</summary>
+    public const long MaxBytes = 250L * 1024 * 1024;
+
     /// <summary>Gets the directory holding cached speech signals.</summary>
     public static string Root
     {
@@ -155,6 +161,115 @@ public static class SpeechCache
         {
             // Nothing to clean up.
         }
+    }
+
+    /// <summary>
+    /// Drops entries older than <see cref="MaxAge"/>, then the oldest ones until the cache
+    /// fits in <see cref="MaxBytes"/>. Called after every freshly written entry, so cache
+    /// files orphaned by replaced or re-encoded media cannot pile up forever.
+    /// </summary>
+    /// <returns>Number of entries removed.</returns>
+    public static int Prune()
+    {
+        var removed = 0;
+        try
+        {
+            if (!Directory.Exists(Root))
+            {
+                return 0;
+            }
+
+            var cutoff = DateTime.UtcNow - MaxAge;
+            var entries = new List<FileInfo>();
+            foreach (var file in Directory.EnumerateFiles(Root, "*.npz"))
+            {
+                var info = new FileInfo(file);
+                if (info.LastWriteTimeUtc < cutoff || info.LastAccessTimeUtc < cutoff)
+                {
+                    try
+                    {
+                        info.Delete();
+                        removed++;
+                        continue;
+                    }
+                    catch (IOException)
+                    {
+                        continue;
+                    }
+                }
+
+                entries.Add(info);
+            }
+
+            long total = 0;
+            foreach (var entry in entries)
+            {
+                total += entry.Length;
+            }
+
+            if (total <= MaxBytes)
+            {
+                return removed;
+            }
+
+            foreach (var entry in entries.OrderBy(e => e.LastWriteTimeUtc))
+            {
+                if (total <= MaxBytes)
+                {
+                    break;
+                }
+
+                try
+                {
+                    total -= entry.Length;
+                    entry.Delete();
+                    removed++;
+                }
+                catch (IOException)
+                {
+                    continue;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Pruning is best effort; it must never break a sync.
+        }
+
+        return removed;
+    }
+
+    /// <summary>Deletes every cached entry (Settings → "Clear speech cache").</summary>
+    /// <returns>Number of entries removed.</returns>
+    public static int Clear()
+    {
+        var removed = 0;
+        try
+        {
+            if (!Directory.Exists(Root))
+            {
+                return 0;
+            }
+
+            foreach (var file in Directory.GetFiles(Root))
+            {
+                try
+                {
+                    File.Delete(file);
+                    removed++;
+                }
+                catch (IOException)
+                {
+                    continue;
+                }
+            }
+        }
+        catch (Exception)
+        {
+            // Best effort.
+        }
+
+        return removed;
     }
 
     /// <summary>Human-readable cache size, for logs and the status line.</summary>

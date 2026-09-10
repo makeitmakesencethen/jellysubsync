@@ -309,6 +309,23 @@ public class SubSyncController : ControllerBase
     }
 
     /// <summary>
+    /// Empties the cached speech analysis ("fast" mode). Safe at any time: entries are
+    /// rebuilt on the next fast-mode run.
+    /// </summary>
+    /// <returns>The new cache summary.</returns>
+    [HttpPost("SpeechCache/Clear")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> ClearSpeechCache()
+    {
+        var removed = Services.SpeechCache.Clear();
+        return Ok(new
+        {
+            removed,
+            cache = Services.SpeechCache.Describe()
+        });
+    }
+
+    /// <summary>
     /// Serves the client-side injection script that adds "Sync Subtitles" to video pages.
     /// </summary>
     /// <returns>The JavaScript content.</returns>

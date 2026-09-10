@@ -206,6 +206,17 @@
                                     <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
                                     <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 2.</div>
                                 </div>
+                                <div class="ss-field">
+                                    <label class="selectLabel">Cached audio analysis</label>
+                                    <div class="fieldDescription" id="ss-speechcache">Checking…</div>
+                                    <button is="emby-button" type="button" id="ss-clearcache" class="raised" style="margin-top:6px;"><span>Clear cache</span></button>
+                                    <div class="fieldDescription">
+                                        Fast mode keeps one small file (a few KB) per media file, holding the speech signal so the
+                                        other subtitles of that file do not re-analyse the audio. Entries unused for 30 days are
+                                        removed automatically, and the cache is capped at 250 MB. Clearing it only costs time — the
+                                        next fast run rebuilds what it needs.
+                                    </div>
+                                </div>
 
                                 <h3 class="ss-subhead">Subtitle language filter</h3>
                                 <div class="ss-field">
@@ -572,7 +583,14 @@
                         lines.push('ffsubsync source: ' + (s.ResolvedBinaryPath || 'ffsubsync'));
                     }
                     lines.push('ffmpeg: auto (Jellyfin\u2019s own ffmpeg is detected)');
+                    lines.push('Speech cache (fast mode): ' + (s.SpeechCacheSummary || 'empty'));
                     $('ss-status').textContent = lines.join('\n');
+                    var cacheEl = $('ss-speechcache');
+                    if (cacheEl) {
+                        cacheEl.textContent = 'Cached audio analysis: ' + (s.SpeechCacheSummary || 'empty')
+                            + ' \u00b7 ' + (s.SpeechCacheSummary && s.SpeechCacheSummary.indexOf('empty') === -1 ? 'ready to reuse' : 'nothing cached yet');
+                    }
+
                     var badge = $('ss-badge');
                     if (badge) {
                         if (s.BundledFfSubSyncVersion) {
@@ -1729,6 +1747,23 @@
                     }
                 });
             }
+            var clearCacheBtn = $('ss-clearcache');
+            if (clearCacheBtn) {
+                clearCacheBtn.addEventListener('click', function (e) {
+                    e.preventDefault();
+                    clearCacheBtn.disabled = true;
+                    api('SubSync/SpeechCache/Clear', { method: 'POST' }).then(function (r) {
+                        var removed = (r && (r.removed !== undefined ? r.removed : r.Removed)) || 0;
+                        refreshStatus();
+                        diag('Cleared ' + removed + ' cached audio analysis file' + (removed === 1 ? '' : 's') + '.', false);
+                    }).catch(function (err) {
+                        diag('Could not clear the cache: ' + (err.message || err), true);
+                    }).then(function () {
+                        clearCacheBtn.disabled = false;
+                    });
+                });
+            }
+
             var globalLangInput = $('ss-langadd');
             if (globalLangInput) {
                 globalLangInput.addEventListener('input', function () {

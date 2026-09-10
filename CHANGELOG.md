@@ -51,6 +51,10 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Added: speech-cache housekeeping — entries unused for 30 days are pruned automatically
+  and the cache is capped at 250 MB; the Settings tab shows its current size with a
+  **Clear cache** button (`POST SubSync/SpeechCache/Clear`). Each entry is a few KB and
+  lives in Jellyfin's plugin data directory, never in a media folder.
 - Changed: the Settings language picker no longer uses a native `<datalist>` (its popup
   opened as an enormous list that could not be sized) — it is now a compact, scrollable
   suggestion box filtered as you type.
