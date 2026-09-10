@@ -757,23 +757,58 @@ public class SubSyncService : IDisposable
             .OrderByDescending(g => g.CreatedAt);
     }
 
-    /// <summary>Allowed values for <see cref="Configuration.PluginConfiguration.MultiSyncMode"/>.</summary>
-    private static readonly HashSet<string> AllowedMultiSyncModes = new(StringComparer.OrdinalIgnoreCase)
+    /// <summary>
+    /// Picks the next wave of jobs to run: same batch, same mode, at most one job per media
+    /// file, up to <paramref name="limit"/> jobs. Batches never interleave, so queue order
+    /// between them is preserved; the one-file-one-slot rule keeps parallel workers off the
+    /// same file (two processes on one file would repeat the same audio analysis).
+    /// </summary>
+    /// <param name="queuedInOrder">Queued jobs in queue order.</param>
+    /// <param name="headMode">Mode of the job at the head of the queue.</param>
+    /// <param name="headBatchId">Batch id of the job at the head of the queue.</param>
+    /// <param name="limit">Maximum number of jobs in the wave.</param>
+    /// <returns>The wave, in queue order.</returns>
+    public static List<SyncJob> SelectWave(
+        IEnumerable<SyncJob> queuedInOrder,
+        string headMode,
+        string? headBatchId,
+        int limit)
     {
-        "normal", "parallel", "fast"
-    };
-
-    /// <summary>Clamps a mode string to the supported set.</summary>
-    private static string NormalizeMode(string? mode)
-    {
-        if (string.IsNullOrWhiteSpace(mode))
+        var wave = new List<SyncJob>();
+        var claimedItems = new HashSet<Guid>();
+        foreach (var candidate in queuedInOrder)
         {
-            return "normal";
+            if (wave.Count >= limit)
+            {
+                break;
+            }
+
+            if (!string.Equals(SyncJobMode.Normalize(candidate.Mode), headMode, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (headBatchId is null ? candidate.BatchId is not null : candidate.BatchId != headBatchId)
+            {
+                continue;
+            }
+
+            if (!claimedItems.Add(candidate.ItemId))
+            {
+                continue;
+            }
+
+            wave.Add(candidate);
         }
 
-        var value = mode.Trim().ToLowerInvariant();
-        return AllowedMultiSyncModes.Contains(value) ? value : "normal";
+        return wave;
     }
+
+    private static string NormalizeMode(string? mode) => SyncJobMode.Normalize(mode);
+
+    private static bool IsParallelMode(string mode) => SyncJobMode.IsParallel(mode);
+
+    private static bool IsSpeechCachingMode(string mode) => SyncJobMode.UsesSpeechCache(mode);
 
     /// <summary>Worker count for parallel mode, clamped to a sane range.</summary>
     private static int NormalizeWorkers(int workers) => workers < 1 ? 1 : (workers > 8 ? 8 : workers);
@@ -813,34 +848,15 @@ public class SubSyncService : IDisposable
                 {
                     var config = Plugin.Instance?.Configuration;
                     var headMode = NormalizeMode(head.Mode);
-                    var limit = headMode == "parallel"
-                        ? NormalizeWorkers(config?.ParallelWorkers ?? 2)
+                    var limit = IsParallelMode(headMode)
+                        ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
                         : 1;
 
-                    // Parallel waves span *different* media files. Several subtitle
-                    // tracks of one file are legitimate work, but running them
-                    // simultaneously would have two ffmpeg/ffsubsync processes reading
-                    // the same file and repeating the same audio analysis, so one file
-                    // only ever occupies one worker slot per wave.
-                    var seenItems = new HashSet<Guid>();
-                    jobs = new List<SyncJob>();
-                    foreach (var candidate in _runOrder
-                        .Where(j => j.Status == SyncJobStatus.Queued)
-                        .Where(j => NormalizeMode(j.Mode) == headMode)
-                        .Where(j => head.BatchId is null ? j.BatchId is null : j.BatchId == head.BatchId))
-                    {
-                        if (jobs.Count >= limit)
-                        {
-                            break;
-                        }
-
-                        if (!seenItems.Add(candidate.ItemId))
-                        {
-                            continue; // another track of a file already in this wave
-                        }
-
-                        jobs.Add(candidate);
-                    }
+                    jobs = SelectWave(
+                        _runOrder.Where(j => j.Status == SyncJobStatus.Queued),
+                        headMode,
+                        head.BatchId,
+                        limit);
                 }
             }
 
@@ -1374,7 +1390,7 @@ public class SubSyncService : IDisposable
             string? speechKey = null;
             var usingCachedSpeech = false;
 
-            if (mode == "fast")
+            if (IsSpeechCachingMode(mode))
             {
                 var engineVersion = string.IsNullOrWhiteSpace(ResolveFfSubSyncPath())
                     ? "ffsubsync"
@@ -1438,7 +1454,7 @@ public class SubSyncService : IDisposable
                 throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.");
             }
 
-            if (mode == "fast" && speechKey is not null && serializeSpeech)
+            if (IsSpeechCachingMode(mode) && speechKey is not null && serializeSpeech)
             {
                 // Harvest covers the fallback where ffsubsync wrote the .npz next to the
                 // media file; DropLink removes the temporary symlink either way.

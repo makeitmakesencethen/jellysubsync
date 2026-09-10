@@ -143,9 +143,18 @@ Both the dashboard Settings tab (chip list with add/remove) and the plugin confi
 
 ## MultiSyncMode / ParallelWorkers (multi-subtitle modes)
 
-`MultiSyncMode` (`string`, default `normal`, allow-list `normal|parallel|fast`) is resolved
-per job in `SubSyncService.NormalizeMode`; `ParallelWorkers` (int, clamped 1-8, default 2)
-only applies to `parallel`.
+`MultiSyncMode` (`string`, default `normal`, allow-list `normal|parallel|fast|ultimate`) is
+resolved per job through `SyncJobMode.Normalize`; `ParallelWorkers` (int, clamped 1-8,
+default 4) applies to the parallel modes.
+
+`SyncJobMode` owns the rules: `IsParallel` is true for `parallel` and `ultimate`,
+`UsesSpeechCache` is true for `fast` and `ultimate`, so `ultimate` is exactly "parallel
+plus reuse".
+
+Wave selection lives in `SubSyncService.SelectWave` (public so the harness can exercise
+it): same mode, same batch, at most one job per media file, up to the worker limit. The
+one-file-one-slot rule means two workers never read the same file — without it they would
+repeat the same audio analysis and, in the caching modes, race for one cache entry.
 
 - **normal** — the pump takes one queued job at a time, ffsubsync analyses the audio on
   every run.
@@ -185,3 +194,11 @@ segments, so a talky 2-hour film stays in the tens of KB).
   route; size is reported as `SpeechCacheSummary` in `GET SubSync/InstallationStatus`.
 - Temporary symlinks are deleted after each run (`DropLink`), so the directory holds only
   `.npz` entries.
+
+
+## Parallel progress surface
+
+`GET SubSync/Batch/{id}` returns `Mode`, `RunningTasks` (every task in `Running`, ordered by
+batch position) and the existing `CurrentTask`/`Tasks`. The dashboard renders one row per
+running task — title, phase, per-task progress bar — whenever the batch mode is `parallel`
+or `ultimate` (or when more than one task is running), above the overall progress bar.

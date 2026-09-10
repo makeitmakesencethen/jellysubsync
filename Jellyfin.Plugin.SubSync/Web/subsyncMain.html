@@ -63,6 +63,16 @@
             .ss-compact { width: auto !important; max-width: 220px; }
             .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
+            .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+            .ss-worker {
+                display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
+                background: rgba(255,255,255,.04); border-radius: 6px; padding: 6px 9px;
+            }
+            .ss-worker-idx { font-size: .74rem; opacity: .6; text-align: right; }
+            .ss-worker-name { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .ss-worker-phase { font-size: .74rem; opacity: .7; }
+            .ss-worker-bar-wrap { background: rgba(255,255,255,.09); border-radius: 4px; height: 5px; margin-top: 4px; overflow: hidden; }
+            .ss-worker-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
             .ss-log { white-space: pre-wrap; max-height: 190px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin-top: 6px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
             .ss-settings-grid { max-width: 620px; }
             .ss-settings-grid .ss-subhead { margin: 1.6em 0 .3em; }
@@ -118,6 +128,7 @@
                             </div>
                             <div class="ss-progress-wrap"><div class="ss-progress-bar" id="ss-progress"></div></div>
                             <div id="ss-phase" class="ss-muted"></div>
+                            <div id="ss-workers" class="ss-workers ss-hidden"></div>
                             <pre id="ss-log" class="ss-log"></pre>
                         </div>
                         <section id="panel-sync">
@@ -139,10 +150,11 @@
                                 <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
                                     <option value="">All languages</option>
                                 </select>
-                                <select is="emby-select" id="ss-batchmode" class="ss-compact" label="Mode" style="max-width:210px;">
+                                <select is="emby-select" id="ss-batchmode" class="ss-compact" label="Mode" style="max-width:260px;">
                                     <option value="normal">Normal</option>
                                     <option value="parallel">Parallel</option>
                                     <option value="fast">Fast (reuse audio analysis)</option>
+                                    <option value="ultimate">Ultimate (parallel + reuse)</option>
                                 </select>
                                 <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
@@ -208,6 +220,7 @@
                                         <option value="normal">Normal — one at a time (default)</option>
                                         <option value="parallel">Parallel — several at once</option>
                                         <option value="fast">Fast — reuse the first run's audio analysis</option>
+                                        <option value="ultimate">Ultimate — parallel + reuse (fastest)</option>
                                     </select>
                                     <div class="fieldDescription">
                                         <strong>Normal</strong> syncs one subtitle at a time and analyses the audio for each.
@@ -217,6 +230,9 @@
                                         for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra
                                         subtitle and produces identical results. Fast only helps when several subtitles share one
                                         file (a movie with many tracks, or re-syncing the same file later).
+                                        <strong>Ultimate</strong> combines both: several media files at once, and each file's audio
+                                        analysis reused by its remaining subtitles — the fastest way through a large selection.
+                                        Every mode produces the same alignments.
                                     </div>
                                 </div>
                                 <div class="ss-field">
@@ -462,7 +478,43 @@
                 return lines.length ? lines.join('\n') : '(no tasks recorded)';
             }
 
+            // One row per task currently syncing. Only parallel/ultimate modes have
+            // more than one, but the panel is harmless for a single task and makes the
+            // phase visible while it works.
+            function renderWorkerRows(view) {
+                var box = $('ss-workers');
+                if (!box) return;
+                var running = (view && (view.RunningTasks || view.runningTasks)) || [];
+                var mode = (view && (view.Mode || view.mode)) || 'normal';
+                var parallel = mode === 'parallel' || mode === 'ultimate';
+                if (!running.length || (!parallel && running.length < 2)) {
+                    box.classList.add('ss-hidden');
+                    box.innerHTML = '';
+                    return;
+                }
+
+                var html = '';
+                running.forEach(function (t, i) {
+                    var title = t.Title || t.title || ('task ' + (t.BatchIndex != null ? t.BatchIndex : ''));
+                    var phase = t.Phase || t.phase || 'working';
+                    var prog = (t.Progress != null) ? t.Progress : (t.progress || 0);
+                    var pct = Math.round(Math.max(0, Math.min(1, prog)) * 100);
+                    html += '<div class="ss-worker">' +
+                        '<div class="ss-worker-idx">' + (i + 1) + '</div>' +
+                        '<div><div class="ss-worker-name">' + esc(title) + '</div>' +
+                        '<div class="ss-worker-phase">' + esc(phase) + ' \u00b7 ' + pct + '%</div>' +
+                        '<div class="ss-worker-bar-wrap"><div class="ss-worker-bar" style="width:' + pct + '%"></div></div>' +
+                        '</div></div>';
+                });
+                box.innerHTML = html;
+                box.classList.remove('ss-hidden');
+            }
+
             function showRunBox(show) {
+                if (!show) {
+                    var w = $('ss-workers');
+                    if (w) { w.classList.add('ss-hidden'); w.innerHTML = ''; }
+                }
                 $('ss-runbox').classList.toggle('ss-hidden', !show);
                 var cancel = $('ss-cancel');
                 if (cancel) cancel.classList.toggle('ss-hidden', !show);
@@ -1507,6 +1559,8 @@
                             }
                         });
                         lastFinished = Math.max(lastFinished, ok + failed + ((view.Cancelled != null) ? view.Cancelled : (view.cancelled || 0)));
+
+                        renderWorkerRows(view);
 
                         // Header + progress
                         var pos = (view.Completed != null) ? view.Completed : ((view.completed != null) ? view.completed : 0);

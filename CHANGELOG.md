@@ -51,6 +51,11 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Added: **Ultimate mode** — parallel plus audio reuse: several media files at once, each
+  file's speech analysis computed once and reused by its remaining subtitles. Same
+  alignments as every other mode; the only difference is throughput.
+- Added: **per-worker progress** in Parallel and Ultimate modes — the run box now shows one
+  row per worker (file, phase, own progress bar) instead of only a single combined line.
 - Added: **fast embedded extraction for Matroska** — embedded text subtitles are read via
   the file's cue index instead of demuxing the whole container. On a 1.7 GB test file that
   is 202 ms instead of 2.32 s (the fallback path scales with file size: minutes over a

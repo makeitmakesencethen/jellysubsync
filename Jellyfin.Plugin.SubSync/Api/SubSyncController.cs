@@ -244,6 +244,23 @@ public class SubSyncController : ControllerBase
             Cancelled = jobs.Count(j => j.Status == Services.SyncJobStatus.Cancelled),
             CreatedAtUtc = jobs.Min(j => j.CreatedAtUtc),
             FinishedAtUtc = jobs.Max(j => j.FinishedAtUtc),
+            Mode = Services.SyncJobMode.Normalize(jobs[0].Mode),
+            RunningTasks = jobs
+                .Where(j => j.Status == Services.SyncJobStatus.Running)
+                .OrderBy(j => j.BatchIndex)
+                .Select(j => new BatchTask
+                {
+                    BatchIndex = j.BatchIndex,
+                    ItemId = j.ItemId,
+                    Title = j.Label,
+                    Status = j.Status.ToString(),
+                    Progress = j.Progress,
+                    Phase = j.Phase,
+                    Error = j.Error,
+                    OutputPath = j.OutputPath,
+                    Outcome = j.Outcome
+                })
+                .ToList(),
             CurrentTask = current is null ? null : new BatchTask
             {
                 BatchIndex = current.BatchIndex,
@@ -449,6 +466,15 @@ public class BatchView
 {
     /// <summary>Gets or sets the batch identifier.</summary>
     public string Id { get; set; } = string.Empty;
+
+    /// <summary>Gets or sets the multi-subtitle mode this batch runs in.</summary>
+    public string Mode { get; set; } = Services.SyncJobMode.Normal;
+
+    /// <summary>
+    /// Gets or sets every task currently running. Parallel and ultimate modes run
+    /// several media files at once, so the UI shows one row per running task.
+    /// </summary>
+    public List<BatchTask> RunningTasks { get; set; } = new();
 
     /// <summary>Gets or sets the scope label.</summary>
     public string Label { get; set; } = string.Empty;
