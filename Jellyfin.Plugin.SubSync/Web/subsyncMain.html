@@ -22,6 +22,10 @@
             .ss-badge-ok { color: #8f8; background: rgba(80,220,80,.12); }
             .ss-dataline { font-size: .86rem; opacity: .9; margin: 10px 0 4px; min-height: 1.2em; }
             .ss-dataline.err { color: #ff6b6b; }
+            .ss-selactions { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
+            .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
+            .ss-selnote { font-size: .82rem; opacity: .7; }
+            .ss-row { user-select: none; -webkit-user-select: none; }
             .ss-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 10px 0 14px; max-width: 620px; }
             .ss-toolbar .ss-lib { max-width: 340px; }
             .ss-toolbar .emby-input { width: 100%; }
@@ -107,6 +111,11 @@
                             </div>
 
                             <div class="ss-dataline" id="ss-dataline">Loading libraries…</div>
+
+                            <div class="ss-selactions" id="ss-selactions" style="display:none;">
+                                <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised button-submit"><span>Sync</span></button>
+                                <span class="ss-selnote" id="ss-selnote"></span>
+                            </div>
 
                             <div class="ss-list" id="ss-list"></div>
                             <p id="ss-empty" class="ss-hidden ss-muted">No movies or series found.</p>
@@ -468,9 +477,9 @@
                 });
             }
 
-            // The count line doubles as the place for selection actions: a
-            // "Select all" link (scoped to what is currently shown) and, once more
-            // than one item is picked, a "Sync selected (N)" button.
+            // The count line keeps the "Select all" link (scoped to what is
+            // currently shown); the sync action sits in its own row underneath so
+            // it reads as a real button.
             function refreshDataline() {
                 var dl = $('ss-dataline');
                 if (!dl) return;
@@ -488,23 +497,38 @@
                     '<a href="#" id="ss-selall-link" style="color:var(--theme-primary-color,#00a4dc);text-decoration:none;">' +
                     (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
-                if (n > 0) {
-                    var hasSeries = false;
-                    for (var si = 0; si < allItems.length; si++) {
-                        if (selectedIds[allItems[si].Id] && allItems[si].Type === 'Series') { hasSeries = true; break; }
-                    }
-                    var label = 'Sync ' + n + ' media';
-                    if (isBuilding || startInFlight) label += '\u2026';
-                    html += ' <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised"' +
-                        (isBuilding || startInFlight ? ' disabled' : '') +
-                        ' style="margin-left:6px;padding:2px 12px;font-size:.82rem;">' +
-                        '<span>' + esc(label) + '</span></button>';
-                    if (hasSeries) {
-                        html += ' <span style="opacity:.65;font-size:.78rem;">(series sync all their episodes)</span>';
-                    }
+                if (n === 0) {
+                    html += ' <span style="opacity:.6;">\u00b7 shift-click or right-click a row to pick several</span>';
+                } else {
+                    html += ' <span style="opacity:.6;">\u00b7 ' + n + ' picked</span>';
                 }
 
                 dl.innerHTML = html;
+
+                var bar = $('ss-selactions');
+                if (!bar) return;
+                if (n === 0) {
+                    bar.style.display = 'none';
+                    return;
+                }
+
+                var busyNow = isBuilding || startInFlight;
+                var btn = $('ss-syncsel-btn');
+                var span = btn ? btn.querySelector('span') : null;
+                if (span) span.textContent = busyNow ? 'Working\u2026' : ('Sync ' + n + ' media');
+                if (btn) btn.disabled = busyNow;
+
+                var hasSeries = false;
+                for (var si = 0; si < allItems.length; si++) {
+                    if (selectedIds[allItems[si].Id] && allItems[si].Type === 'Series') { hasSeries = true; break; }
+                }
+                var note = $('ss-selnote');
+                if (note) {
+                    note.textContent = hasSeries
+                        ? n + ' media selected \u2014 series sync all their episodes'
+                        : n + ' media selected';
+                }
+                bar.style.display = 'flex';
             }
 
             function trackOptionsHtml() {
@@ -712,6 +736,19 @@
                 $('ss-empty').classList.toggle('ss-hidden', filtered.length !== 0);
 
                 Array.prototype.forEach.call($('ss-list').querySelectorAll('.ss-row'), function (row) {
+                    // Shift-clicking in a browser would otherwise drag-select the
+                    // page text; suppress that on the row.
+                    row.addEventListener('mousedown', function (e) {
+                        if (e.shiftKey) e.preventDefault();
+                    });
+
+                    // Right-click is the primary way to add/remove one item.
+                    row.addEventListener('contextmenu', function (e) {
+                        if (e.target.closest('.ss-row-actions')) return;
+                        e.preventDefault();
+                        togglePicked(row.getAttribute('data-id'));
+                    });
+
                     row.addEventListener('click', function (e) {
                         if (e.target.closest('.ss-row-actions')) return; // clicks on controls handled separately
                         var id = row.getAttribute('data-id');
@@ -1246,6 +1283,15 @@
                         toggleSelectAllVisible();
                         return;
                     }
+                    if (e.target.closest('#ss-syncsel-btn')) {
+                        e.preventDefault();
+                        startSyncSelected();
+                    }
+                });
+            }
+            var selBar = $('ss-selactions');
+            if (selBar) {
+                selBar.addEventListener('click', function (e) {
                     if (e.target.closest('#ss-syncsel-btn')) {
                         e.preventDefault();
                         startSyncSelected();
