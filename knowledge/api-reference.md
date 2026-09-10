@@ -101,3 +101,21 @@ The client JS (`subsync.js`) is an ES5 IIFE that:
 - Shows a modal dialog for subtitle selection and sync progress
 - Polls `GET /SubSync/Jobs/{jobId}` every 2000ms for progress updates
 - Authenticates all requests via `X-Emby-Token` header from `ApiClient.accessToken()`
+
+
+## Cancel vs Kill
+
+- `POST SubSync/Batch/{batchId}/Cancel` — marks only that batch's *queued* jobs as
+  `Cancelled`. A running job keeps running: ffsubsync has no way to resume a partial
+  analysis, so interrupting one only wastes the work already done.
+- `POST SubSync/Kill` — the destructive one: cancels every queued job in every batch and
+  cancels each running job's `CancellationTokenSource`, which terminates the ffsubsync and
+  ffmpeg processes (the process helper registers `process.Kill(entireProcessTree: true)` on
+  cancellation). Returns `{ queuedCancelled, runningKilled, stillRunning, stillQueued }`.
+- `GET SubSync/Active` — `{ running: [ { jobId, batchId, title, phase, progress } ], queued }`,
+  used by the UI to tell the user whether a cancel has fully taken effect.
+
+`RunSyncJob` receives its job's token and passes it to the ffsubsync run, the ffmpeg
+subtitle extraction and the library refresh, so a kill stops the work rather than letting
+it finish in the background. Cancelled jobs land in `SyncJobStatus.Cancelled` with the
+phase `Cancelled`.

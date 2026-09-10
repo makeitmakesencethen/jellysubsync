@@ -343,6 +343,50 @@ public class SubSyncController : ControllerBase
     }
 
     /// <summary>
+    /// Kills every sync: queued tasks (any batch) are cancelled and running ffsubsync/ffmpeg
+    /// processes are terminated. This is the destructive action behind the UI's Kill button.
+    /// </summary>
+    /// <returns>What was stopped, plus what is still running afterwards.</returns>
+    [HttpPost("Kill")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> KillAll()
+    {
+        var (queuedCancelled, runningKilled) = _syncService.KillAll();
+        var (running, queued) = _syncService.GetActive();
+        return Ok(new
+        {
+            queuedCancelled,
+            runningKilled,
+            stillRunning = running.Count,
+            stillQueued = queued
+        });
+    }
+
+    /// <summary>
+    /// Reports what is executing right now (running jobs and queued count), so the UI can
+    /// tell the user whether a cancel has fully taken effect.
+    /// </summary>
+    /// <returns>The active work summary.</returns>
+    [HttpGet("Active")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> GetActive()
+    {
+        var (running, queued) = _syncService.GetActive();
+        return Ok(new
+        {
+            running = running.Select(j => new
+            {
+                jobId = j.Id,
+                batchId = j.BatchId,
+                title = j.Label,
+                phase = j.Phase,
+                progress = j.Progress
+            }).ToList(),
+            queued
+        });
+    }
+
+    /// <summary>
     /// Serves the client-side injection script that adds "Sync Subtitles" to video pages.
     /// </summary>
     /// <returns>The JavaScript content.</returns>

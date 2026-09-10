@@ -25,6 +25,7 @@
             .ss-selactions { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
             .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
             .ss-selnote { font-size: .82rem; opacity: .7; }
+            .ss-kill { background: #b3261e !important; color: #fff !important; }
             .ss-selchips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
             .ss-spin {
                 width: 13px; height: 13px; border-radius: 50%;
@@ -1741,16 +1742,88 @@
                 });
             }
 
-            function cancelWatchedBatch() {
-                if (!watchedBatchId) return;
-                $('ss-run-label').textContent = 'Cancelling\u2026';
-                var cancelEl = $('ss-cancel');
-                if (cancelEl) cancelEl.disabled = true;
-                api('SubSync/Batch/' + watchedBatchId + '/Cancel', { method: 'POST' }).then(function () {
-                    if (cancelEl) cancelEl.disabled = false;
+            // Cancel drops queued work. Cancelling cannot interrupt a running ffsubsync,
+            // so if processes are still alive the button turns into Kill, which terminates
+            // them (SubSync/Kill) — with live feedback either way.
+            function setCancelButton(label, isKill) {
+                var el = $('ss-cancel');
+                if (!el) return;
+                var span = el.querySelector('span');
+                if (span) span.textContent = label;
+                el.classList.toggle('ss-kill', !!isKill);
+                el.disabled = false;
+            }
+
+            function reportStillRunning() {
+                api('SubSync/Active').then(function (a) {
+                    var running = (a && (a.Running || a.running)) || [];
+                    var queued = (a && (a.Queued != null ? a.Queued : a.queued)) || 0;
+                    if (running.length > 0) {
+                        var names = running.slice(0, 3).map(function (r) {
+                            return (r.Title || r.title || 'a sync');
+                        }).join(', ');
+                        $('ss-phase').textContent = running.length + ' run' + (running.length === 1 ? '' : 's')
+                            + ' still working: ' + names + ' \u2014 a running sync cannot be interrupted, use Kill to stop it.';
+                        setCancelButton('Kill all syncing', true);
+                        logLine('Cancel: ' + queued + ' queued task(s) dropped. ' + running.length
+                            + ' run(s) still in progress \u2014 press Kill to terminate them.');
+                        return;
+                    }
+
+                    $('ss-phase').textContent = 'Cancelled \u2014 nothing is running any more.';
+                    setCancelButton('Cancel', false);
+                    logLine('Cancel: everything stopped (' + queued + ' queued task(s) dropped).');
+                    if (watchedBatchId) refreshHistory();
                 }).catch(function () {
-                    if (cancelEl) cancelEl.disabled = false;
+                    setCancelButton('Kill all syncing', true);
+                });
+            }
+
+            function cancelWatchedBatch() {
+                var el = $('ss-cancel');
+                if (el && el.classList.contains('ss-kill')) {
+                    killAllSyncing();
+                    return;
+                }
+
+                if (!watchedBatchId) return;
+                if (el) el.disabled = true;
+                $('ss-run-label').textContent = 'Cancelling queued tasks\u2026';
+                $('ss-phase').textContent = 'Dropping tasks that have not started yet\u2026';
+                logLine('Cancel requested \u2014 dropping queued tasks of this run.');
+                api('SubSync/Batch/' + watchedBatchId + '/Cancel', { method: 'POST' }).then(function () {
+                    // Give the server a moment to reflect the running job's state.
+                    setTimeout(reportStillRunning, 700);
+                }).catch(function (e) {
+                    if (el) el.disabled = false;
                     $('ss-run-label').textContent = 'Cancel request failed.';
+                    diag('Cancel failed: ' + (e.message || e), true);
+                });
+            }
+
+            function killAllSyncing() {
+                var el = $('ss-cancel');
+                if (el) el.disabled = true;
+                $('ss-run-label').textContent = 'Killing running syncs\u2026';
+                $('ss-phase').textContent = 'Terminating ffsubsync/ffmpeg processes and dropping the queue\u2026';
+                logLine('Kill requested \u2014 terminating running processes.');
+                api('SubSync/Kill', { method: 'POST' }).then(function (r) {
+                    var killed = (r && (r.runningKilled != null ? r.runningKilled : r.RunningKilled)) || 0;
+                    var dropped = (r && (r.queuedCancelled != null ? r.queuedCancelled : r.QueuedCancelled)) || 0;
+                    var still = (r && (r.stillRunning != null ? r.stillRunning : r.StillRunning)) || 0;
+                    logLine('Killed ' + killed + ' running run(s), dropped ' + dropped + ' queued task(s)'
+                        + (still > 0 ? ' \u2014 ' + still + ' still shutting down.' : '.'));
+                    $('ss-phase').textContent = still > 0 ? 'Waiting for ' + still + ' process(es) to exit\u2026' : 'All syncing stopped.';
+                    if (still > 0) {
+                        setTimeout(reportStillRunning, 900);
+                    } else {
+                        setCancelButton('Cancel', false);
+                        if (watchedBatchId) refreshHistory();
+                    }
+                }).catch(function (e) {
+                    if (el) el.disabled = false;
+                    $('ss-run-label').textContent = 'Kill request failed.';
+                    diag('Kill failed: ' + (e.message || e), true);
                 });
             }
 

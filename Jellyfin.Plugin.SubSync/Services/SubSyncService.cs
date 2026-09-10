@@ -199,6 +199,11 @@ public class SubSyncService : IDisposable
     private readonly SemaphoreSlim _wakePump = new(0, 1);
     private readonly ConcurrentDictionary<string, (Video Video, MediaBrowser.Model.Entities.MediaStream Stream, int Ordinal, Configuration.PluginConfiguration Config)> _jobContexts = new();
 
+    // Per-job cancellation. Cancelling a batch only drops queued work; killing running
+    // work means terminating the ffsubsync/ffmpeg processes, which is what the UI's
+    // "Kill" action does.
+    private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellation = new();
+
     // Cleanup timer for evicting old completed/failed jobs
     private readonly Timer _cleanupTimer;
 
@@ -733,6 +738,58 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Kills everything: queued jobs (any batch) are cancelled and every running job's
+    /// ffsubsync/ffmpeg processes are terminated. Backs the UI's Kill action, which is
+    /// what the Cancel button turns into while processes are still running.
+    /// </summary>
+    /// <returns>How many jobs were dropped from the queue and how many runs were killed.</returns>
+    public (int QueuedCancelled, int RunningKilled) KillAll()
+    {
+        var queuedCancelled = 0;
+        lock (_queueLock)
+        {
+            foreach (var job in _runOrder.Where(j => j.Status == SyncJobStatus.Queued))
+            {
+                job.Status = SyncJobStatus.Cancelled;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.Phase = "Cancelled";
+                queuedCancelled++;
+            }
+        }
+
+        var runningKilled = 0;
+        foreach (var kvp in _jobCancellation)
+        {
+            try
+            {
+                kvp.Value.Cancel();
+                runningKilled++;
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run finished between the check and the cancel.
+            }
+        }
+
+        _logger.LogInformation(
+            "Kill requested: {Queued} queued task(s) cancelled, {Running} running run(s) terminated",
+            queuedCancelled, runningKilled);
+        return (queuedCancelled, runningKilled);
+    }
+
+    /// <summary>
+    /// Gets a summary of what is executing right now, so the UI can tell the user whether
+    /// anything is still running after a cancel.
+    /// </summary>
+    /// <returns>Running jobs and the queued count.</returns>
+    public (IReadOnlyList<SyncJob> Running, int Queued) GetActive()
+    {
+        var running = _jobs.Values.Where(j => j.Status == SyncJobStatus.Running).OrderBy(j => j.CreatedAtUtc).ToList();
+        var queued = _jobs.Values.Count(j => j.Status == SyncJobStatus.Queued);
+        return (running, queued);
+    }
+
+    /// <summary>
     /// Gets all tracked jobs belonging to a batch, ordered by batch position.
     /// </summary>
     /// <param name="batchId">The batch identifier.</param>
@@ -915,7 +972,23 @@ public class SubSyncService : IDisposable
             return;
         }
 
-        await RunSyncJob(job, ctx.Video, ctx.Stream, ctx.Ordinal, ctx.Config).ConfigureAwait(false);
+        using var cts = new CancellationTokenSource();
+        _jobCancellation[job.Id] = cts;
+        try
+        {
+            await RunSyncJob(job, ctx.Video, ctx.Stream, ctx.Ordinal, ctx.Config, cts.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            job.Status = SyncJobStatus.Cancelled;
+            job.Phase = "Cancelled";
+            job.Error = "Cancelled by user.";
+            _logger.LogInformation("Job {JobId} cancelled by user", job.Id);
+        }
+        finally
+        {
+            _jobCancellation.TryRemove(job.Id, out _);
+        }
 
         // Sweep cache: successful syncs of external subtitle files are remembered
         // so repeat library sweeps skip unchanged content whose output still exists.
@@ -1275,7 +1348,8 @@ public class SubSyncService : IDisposable
         Video video,
         MediaBrowser.Model.Entities.MediaStream subtitleStream,
         int subtitleOrdinal,
-        Configuration.PluginConfiguration config)
+        Configuration.PluginConfiguration config,
+        CancellationToken cancellationToken)
     {
         job.Status = SyncJobStatus.Running;
         job.Progress = 0.0;
@@ -1371,7 +1445,7 @@ public class SubSyncService : IDisposable
                 if (!extractedFast)
                 {
                     _logger.LogInformation("Extracting embedded subtitle (container stream {Stream}) from {Video}", containerIndex, videoPath);
-                    await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath).ConfigureAwait(false);
+                    await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath, cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -1446,7 +1520,7 @@ public class SubSyncService : IDisposable
                 exitCode = await RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, args, tempDir,
                     line => ParseFfSubSyncStderr(line, job),
-                    CancellationToken.None).ConfigureAwait(false);
+                    cancellationToken).ConfigureAwait(false);
             }
 
             if (exitCode != 0)
@@ -1840,7 +1914,7 @@ public class SubSyncService : IDisposable
         return args;
     }
 
-    private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath)
+    private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath, CancellationToken cancellationToken = default)
     {
         var ffmpegPath = ResolveFfmpegPath();
 

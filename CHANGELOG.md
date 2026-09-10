@@ -51,6 +51,13 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Changed: **Cancel now reports and escalates.** Pressing Cancel drops queued tasks and
+  then tells you what happened: how many tasks were dropped and whether any run is still
+  working (a running ffsubsync cannot be interrupted). While processes are still alive the
+  button becomes a red **Kill all syncing**, which terminates the running ffsubsync/ffmpeg
+  processes and empties the whole queue across every batch (`POST SubSync/Kill`); the log
+  and phase line report how many runs were killed and whether any are still shutting down.
+  `GET SubSync/Active` backs the reporting.
 - Added: **Ultimate mode** — parallel plus audio reuse: several media files at once, each
   file's speech analysis computed once and reused by its remaining subtitles. Same
   alignments as every other mode; the only difference is throughput.
