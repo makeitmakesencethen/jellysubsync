@@ -546,7 +546,7 @@
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
-                    $('ss-multimode').value = c.MultiSyncMode || 'normal';
+                    $('ss-multimode').value = c.MultiSyncMode || 'auto';
                     $('ss-workers').value = c.ParallelWorkers || 4;
                     $('ss-heavyreads').value = c.HeavyReadsPerVolume || 2;
                     syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
@@ -567,7 +567,7 @@
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
                     c.FastMkvExtraction = $('ss-fastmkv').checked;
                     c.SyncLanguages = syncLanguages.slice();
-                    c.MultiSyncMode = $('ss-multimode').value || 'normal';
+                    c.MultiSyncMode = $('ss-multimode').value || 'auto';
                     c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
                     c.HeavyReadsPerVolume = Math.min(4, Math.max(1, parseInt($('ss-heavyreads').value, 10) || 2));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);

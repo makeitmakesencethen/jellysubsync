@@ -17,6 +17,12 @@ public class PluginConfiguration : BasePluginConfiguration
     public bool FastIndexedExtraction { get; set; } = true;
 
     /// <summary>
+    /// Gets or sets the configuration revision this file was last migrated to. Used to move
+    /// existing installs onto newer defaults exactly once.
+    /// </summary>
+    public int ConfigVersion { get; set; }
+
+    /// <summary>
     /// Gets or sets how many tasks may read heavily from one storage volume at the same
     /// time (1-4). Higher overlaps more work but makes a single disk serve several readers.
     /// </summary>

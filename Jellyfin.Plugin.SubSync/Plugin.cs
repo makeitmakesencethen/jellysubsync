@@ -27,6 +27,59 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     {
         Instance = this;
         _logger = loggerFactory.CreateLogger<Plugin>();
+
+        try
+        {
+            if (Migrate(Configuration))
+            {
+                UpdateConfiguration(Configuration); // persist the migrated values
+            }
+        }
+        catch (Exception ex)
+        {
+            // A failed migration must never stop the plugin from loading.
+            _logger.LogWarning(ex, "SubSync configuration migration failed; continuing with the stored settings");
+        }
+    }
+
+    /// <inheritdoc />
+    public override void UpdateConfiguration(BasePluginConfiguration configuration)
+    {
+        if (configuration is PluginConfiguration pluginConfiguration)
+        {
+            Migrate(pluginConfiguration);
+        }
+
+        base.UpdateConfiguration(configuration);
+    }
+
+    /// <summary>
+    /// Brings an older configuration onto current defaults. Runs once per revision and is
+    /// persisted immediately, so an install that never opens the settings page still gets
+    /// the new behaviour.
+    /// </summary>
+    /// <param name="config">Configuration to migrate.</param>
+    /// <returns>True when something changed and should be saved.</returns>
+    private bool Migrate(PluginConfiguration config)
+    {
+        var changed = false;
+
+        if (config.ConfigVersion < 1)
+        {
+            // Before the automatic strategy existed, every stored mode was either a legacy
+            // default or a deliberate choice. The automatic strategy resolves to the same
+            // thing or better for each run shape (single task, several subtitles of one
+            // file, several files), so older values are moved onto it once.
+            _logger.LogInformation(
+                "SubSync config migration: MultiSyncMode '{Old}' -> '{New}' (automatic strategy)",
+                config.MultiSyncMode,
+                Services.SyncJobMode.Auto);
+            config.MultiSyncMode = Services.SyncJobMode.Auto;
+            config.ConfigVersion = 1;
+            changed = true;
+        }
+
+        return changed;
     }
 
     /// <inheritdoc />

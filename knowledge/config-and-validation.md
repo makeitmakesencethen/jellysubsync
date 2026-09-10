@@ -202,3 +202,15 @@ segments, so a talky 2-hour film stays in the tens of KB).
 batch position) and the existing `CurrentTask`/`Tasks`. The dashboard renders one row per
 running task — title, phase, per-task progress bar — whenever the batch mode is `parallel`
 or `ultimate` (or when more than one task is running), above the overall progress bar.
+
+
+## Configuration migration
+
+`PluginConfiguration.ConfigVersion` marks which defaults an install has been moved onto.
+`Plugin.Migrate()` runs from both the constructor and `UpdateConfiguration`, so the
+migration applies at load time (and is persisted immediately) as well as on save.
+
+- Revision 1 (added with the automatic strategy): any stored `MultiSyncMode` is set to
+  `auto`. Before that release there was no auto mode, so every stored value was either a
+  legacy default or a manual pick; the automatic strategy resolves to the same or better
+  behaviour for each run shape. Modes chosen after the migration are honoured.

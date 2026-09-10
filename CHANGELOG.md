@@ -51,6 +51,10 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Added: **one-time config migration** to the automatic strategy. Installs that stored an
+  explicit mode (the pre-1.1.0.16 default was `normal`) are moved onto `auto` the first time
+  the new build loads, and it is saved immediately — so an upgrade gets the new behaviour
+  without opening the settings page. Manual overrides chosen afterwards are respected.
 - Fixed: parallel runs on a **single-volume library effectively ran one task at a time**.
   The per-volume heavy-read gate allowed exactly one heavy reader, and with an uncached
   library every first analysis is heavy — so four workers sat idle. The gate now takes a
