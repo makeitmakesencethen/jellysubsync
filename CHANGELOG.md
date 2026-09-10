@@ -191,7 +191,22 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.29]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.30]
+
+### Fixed
+- **The end-of-extraction summary carries the same numbers as the live lines.** It printed
+  `kernel -1 bytes in -1 calls` because those fields were only filled inside the progress
+  callback. A log line that says "unknown" where a number belongs invites exactly the doubt this
+  telemetry exists to remove. It now reads, for example:
+  `seekhead-cues: 326 clusters, 326 blocks, 1.3 MB in 331 reads, 22.8 ms | 0.0 ms/read, 14310
+  blocks/s, kernel 1335458 bytes in 329 calls` — two independent counters that must agree.
+
+### Verified
+Both plausible cluster layouts cost the same, so the reader is not reading across clusters:
+a block 32 bytes into a 5 MB cluster and a block at the end of it both give ~330-390 reads and
+1.3 MB over 326 cues.
+
+## [1.1.0.29]
 
 ### Fixed
 - **Extraction progress is now honest and checkable.** The line printed counters that were only

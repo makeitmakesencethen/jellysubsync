@@ -75,7 +75,9 @@ public sealed class MkvExtractionStats
             CultureInfo.InvariantCulture,
             " | {0:0.0} ms/read, {1:0} blocks/s, kernel {2} bytes in {3} calls",
             ReadLatencyMs,
-            BlocksPerSecond,
+            BlocksPerSecond > 0
+                ? BlocksPerSecond
+                : (TotalMs <= 0 ? 0 : SubtitleBlocks / (TotalMs / 1000.0)),
             KernelBytesRead,
             KernelReadCalls);
 }
@@ -102,6 +104,9 @@ public sealed class MkvExtractionStats
 /// </summary>
 public static class MkvSubtitleExtractor
 {
+    private static long _kernelBytesAtStart = -1;
+    private static long _kernelCallsAtStart = -1;
+
     private const ulong IdEbml = 0x1A45DFA3;
     private const ulong IdSegment = 0x18538067;
     private const ulong IdSeekHead = 0x114D9B74;
@@ -229,6 +234,10 @@ public static class MkvSubtitleExtractor
             reader = new BlobReader(stream);
             var result = Extract(reader, subtitleOrdinal, progress, out srtText, out reason, stats, cancellationToken);
             stats.BytesRead = reader.BytesRead;
+
+        // The summary must carry the same numbers as the live lines; "unknown" where a number
+        // belongs is how a report stops being believable.
+        FinaliseStats(stats);
             stats.ReadCalls = reader.ReadCalls;
             stats.TotalMs = watch.Elapsed.TotalMilliseconds;
             return result;
@@ -239,6 +248,10 @@ public static class MkvSubtitleExtractor
             reason = ex.GetType().Name + ": " + ex.Message;
             stats.Method = "failed";
             stats.BytesRead = reader?.BytesRead ?? 0;
+
+        // The summary must carry the same numbers as the live lines; "unknown" where a number
+        // belongs is how a report stops being believable.
+        FinaliseStats(stats);
             stats.ReadCalls = reader?.ReadCalls ?? 0;
             stats.TotalMs = watch.Elapsed.TotalMilliseconds;
             return false;
@@ -451,7 +464,8 @@ public static class MkvSubtitleExtractor
             + $"({cueRefs.Count(r => r.RelativePosition >= 0)} with a block offset), method pending");
 
         var readWatch = Stopwatch.StartNew();
-        var (kernelBytesAtStart, kernelCallsAtStart) = KernelIo();
+        MarkIoBaseline();
+        var (kernelBytesAtStart, kernelCallsAtStart) = (_kernelBytesAtStart, _kernelCallsAtStart);
 
         if (cueRefs.Count > 0)
         {
@@ -612,6 +626,36 @@ public static class MkvSubtitleExtractor
         {
             return (-1, -1);
         }
+    }
+
+    /// <summary>
+    /// Fills the derived cost figures (latency, block rate, kernel totals) on a finished
+    /// extraction, so the summary line states numbers rather than "unknown".
+    /// </summary>
+    /// <param name="stats">Stats to complete.</param>
+    private static void FinaliseStats(MkvExtractionStats stats)
+    {
+        stats.ReadLatencyMs = stats.ReadCalls <= 0 ? 0 : stats.ReadMs / stats.ReadCalls;
+        stats.BlocksPerSecond = stats.TotalMs <= 0
+            ? 0
+            : stats.SubtitleBlocks / (stats.TotalMs / 1000.0);
+
+        var (bytes, calls) = KernelIo();
+        if (bytes >= 0 && _kernelBytesAtStart >= 0)
+        {
+            stats.KernelBytesRead = bytes - _kernelBytesAtStart;
+            stats.KernelReadCalls = calls - _kernelCallsAtStart;
+        }
+    }
+
+    /// <summary>
+    /// Marks the start of a measured extraction, so kernel counters can be reported as a delta.
+    /// </summary>
+    private static void MarkIoBaseline()
+    {
+        var (bytes, calls) = KernelIo();
+        _kernelBytesAtStart = bytes;
+        _kernelCallsAtStart = calls;
     }
 
     /// <summary>
