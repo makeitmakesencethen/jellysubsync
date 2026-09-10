@@ -504,7 +504,7 @@
                     (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
                 if (n === 0) {
-                    html += ' <span style="opacity:.6;">\u00b7 right-click rows to pick several</span>';
+                    html += ' <span style="opacity:.6;">\u00b7 right-click a row to pick it, shift+right-click for a range</span>';
                 } else {
                     html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked</span>';
                 }
@@ -585,17 +585,21 @@
 
             // Rows are multi-selected by shift-clicking: a plain click selects
             // one item (and shows its options), each shift-click adds or removes
-            // that item, so picks do not have to be adjacent.
+            // that item, so picks do not have to be adjacent. Right-click toggles
+            // one row; shift+right-click selects the range from the anchor.
             var isBuilding = false; // a batch queue is being assembled
+            var anchorId = null;    // last plain-clicked row (range anchor)
 
             function toggleSelectAllVisible() {
                 var vis = visibleItems();
                 var allPicked = vis.length > 0 && vis.every(function (x) { return selectedIds[x.Id]; });
                 if (allPicked) {
                     selectedIds = {};
+                    anchorId = null;
                 } else {
                     selectedIds = {};
                     vis.forEach(function (x) { selectedIds[x.Id] = true; });
+                    anchorId = vis.length ? vis[0].Id : null;
                 }
                 startLangScan();
                 render();
@@ -872,11 +876,25 @@
                         if (e.shiftKey) e.preventDefault();
                     });
 
-                    // Right-click is the primary way to add/remove one item.
+                    // Right-click picks or unpicks one row; shift+right-click
+                    // extends from the anchor over everything in between.
                     row.addEventListener('contextmenu', function (e) {
                         if (e.target.closest('.ss-row-actions')) return;
                         e.preventDefault();
-                        togglePicked(row.getAttribute('data-id'));
+                        var id = row.getAttribute('data-id');
+                        if (e.shiftKey && anchorId) {
+                            var visIds = visibleItems().map(function (x) { return x.Id; });
+                            var a = visIds.indexOf(anchorId);
+                            var b = visIds.indexOf(id);
+                            if (a >= 0 && b >= 0) {
+                                selectedIds = {};
+                                for (var i = Math.min(a, b); i <= Math.max(a, b); i++) selectedIds[visIds[i]] = true;
+                                startLangScan();
+                                render();
+                                return;
+                            }
+                        }
+                        togglePicked(id);
                     });
 
                     row.addEventListener('click', function (e) {
@@ -900,7 +918,10 @@
                             // opens its options without losing the selection.
                             selectedIds = {};
                             selectedIds[id] = true;
+                            anchorId = id;
                             startLangScan();
+                        } else {
+                            anchorId = id;
                         }
                         selectItem(match);
                     });

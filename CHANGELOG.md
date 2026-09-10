@@ -20,6 +20,9 @@ All notable changes to this plugin are documented here. Versions follow
   "Reading subtitles… N/M files", then the batch joins the server queue (behind a running
   batch if one is streaming). Movies contribute their subtitle tracks; series contribute
   one track per language per episode (external preferred).
+- Added: **shift+right-click** a row to select the whole range from the anchor (the last
+  plain-clicked row) — the previous range behaviour, now opt-in so single-row right-click
+  picking stays exact.
 
 ## 1.0.10
 
