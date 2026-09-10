@@ -69,9 +69,12 @@ public static class SyncJobMode
 
         if (distinctMediaFiles <= 1)
         {
-            // Several subtitles of one file: analyse the audio once, then the rest are
-            // cheap parallel alignments against that cached signal.
-            return Fast;
+            // Several subtitles of one file: the first one builds the speech analysis, then
+            // the rest align in **parallel** against that cached signal. Reuse alone would
+            // run them one by one, which is why a movie with several subtitles looked
+            // serialised once the analysis finished — the cache makes the extra tasks cheap,
+            // not sequential.
+            return Ultimate;
         }
 
         // Several files: parallel across them, and reuse each file's speech analysis for

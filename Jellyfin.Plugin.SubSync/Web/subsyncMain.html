@@ -221,8 +221,8 @@
                                     </select>
                                     <div class="fieldDescription">
                                         <strong>Automatic</strong> (default) picks per run: one subtitle on one file stays sequential;
-                                        several subtitles of one file analyse the audio once and reuse it; several files run in
-                                        parallel with each file's analysis reused. The other options force a specific behaviour —
+                                        several subtitles of one file analyse the audio once and then run <strong>in parallel</strong> against that
+                                        cached signal; several files run in parallel with each file's analysis reused. The other options force a specific behaviour —
                                         they exist for troubleshooting.
                                         <strong>Normal</strong> syncs one subtitle at a time and analyses the audio for each.
                                         <strong>Parallel</strong> runs several subtitles of the same media file at once (CPU-bound, a

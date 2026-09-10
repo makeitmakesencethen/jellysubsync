@@ -191,7 +191,25 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.22]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.23]
+
+### Fixed
+- **Several subtitles of one movie now sync in parallel, not one after another.** The
+  automatic strategy picked *fast* (reuse only) whenever a batch covered a single media file,
+  and *fast* is not a parallel mode — so the first subtitle analysed the audio and every
+  other one then queued up behind it, each waiting its turn even though its work was already
+  cheap. That case now resolves to *ultimate*: the first subtitle builds the speech analysis,
+  and the remaining ones align in parallel against that cached signal, up to the configured
+  worker count.
+
+  The file-sharing rule still applies and is what keeps this safe: a second subtitle of the
+  same file only joins a wave once that file's speech analysis is cached, so the analysis is
+  built exactly once and no two workers race to build it.
+
+  Explicit modes are unchanged — *Fast* still runs sequentially with reuse if you select it
+  in Settings for troubleshooting.
+
+## [1.1.0.22]
 
 ### Fixed
 - **Embedded Matroska extraction is now genuinely index-based.** The previous reader located
