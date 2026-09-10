@@ -6,12 +6,13 @@ All notable changes to this plugin are documented here. Versions follow
 
 ## 1.1.0 (beta)
 
-- Added: multi-select in the library browser — a checkbox per row, **Select all shown**
-  (scoped to the current library + search view) and **shift-click** to extend over a
-  range. **Sync selected (N)** queues every picked item into one batch: movies
-  contribute their subtitle tracks, series contribute one track per language per
-  episode (external preferred). Works while another run is streaming — the new batch
-  joins the queue behind it.
+- Added: multi-select in the library browser without checkboxes — click one movie or
+  series, then **shift-click** another to select the whole range between them (the
+  selection follows the current library + search view). The count line under the search
+  box shows a small **Select all** link (scoped to what is shown) and, once more than one
+  item is picked, a **Sync N selected** button: movies contribute their subtitle tracks,
+  series contribute one track per language per episode (external preferred). Works while
+  another run is streaming — the new batch joins the queue behind it.
 
 ## 1.0.10
 
