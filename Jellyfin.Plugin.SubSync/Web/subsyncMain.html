@@ -28,6 +28,9 @@
             .ss-list { margin-top: 4px; }
             .ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; border-radius: 6px; }
             .ss-row.selected { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 14%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
+            .ss-row.ss-picked { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 7%, transparent); }
+            .ss-row.selected.ss-picked { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 18%, transparent); }
+            .ss-rowcheckwrap input { width: 18px; height: 18px; margin: 0; }
             .ss-row.selected .ss-name { color: var(--theme-primary-color, #00a4dc); font-weight: 600; }
             .ss-row-main { min-width: 0; flex: 1 1 auto; }
             .ss-name { font-weight: 500; line-height: 1.3; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-color, #ddd); }
@@ -104,6 +107,14 @@
                             <div class="ss-toolbar">
                                 <select is="emby-select" id="ss-library" class="ss-lib" aria-label="Library"><option value="">All Libraries</option></select>
                                 <input is="emby-input" id="ss-search" type="text" placeholder="Search movies and series…" />
+                                <div class="ss-selrow" style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:2px;">
+                                    <label class="emby-checkbox-label" style="display:flex;align-items:center;gap:6px;font-size:.9rem;">
+                                        <input is="emby-checkbox" type="checkbox" id="ss-selall" />
+                                        <span>Select all shown</span>
+                                    </label>
+                                    <span id="ss-selcount" class="ss-muted" style="font-size:.85rem;"></span>
+                                    <button is="emby-button" type="button" id="ss-syncselected" class="raised" disabled><span>Sync selected</span></button>
+                                </div>
                             </div>
 
                             <div class="ss-dataline" id="ss-dataline">Loading libraries…</div>
@@ -199,6 +210,8 @@
             var movieTracks = [];       // subtitle tracks of the selected movie
             var busy = false;
             var startInFlight = false; // a queue-build POST is in flight — prevents double submits
+            var selectedIds = {};      // ids picked via checkboxes (multi-select)
+            var shiftAnchor = -1;      // last checkbox clicked, for shift-range selection
 
             var STATE_KEY = 'subsync.state.v1';
             var pendingScope = null; // scope to restore once seasons load
@@ -479,6 +492,158 @@
                 return html;
             }
 
+            // ---------------- Multi-select (checkboxes + shift-range) ----------------
+            function visibleItems() {
+                var q = ($('ss-search').value || '').toLowerCase().trim();
+                return allItems.filter(function (x) {
+                    return !q || (x.Name || '').toLowerCase().indexOf(q) !== -1;
+                });
+            }
+
+            function pickedCount() {
+                var n = 0;
+                for (var k in selectedIds) { if (Object.prototype.hasOwnProperty.call(selectedIds, k)) n++; }
+                return n;
+            }
+
+            function updateSelUi() {
+                var n = pickedCount();
+                var vis = visibleItems();
+                var visPicked = 0;
+                vis.forEach(function (x) { if (selectedIds[x.Id]) visPicked++; });
+
+                var countEl = $('ss-selcount');
+                if (countEl) countEl.textContent = n ? (n + ' selected') : '';
+
+                var selAll = $('ss-selall');
+                if (selAll) {
+                    selAll.checked = vis.length > 0 && visPicked === vis.length;
+                    selAll.indeterminate = visPicked > 0 && visPicked < vis.length;
+                }
+
+                var btn = $('ss-syncselected');
+                if (btn) {
+                    btn.disabled = n === 0 || startInFlight;
+                    var span = btn.querySelector('span');
+                    if (span) span.textContent = n ? ('Sync selected (' + n + ')') : 'Sync selected';
+                }
+            }
+
+            // Tasks for one item: a movie contributes its tracks; a series
+            // contributes one track per language per episode (external preferred).
+            function buildTasksForItem(item) {
+                if (item.Type === 'Movie') {
+                    return listTracks(item.Id).then(function (tracks) {
+                        return (tracks || []).map(function (t) {
+                            return { itemId: item.Id, index: t.Index, title: item.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) };
+                        });
+                    });
+                }
+
+                return episodesInScope(item.Id, false).then(function (episodes) {
+                    var tasks = [];
+                    var seq = Promise.resolve();
+                    episodes.forEach(function (ep) {
+                        seq = seq.then(function () {
+                            return listTracks(ep.id).then(function (tracks) {
+                                var byLang = {};
+                                (tracks || []).forEach(function (t) {
+                                    var k = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';
+                                    var cur = byLang[k];
+                                    if (!cur || (!cur.IsExternal && t.IsExternal)) byLang[k] = t;
+                                });
+                                Object.keys(byLang).sort().forEach(function (k) {
+                                    var t = byLang[k];
+                                    tasks.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
+                                });
+                            });
+                        });
+                    });
+                    return seq.then(function () { return tasks; });
+                });
+            }
+
+            // Shared tail for starting a batch: stream it if idle, otherwise let it
+            // join the server queue behind the running run.
+            function watchOrQueueBatch(batchId, label, taskCount) {
+                if (watchedBatchTimer) {
+                    busy = true;
+                    logLine('Queued: ' + label + ' \u2014 ' + taskCount + ' task(s); starts after the current run finishes.');
+                    $('ss-run-label').textContent = 'Queued: ' + label + ' \u2014 behind the current run.';
+                    refreshHistory();
+                    return;
+                }
+
+                busy = true;
+                reattached = false;
+                attachPending = false;
+                var taskLines = {};
+                pollBatchView(batchId, taskLines);
+            }
+
+            function startSyncSelected() {
+                if (startInFlight) return;
+                var items = allItems.filter(function (x) { return selectedIds[x.Id]; });
+                if (!items.length) { diag('Nothing selected.', true); return; }
+
+                startInFlight = true;
+                updateSelUi();
+                var idle = !watchedBatchTimer;
+                if (idle) {
+                    busy = true;
+                    showRunBox(true);
+                    $('ss-log').textContent = '';
+                    $('ss-progress').style.width = '0%';
+                }
+                logLine('Building queue for ' + items.length + ' selected item' + (items.length === 1 ? '' : 's') + '\u2026');
+
+                var all = [];
+                var seq = Promise.resolve();
+                items.forEach(function (it) {
+                    seq = seq.then(function () {
+                        return buildTasksForItem(it).then(function (t) {
+                            all = all.concat(t);
+                            logLine('  ' + it.Name + ': ' + t.length + ' task' + (t.length === 1 ? '' : 's'));
+                        });
+                    });
+                });
+
+                seq.then(function () {
+                    if (!all.length) {
+                        logLine('No subtitle tracks found for the selected items.');
+                        startInFlight = false;
+                        updateSelUi();
+                        if (idle) busy = false;
+                        return;
+                    }
+
+                    var label = 'Selected (' + items.length + ' item' + (items.length === 1 ? '' : 's') + ')';
+                    $('ss-run-label').textContent = 'Sending ' + all.length + ' task(s) to the server queue\u2026';
+
+                    return api('SubSync/Batch', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            label: label,
+                            tasks: all.map(function (t) {
+                                return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
+                            })
+                        })
+                    }).then(function (view) {
+                        var batchId = (view && (view.Id || view.id)) || '';
+                        if (!batchId) throw new Error('server did not return a batch id');
+                        startInFlight = false;
+                        updateSelUi();
+                        watchOrQueueBatch(batchId, label, all.length);
+                    });
+                }).catch(function (e) {
+                    startInFlight = false;
+                    updateSelUi();
+                    if (!watchedBatchTimer) busy = false;
+                    diag('Could not start sync: ' + (e.message || e), true);
+                    logLine('ERROR: ' + (e.message || e));
+                });
+            }
+
             function render() {
                 var q = ($('ss-search').value || '').toLowerCase().trim();
                 var filtered = allItems.filter(function (x) {
@@ -487,7 +652,11 @@
                 $('ss-list').innerHTML = filtered.map(function (item) {
                     var meta = item.Type + (item.ProductionYear ? ' \u00b7 ' + item.ProductionYear : '');
                     var isSel = selected && selected.Id === item.Id;
-                    var html = '<div class="ss-row' + (isSel ? ' selected' : '') + '" data-id="' + esc(item.Id) + '">' +
+                    var isPicked = !!selectedIds[item.Id];
+                    var html = '<div class="ss-row' + (isSel ? ' selected' : '') + (isPicked ? ' ss-picked' : '') + '" data-id="' + esc(item.Id) + '">' +
+                        '<label class="ss-rowcheckwrap" style="display:flex;align-items:center;padding-right:10px;cursor:pointer;">' +
+                        '<input is="emby-checkbox" type="checkbox" class="ss-rowcheck" data-id="' + esc(item.Id) + '"' + (isPicked ? ' checked' : '') + ' />' +
+                        '</label>' +
                         '<div class="ss-row-main">' +
                         '<div class="ss-name">' + esc(item.Name) + '</div>' +
                         '<div class="ss-meta">' + esc(meta) + '</div>' +
@@ -516,11 +685,43 @@
                 Array.prototype.forEach.call($('ss-list').querySelectorAll('.ss-row'), function (row) {
                     row.addEventListener('click', function (e) {
                         if (e.target.closest('.ss-row-actions')) return; // clicks on controls handled separately
+                        if (e.target.closest('.ss-rowcheckwrap')) return; // checkbox handles its own clicks
                         var id = row.getAttribute('data-id');
                         var match = null;
                         for (var i = 0; i < allItems.length; i++) if (allItems[i].Id === id) { match = allItems[i]; break; }
                         if (!match) return;
                         selectItem(match);
+                    });
+                });
+
+                // Multi-select checkboxes. Shift-click extends the selection over
+                // the range of items currently shown (library + search filtered).
+                Array.prototype.forEach.call($('ss-list').querySelectorAll('.ss-rowcheck'), function (cb) {
+                    cb.addEventListener('click', function (e) {
+                        e.stopPropagation();
+                    });
+                    cb.addEventListener('change', function (e) {
+                        var id = cb.getAttribute('data-id');
+                        var vis = visibleItems();
+                        var visIds = vis.map(function (x) { return x.Id; });
+                        var idx = visIds.indexOf(id);
+                        var want = cb.checked;
+
+                        if (e.shiftKey && shiftAnchor >= 0 && idx >= 0 && shiftAnchor < visIds.length) {
+                            var from = Math.min(shiftAnchor, idx);
+                            var to = Math.max(shiftAnchor, idx);
+                            for (var i = from; i <= to; i++) {
+                                if (want) selectedIds[visIds[i]] = true;
+                                else delete selectedIds[visIds[i]];
+                            }
+                        } else {
+                            if (want) selectedIds[id] = true;
+                            else delete selectedIds[id];
+                            shiftAnchor = idx;
+                        }
+
+                        render();
+                        updateSelUi();
                     });
                 });
 
@@ -556,6 +757,8 @@
                         }
                     }
                 }
+
+                updateSelUi();
             }
 
             function selectItem(item) {
@@ -946,20 +1149,7 @@
                         if (!batchId) throw new Error('server did not return a batch id');
                         startInFlight = false;
                         if (btn) btn.disabled = false;
-                        if (watchedBatchTimer) {
-                            // Another batch is streaming: this run joins the server
-                            // FIFO queue and starts when the current one finishes.
-                            busy = true;
-                            logLine('Queued: ' + label + ' \u2014 ' + tasks.length + ' task(s); starts after the current run finishes.');
-                            $('ss-run-label').textContent = 'Queued: ' + label + ' \u2014 behind the current run.';
-                            refreshHistory();
-                        } else {
-                            busy = true;
-                            reattached = false;
-                            attachPending = false;
-                            var taskLines = {};
-                            pollBatchView(batchId, taskLines);
-                        }
+                        watchOrQueueBatch(batchId, label, tasks.length);
                     });
                 }).catch(function (e) {
                     startInFlight = false;
@@ -1032,6 +1222,19 @@
             $('ss-save').addEventListener('click', saveConfig);
             var cancelBtn = $('ss-cancel');
             if (cancelBtn) cancelBtn.addEventListener('click', cancelWatchedBatch);
+
+            var selAll = $('ss-selall');
+            if (selAll) {
+                selAll.addEventListener('change', function () {
+                    var vis = visibleItems();
+                    if (selAll.checked) vis.forEach(function (x) { selectedIds[x.Id] = true; });
+                    else vis.forEach(function (x) { delete selectedIds[x.Id]; });
+                    render();
+                    updateSelUi();
+                });
+            }
+            var syncSelBtn = $('ss-syncselected');
+            if (syncSelBtn) syncSelBtn.addEventListener('click', startSyncSelected);
             $('ss-library').addEventListener('change', function () {
                 saveState({ library: $('ss-library').value });
                 loadItems();

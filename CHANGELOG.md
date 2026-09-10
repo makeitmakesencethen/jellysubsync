@@ -4,6 +4,15 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 1.1.0 (beta)
+
+- Added: multi-select in the library browser — a checkbox per row, **Select all shown**
+  (scoped to the current library + search view) and **shift-click** to extend over a
+  range. **Sync selected (N)** queues every picked item into one batch: movies
+  contribute their subtitle tracks, series contribute one track per language per
+  episode (external preferred). Works while another run is streaming — the new batch
+  joins the queue behind it.
+
 ## 1.0.10
 
 - Fixed: the sync outcome (offset in ms / framerate ratio) is now shown in the live
