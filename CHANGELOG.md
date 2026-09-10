@@ -37,6 +37,12 @@ All notable changes to this plugin are documented here. Versions follow
 - Added: **shift+right-click** a row to select the whole range from the anchor (the last
   plain-clicked row) — the previous range behaviour, now opt-in so single-row right-click
   picking stays exact.
+- Added: a small spinner next to the language dropdown while the picked files are being
+  read ("reading subtitle lists… N/M files"), and the note now counts **subtitle tracks**
+  once a language is picked — e.g. `280 files selected — series sync all their episodes —
+  1,240 German subtitle tracks to sync` — with the button reading `Sync 1,240 subtitles`
+  in that case. Counts are only shown once the scan is complete, so the number always
+  matches the queue that gets built.
 
 ## 1.0.10
 

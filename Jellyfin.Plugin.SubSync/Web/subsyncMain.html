@@ -26,6 +26,13 @@
             .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
             .ss-selnote { font-size: .82rem; opacity: .7; }
             .ss-selchips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+            .ss-spin {
+                width: 13px; height: 13px; border-radius: 50%;
+                border: 2px solid rgba(255,255,255,.22);
+                border-top-color: var(--theme-primary-color, #00a4dc);
+                display: inline-block; animation: ss-spin .7s linear infinite;
+            }
+            @keyframes ss-spin { to { transform: rotate(360deg); } }
             .ss-langchips { display: flex; gap: 6px; flex-wrap: wrap; margin: 8px 0 2px; }
             .ss-langchips a { display: inline-flex; align-items: center; gap: 5px; font-size: .82rem; text-decoration: none; padding: 4px 10px; border-radius: 12px; background: rgba(120,170,255,.16); color: inherit; }
             .ss-selchips a { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; text-decoration: none; padding: 3px 8px; border-radius: 10px; background: rgba(120,170,255,.16); color: inherit; }
@@ -122,6 +129,7 @@
                                 <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
                                     <option value="">All languages</option>
                                 </select>
+                                <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
                             </div>
@@ -597,9 +605,23 @@
                 }
 
                 var busyNow = isBuilding || startInFlight;
+                var estimate = estimateTaskCount();
+                var fmt = function (v) { return v.toLocaleString(); };
+
+                var scanSpin = $('ss-selscan');
+                if (scanSpin) scanSpin.style.display = langScan.running ? 'inline-block' : 'none';
+
                 var btn = $('ss-syncsel-btn');
                 var span = btn ? btn.querySelector('span') : null;
-                if (span) span.textContent = busyNow ? 'Working\u2026' : ('Sync ' + n + ' file' + (n === 1 ? '' : 's'));
+                if (span) {
+                    if (busyNow) {
+                        span.textContent = 'Working\u2026';
+                    } else if (selLangs.length && estimate !== null) {
+                        span.textContent = 'Sync ' + fmt(estimate) + ' subtitle' + (estimate === 1 ? '' : 's');
+                    } else {
+                        span.textContent = 'Sync ' + n + ' file' + (n === 1 ? '' : 's');
+                    }
+                }
                 if (btn) btn.disabled = busyNow;
 
                 // Keep the language dropdown in step with the scan, without
@@ -642,16 +664,20 @@
                 }
                 var note = $('ss-selnote');
                 if (note) {
+                    var langs = selLangs.map(langLabel).join(' + ');
                     var words = n + ' file' + (n === 1 ? '' : 's') + ' selected';
                     if (hasSeries) words += ' \u2014 series sync all their episodes';
-                    if (selLangs.length) {
-                        words += ' \u2014 only ' + selLangs.map(langLabel).join(' + ') + ' subtitles';
-                    }
+
                     if (langScan.running) {
-                        words += ' \u00b7 reading subtitles\u2026 ' + langScan.done + '/' + langScan.total;
-                    } else if (langScan.partial) {
-                        words += ' \u00b7 language list partial';
+                        words += ' \u00b7 reading subtitle lists\u2026 ' + langScan.done + '/' + langScan.total;
+                    } else if (selLangs.length && estimate !== null) {
+                        words += ' \u2014 ' + fmt(estimate) + ' ' + langs + ' subtitle track'
+                            + (estimate === 1 ? '' : 's') + ' to sync';
+                    } else if (selLangs.length) {
+                        words += ' \u2014 only ' + langs + ' subtitles';
                     }
+
+                    if (langScan.partial) words += ' \u00b7 language list partial';
                     note.textContent = words;
                 }
                 bar.style.display = 'flex';
@@ -800,7 +826,11 @@
             function bestPerLanguage(tracks, onlyLang) {
                 var want = null;
                 if (onlyLang && onlyLang.length) {
-                    want = (typeof onlyLang === 'string') ? [onlyLang] : onlyLang;
+                    // Normalise the wanted side too, so a stray form ('sv', 'Swedish')
+                    // still matches the canonical codes we compare against.
+                    want = ((typeof onlyLang === 'string') ? [onlyLang] : onlyLang).map(function (c) {
+                        return normLang({ Language: c });
+                    });
                 }
                 var byLang = {};
                 (tracks || []).forEach(function (t) {
@@ -893,6 +923,29 @@
                     });
                     return seq.then(function () { return tasks; });
                 });
+            }
+
+            // How many subtitle tracks the current picks would actually queue. Only
+            // answered once the scan has finished, so the number always matches the
+            // queue that gets built (both read the same caches + bestPerLanguage).
+            function estimateTaskCount() {
+                if (langScan.running) return null;
+                var total = 0;
+                allItems.forEach(function (it) {
+                    if (!selectedIds[it.Id]) return;
+                    if (it.Type === 'Movie') {
+                        var tracks = trackCache[it.Id];
+                        if (!tracks) return;
+                        total += (selLangs.length ? bestPerLanguage(tracks, selLangs) : tracks).length;
+                        return;
+                    }
+                    (episodesCache[it.Id] || []).forEach(function (ep) {
+                        var epTracks = trackCache[ep.id];
+                        if (!epTracks) return;
+                        total += bestPerLanguage(epTracks, selLangs).length;
+                    });
+                });
+                return total;
             }
 
             // Shared tail for starting a batch: stream it if idle, otherwise let it
