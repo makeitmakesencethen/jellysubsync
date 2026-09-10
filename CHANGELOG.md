@@ -191,7 +191,22 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.31]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.32]
+
+### Reverted
+- **Thread pinning removed.** 1.1.0.31 forced ffsubsync's numeric libraries to one thread per
+  worker. The measurement was real (4 threads per worker unpinned, 1 pinned, same work), but the
+  conclusion was mine, not a reported fault — four threads across four workers is a legitimate
+  choice, and the CPU spike that prompted the look was a hung benchmark process on the server, not
+  the plugin. The plugin runs ffsubsync exactly as it did before 1.1.0.31; no environment
+  variables are set, and the built assembly contains no trace of the code.
+
+### Kept
+- `<AssemblyVersion>` and `<FileVersion>` expanding from `<Version>`. Not a behaviour change:
+  they had been stuck at 1.1.0.19, so the version line added in 1.1.0.29 would have reported the
+  wrong build. The interface now shows the truth.
+
+## [1.1.0.31]
 
 ### Fixed
 - **One worker no longer opens four threads.** Measured on a real 1h52m remux: the bundled
