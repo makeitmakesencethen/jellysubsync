@@ -47,21 +47,26 @@ Plugin assemblies only load at server startup, so **a restart is always required
 For code paths that don't touch the DLL (the embedded `Web/*.html` and `subsync.js`),
 the files are embedded resources — rebuild + reinstall is still needed.
 
-**2. Beta channel (safe public testing).** The `beta` branch is built by
-`.github/workflows/beta.yml` into a *separate* catalog:
+**2. Test builds from the `beta` branch.** Pushing to `beta` runs
+`.github/workflows/beta.yml`, which builds the full plugin (bundled ffsubsync included)
+and attaches it as a **pre-release zip** on the Releases page. It publishes **no
+catalog** on purpose: a second catalog would appear as a second entry in every plugin
+list (same plugin GUID), which is confusing for users.
 
+To install a test build on your own Jellyfin:
+
+```bash
+# download the zip from the pre-release, then push its contents into the installed plugin
+unzip Jellyfin.Plugin.SubSync_1.1.0.0-test.N.zip -d /tmp/subsync-test
+docker cp /tmp/subsync-test/. jellyfin:/config/plugins/SubSync_<installed-version>/
+docker restart jellyfin
 ```
-https://<owner>.github.io/<repo>/beta/manifest.json
-```
 
-Stable users are untouched — the beta catalog is a different URL that must be added
-explicitly (Dashboard → Plugins → Catalog → add repository, then install the entry named
-**SubSync (Beta)**). Anyone who wants to help test can add it; everyone else keeps
-getting `master` releases.
+The stable catalog is still the only public channel — a test build can never reach
+users, and your plugin list never shows a duplicate entry.
 
-Promotion flow: work on `beta` → test via the beta catalog (or locally) → merge `beta`
-into `master` → bump version + `CHANGELOG.md` entry → tag `vX.Y.Z` → stable release.
-Because the beta catalog is a different URL, a broken beta can never reach stable users.
+Promotion flow: work on `beta` → test locally (above) → merge `beta` into `master` →
+bump version + `CHANGELOG.md` entry → tag `vX.Y.Z` → stable release.
 
 ## Releasing
 
