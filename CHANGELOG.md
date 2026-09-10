@@ -64,6 +64,15 @@ All notable changes to this plugin are documented here. Versions follow
   keyed on an explicit parallel mode, and `auto` is resolved only once the run starts. It
   now shows whenever anything is running, and the run line names the strategy and worker
   count (`parallel + reusing audio analysis · 2 workers · task 12/284: …`).
+- Changed: extraction now **says what it is doing**. The phase names the method before the
+  work starts — `Extracting subtitle with the Matroska cue index` / `with the MP4 sample
+  table` / `with ffmpeg — reading 18432 MB, up to 20 min` — and while ffmpeg works the phase
+  tracks its position (`Extracting subtitle with ffmpeg — 43% of the file read`), driven by
+  ffmpeg's `-progress` stream, with elapsed time per worker in the run box.
+- Changed: the library browser now reads subtitle lists in **bulk** (`POST
+  SubSync/Subtitles/Batch`, 25 items per request, series expanded server-side) instead of one
+  request per file and per episode — a library-wide selection went from hundreds of
+  sequential round-trips to a handful.
 - Added: **automatic sync strategy** — the mode picker is gone from the Sync tab. `auto`
   (now the default) decides per run: one subtitle on one file stays sequential; several
   subtitles of one file analyse the audio once and reuse it; several files run in parallel

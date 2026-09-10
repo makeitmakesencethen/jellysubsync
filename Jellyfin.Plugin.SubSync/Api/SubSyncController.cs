@@ -258,7 +258,8 @@ public class SubSyncController : ControllerBase
                     Phase = j.Phase,
                     Error = j.Error,
                     OutputPath = j.OutputPath,
-                    Outcome = j.Outcome
+                    Outcome = j.Outcome,
+                    StartedAtUtc = j.StartedAtUtc
                 })
                 .ToList(),
             CurrentTask = current is null ? null : new BatchTask
@@ -271,7 +272,8 @@ public class SubSyncController : ControllerBase
                 Phase = current.Phase,
                 Error = current.Error,
                 OutputPath = current.OutputPath,
-                Outcome = current.Outcome
+                Outcome = current.Outcome,
+                StartedAtUtc = current.StartedAtUtc
             },
             Tasks = jobs.OrderBy(j => j.BatchIndex).Select(j => new BatchTask
             {
@@ -340,6 +342,32 @@ public class SubSyncController : ControllerBase
             removed,
             cache = Services.SpeechCache.Describe()
         });
+    }
+
+    /// <summary>
+    /// Lists subtitle streams for many items at once (optionally expanding series/seasons
+    /// into their episodes), so the library browser does not have to make one request per
+    /// file before it can queue anything.
+    /// </summary>
+    /// <param name="request">Item ids and whether to expand series.</param>
+    /// <returns>One entry per movie/episode with its syncable tracks.</returns>
+    [HttpPost("Subtitles/Batch")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status400BadRequest)]
+    public ActionResult<object> GetSubtitlesBatch([FromBody] SubtitleBatchRequest request)
+    {
+        if (request.ItemIds is null || request.ItemIds.Count == 0)
+        {
+            return BadRequest("No item ids supplied.");
+        }
+
+        if (request.ItemIds.Count > 500)
+        {
+            return BadRequest("Too many items in one request (max 500).");
+        }
+
+        var items = _syncService.ListSubtitlesBulk(request.ItemIds, request.ExpandSeries);
+        return Ok(new { items });
     }
 
     /// <summary>
@@ -419,6 +447,18 @@ public class SubSyncController : ControllerBase
 }
 
 /// <summary>
+/// Request body for listing the subtitles of many items at once.
+/// </summary>
+public class SubtitleBatchRequest
+{
+    /// <summary>Gets or sets the items to list subtitles for.</summary>
+    public List<Guid>? ItemIds { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether series/seasons expand into episodes.</summary>
+    public bool ExpandSeries { get; set; } = true;
+}
+
+/// <summary>
 /// Request body for starting a subtitle sync.
 /// </summary>
 public class SyncRequest
@@ -475,6 +515,9 @@ public class BatchCreateRequest
 /// </summary>
 public class BatchTask
 {
+    /// <summary>Gets or sets when the task started running (null while queued).</summary>
+    public DateTime? StartedAtUtc { get; set; }
+
     /// <summary>Gets or sets the 0-based task position.</summary>
     public int BatchIndex { get; set; }
 

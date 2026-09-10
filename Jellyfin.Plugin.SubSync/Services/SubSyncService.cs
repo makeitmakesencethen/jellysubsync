@@ -94,6 +94,9 @@ public class SyncJob
     /// <summary>Gets or sets when the job reached a terminal state.</summary>
     public DateTime? FinishedAtUtc { get; set; }
 
+    /// <summary>Gets or sets when the job actually started running (for elapsed-time display).</summary>
+    public DateTime? StartedAtUtc { get; set; }
+
     /// <summary>Gets or sets the batch this job belongs to (null for standalone jobs).</summary>
     public string? BatchId { get; set; }
 
@@ -109,6 +112,24 @@ public class SyncJob
     /// <summary>Gets or sets the multi-subtitle mode this job runs in
     /// (normal | parallel | fast).</summary>
     public string Mode { get; set; } = "normal";
+}
+
+/// <summary>
+/// One entry of a bulk subtitle listing: a movie or an episode, with its syncable tracks.
+/// </summary>
+public class BulkSubtitleItem
+{
+    /// <summary>Gets or sets the item (movie or episode) id.</summary>
+    public Guid Id { get; set; }
+
+    /// <summary>Gets or sets the series id when this entry came from expanding one.</summary>
+    public Guid? SeriesId { get; set; }
+
+    /// <summary>Gets or sets the display name.</summary>
+    public string? Name { get; set; }
+
+    /// <summary>Gets or sets the syncable subtitle tracks.</summary>
+    public List<SubtitleInfo> Tracks { get; set; } = new();
 }
 
 /// <summary>
@@ -574,6 +595,91 @@ public class SubSyncService : IDisposable
                 };
             })
             .ToList();
+    }
+
+    /// <summary>
+    /// Lists subtitle streams for many items in one call, optionally expanding series and
+    /// seasons into their episodes.
+    ///
+    /// The library browser used to ask for one item (and then one episode) at a time, so a
+    /// library-wide selection meant hundreds of sequential round-trips before anything could
+    /// be queued. Reading the media streams is in-memory work, so doing it server-side for a
+    /// whole chunk of items is roughly free.
+    /// </summary>
+    /// <param name="itemIds">Items to look up.</param>
+    /// <param name="expandSeries">Whether to expand series/seasons into episodes.</param>
+    /// <param name="maxEpisodesPerSeries">Safety cap on expansion per requested series.</param>
+    /// <returns>One entry per movie/episode, with the episodes of a series carrying its id.</returns>
+    public List<BulkSubtitleItem> ListSubtitlesBulk(
+        IReadOnlyList<Guid> itemIds,
+        bool expandSeries,
+        int maxEpisodesPerSeries = 2000)
+    {
+        var result = new List<BulkSubtitleItem>();
+        if (itemIds is null || itemIds.Count == 0)
+        {
+            return result;
+        }
+
+        foreach (var itemId in itemIds)
+        {
+            var item = _libraryManager.GetItemById(itemId);
+            if (item is null)
+            {
+                continue;
+            }
+
+            if (item is Video video)
+            {
+                result.Add(new BulkSubtitleItem
+                {
+                    Id = video.Id,
+                    Name = video.Name,
+                    Tracks = ListSubtitles(video.Id) ?? new List<SubtitleInfo>()
+                });
+                continue;
+            }
+
+            if (!expandSeries)
+            {
+                continue;
+            }
+
+            if (item is not Folder folder)
+            {
+                continue;
+            }
+
+            IEnumerable<BaseItem> children;
+            try
+            {
+                children = folder.GetRecursiveChildren();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not expand {ItemId} into episodes", itemId);
+                continue;
+            }
+
+            var count = 0;
+            foreach (var child in children.OfType<Video>())
+            {
+                if (count++ >= maxEpisodesPerSeries)
+                {
+                    break;
+                }
+
+                result.Add(new BulkSubtitleItem
+                {
+                    Id = child.Id,
+                    SeriesId = itemId,
+                    Name = child.Name,
+                    Tracks = ListSubtitles(child.Id) ?? new List<SubtitleInfo>()
+                });
+            }
+        }
+
+        return result;
     }
 
     /// <summary>
@@ -1606,6 +1712,7 @@ public class SubSyncService : IDisposable
         CancellationToken cancellationToken)
     {
         job.Status = SyncJobStatus.Running;
+        job.StartedAtUtc = DateTime.UtcNow;
         job.Progress = 0.0;
 
         var videoPath = video.Path;
@@ -1685,8 +1792,15 @@ public class SubSyncService : IDisposable
                     videoPath, referenceStream);
 
                 var extractionMethod = await ExtractEmbeddedAsync(
-                    videoPath, subtitleStreamOrdinal, containerIndex, subtitleInputPath, config, cancellationToken).ConfigureAwait(false);
-                job.Phase = "Extracting subtitle (" + extractionMethod + ")";
+                    videoPath,
+                    subtitleStreamOrdinal,
+                    containerIndex,
+                    subtitleInputPath,
+                    config,
+                    job,
+                    video.RunTimeTicks,
+                    cancellationToken).ConfigureAwait(false);
+                job.Phase = "Extracted subtitle with " + DescribeExtraction(extractionMethod);
             }
 
             // Step 2: Run ffsubsync → temp output
@@ -2185,6 +2299,8 @@ public class SubSyncService : IDisposable
     /// <param name="containerIndex">Real container stream index (for ffmpeg -map).</param>
     /// <param name="outputPath">Where to write the SRT.</param>
     /// <param name="config">Plugin configuration.</param>
+    /// <param name="job">Job whose phase/progress is updated while extracting.</param>
+    /// <param name="runTimeTicks">Total runtime from Jellyfin, used to turn ffmpeg's timestamps into progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
     /// <returns>The method that produced the subtitle ("matroska-cues", "mp4-sample-table" or "ffmpeg").</returns>
     private async Task<string> ExtractEmbeddedAsync(
@@ -2193,6 +2309,8 @@ public class SubSyncService : IDisposable
         int containerIndex,
         string outputPath,
         Configuration.PluginConfiguration config,
+        SyncJob job,
+        long? runTimeTicks,
         CancellationToken cancellationToken)
     {
         var utf8 = new System.Text.UTF8Encoding(false);
@@ -2200,6 +2318,7 @@ public class SubSyncService : IDisposable
 
         if (config.FastIndexedExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
         {
+            job.Phase = "Extracting subtitle with the Matroska cue index";
             var watch = System.Diagnostics.Stopwatch.StartNew();
             if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why))
             {
@@ -2215,6 +2334,7 @@ public class SubSyncService : IDisposable
 
         if (config.FastIndexedExtraction && Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
         {
+            job.Phase = "Extracting subtitle with the MP4 sample table";
             var watch = System.Diagnostics.Stopwatch.StartNew();
             if (Mp4SubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why))
             {
@@ -2253,9 +2373,22 @@ public class SubSyncService : IDisposable
             videoPath, sizeMb, timeout.TotalMinutes,
             skipped.Count == 0 ? "no index reader matched this container" : string.Join("; ", skipped));
 
+        // Say what is happening *before* the slow path starts: a whole-file ffmpeg read can
+        // take minutes, and a frozen "Extracting subtitle" at 5% tells the user nothing.
+        var durationSeconds = runTimeTicks.HasValue && runTimeTicks.Value > 0
+            ? runTimeTicks.Value / (double)TimeSpan.TicksPerSecond
+            : 0;
+        job.Phase = $"Extracting subtitle with ffmpeg"
+            + (sizeMb >= 1 ? $" — reading {sizeMb:0} MB" : string.Empty)
+            + (durationSeconds > 0 ? $", up to {timeout.TotalMinutes:0} min" : string.Empty);
+        _logger.LogInformation(
+            "Extracting subtitle with ffmpeg (whole-file demux) for {Video}: {Size:0} MB, duration {Duration:0}s",
+            videoPath, sizeMb, durationSeconds);
+
         try
         {
-            await ExtractSubtitle(videoPath, containerIndex, outputPath, timeoutCts.Token).ConfigureAwait(false);
+            await ExtractSubtitleWithProgressAsync(
+                videoPath, containerIndex, outputPath, durationSeconds, job, timeoutCts.Token).ConfigureAwait(false);
             _logger.LogInformation(
                 "ffmpeg extraction finished in {Ms} ms for {Video}", fallbackWatch.ElapsedMilliseconds, videoPath);
             return "ffmpeg";
@@ -2268,6 +2401,112 @@ public class SubSyncService : IDisposable
                 + "this usually means the media sits on a slow or busy mount, or the file needs remuxing to carry an index.");
         }
     }
+
+    /// <summary>
+    /// Runs the ffmpeg extraction while translating its reported timestamps into job
+    /// progress (5% → 20%), so the UI shows movement instead of a stalled bar.
+    /// </summary>
+    private async Task ExtractSubtitleWithProgressAsync(
+        string videoPath,
+        int streamIndex,
+        string outputPath,
+        double durationSeconds,
+        SyncJob job,
+        CancellationToken cancellationToken)
+    {
+        var ffmpegPath = ResolveFfmpegPath();
+        var args = new List<string>
+        {
+            "-y",
+            "-nostdin",
+            "-i", videoPath,
+            "-map", $"0:{streamIndex}",
+            "-f", "srt",
+            "-progress", "pipe:2",
+            "-nostats",
+            outputPath
+        };
+
+        var lastReported = -1.0;
+        var exitCode = await RunProcessWithStderrCallbackAsync(
+            ffmpegPath,
+            args,
+            null,
+            line =>
+            {
+                if (durationSeconds <= 0)
+                {
+                    return;
+                }
+
+                var seconds = ParseFfmpegProgressSeconds(line);
+                if (seconds < 0)
+                {
+                    return;
+                }
+
+                var fraction = Math.Min(1.0, seconds / durationSeconds);
+                if (fraction - lastReported < 0.01)
+                {
+                    return;
+                }
+
+                lastReported = fraction;
+                job.Progress = 0.05 + (0.15 * fraction); // 5% → 20% is the extraction window
+                job.Phase = $"Extracting subtitle with ffmpeg — {fraction * 100:0}% of the file read";
+            },
+            cancellationToken).ConfigureAwait(false);
+
+        if (exitCode != 0 && !File.Exists(outputPath))
+        {
+            throw new InvalidOperationException($"ffmpeg subtitle extraction failed with exit code {exitCode}.");
+        }
+    }
+
+    /// <summary>
+    /// Reads the processed timestamp from one line of ffmpeg's <c>-progress</c> output
+    /// (<c>out_time_us=…</c>), falling back to the human-readable <c>out_time=HH:MM:SS</c>.
+    /// </summary>
+    /// <param name="line">One progress line.</param>
+    /// <returns>Seconds processed, or -1 when the line is not a progress line.</returns>
+    private static double ParseFfmpegProgressSeconds(string line)
+    {
+        var trimmed = line.Trim();
+
+        if (trimmed.StartsWith("out_time_us=", StringComparison.Ordinal)
+            && long.TryParse(trimmed[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var micros))
+        {
+            return micros / 1_000_000.0;
+        }
+
+        if (trimmed.StartsWith("out_time_ms=", StringComparison.Ordinal)
+            && long.TryParse(trimmed[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var millis))
+        {
+            return millis / 1000.0;
+        }
+
+        if (trimmed.StartsWith("out_time=", StringComparison.Ordinal))
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(
+                trimmed, @"out_time=(\d+):(\d+):(\d+(?:\.\d+)?)");
+            if (match.Success)
+            {
+                return (int.Parse(match.Groups[1].Value, CultureInfo.InvariantCulture) * 3600)
+                    + (int.Parse(match.Groups[2].Value, CultureInfo.InvariantCulture) * 60)
+                    + double.Parse(match.Groups[3].Value, CultureInfo.InvariantCulture);
+            }
+        }
+
+        return -1;
+    }
+
+    /// <summary>Friendly name of an extraction method, for the UI phase and logs.</summary>
+    private static string DescribeExtraction(string method) => method switch
+    {
+        "matroska-cues" => "with the Matroska cue index",
+        "mp4-sample-table" => "with the MP4 sample table",
+        _ => "with ffmpeg (whole-file read)"
+    };
 
     private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath, CancellationToken cancellationToken = default)
     {

@@ -512,10 +512,18 @@
                     var phase = t.Phase || t.phase || 'working';
                     var prog = (t.Progress != null) ? t.Progress : (t.progress || 0);
                     var pct = Math.round(Math.max(0, Math.min(1, prog)) * 100);
+                    var startedRaw = t.StartedAtUtc || t.startedAtUtc;
+                    var elapsed = '';
+                    if (startedRaw) {
+                        var secs = Math.max(0, Math.round((Date.now() - new Date(startedRaw).getTime()) / 1000));
+                        elapsed = ' \u00b7 ' + (secs >= 60
+                            ? Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'
+                            : secs + 's');
+                    }
                     html += '<div class="ss-worker">' +
                         '<div class="ss-worker-idx">' + (i + 1) + '</div>' +
                         '<div><div class="ss-worker-name">' + esc(title) + '</div>' +
-                        '<div class="ss-worker-phase">' + esc(phase) + ' \u00b7 ' + pct + '%</div>' +
+                        '<div class="ss-worker-phase">' + esc(phase) + ' \u00b7 ' + pct + '%' + elapsed + '</div>' +
                         '<div class="ss-worker-bar-wrap"><div class="ss-worker-bar" style="width:' + pct + '%"></div></div>' +
                         '</div></div>';
                 });
@@ -1022,6 +1030,51 @@
                 return Object.keys(byLang).sort().map(function (k) { return byLang[k]; });
             }
 
+            // Loads subtitle lists for many items through the bulk endpoint, filling the same
+            // caches the queue build reads. One request per chunk instead of one request per
+            // file (and per episode) — the difference between seconds and minutes on a
+            // library-wide selection.
+            function bulkLoadTracks(itemIds, expandSeries, onProgress) {
+                var CHUNK = 25;
+                var chunks = [];
+                for (var i = 0; i < itemIds.length; i += CHUNK) {
+                    chunks.push(itemIds.slice(i, i + CHUNK));
+                }
+
+                var loaded = 0;
+                var tracks = 0;
+                var seq = Promise.resolve();
+                chunks.forEach(function (chunk) {
+                    seq = seq.then(function () {
+                        return api('SubSync/Subtitles/Batch', {
+                            method: 'POST',
+                            body: JSON.stringify({ itemIds: chunk, expandSeries: !!expandSeries })
+                        }).then(function (res) {
+                            var items = (res && (res.Items || res.items)) || [];
+                            items.forEach(function (entry) {
+                                var id = entry.Id || entry.id;
+                                var seriesId = entry.SeriesId || entry.seriesId;
+                                var list = (entry.Tracks || entry.tracks || []).filter(function (t) {
+                                    return t && typeof t.Index === 'number';
+                                });
+                                trackCache[id] = list;
+                                if (seriesId) {
+                                    var eps = episodesCache[seriesId] || (episodesCache[seriesId] = []);
+                                    if (!eps.some(function (e) { return e.id === id; })) {
+                                        eps.push({ id: id, name: entry.Name || entry.name || '' });
+                                    }
+                                }
+                                tracks += list.length;
+                            });
+                            loaded += chunk.length;
+                            if (onProgress) onProgress(loaded, itemIds.length, tracks);
+                        });
+                    });
+                });
+
+                return seq;
+            }
+
             // Reads the subtitle lists of everything picked so the dropdown can
             // list the languages that actually exist. Runs in the background and
             // stops after LANG_SCAN_BUDGET track requests.
@@ -1031,48 +1084,37 @@
                 langScan = { running: picked.length > 0, done: 0, total: picked.length, langs: {}, partial: false, signature: '' };
                 if (!picked.length) { refreshDataline(); return; }
 
-                var budget = LANG_SCAN_BUDGET;
-                var seq = Promise.resolve();
+                bulkLoadTracks(picked.map(function (x) { return x.Id; }), true, function (loaded) {
+                    if (token !== langScanToken) return;
+                    langScan.done = loaded;
+                    refreshDataline();
+                }).then(function () {
+                    if (token !== langScanToken) return;
 
-                picked.forEach(function (it) {
-                    seq = seq.then(function () {
-                        if (token !== langScanToken || budget <= 0) return null;
-                        var collect = function (tracks) {
-                            (tracks || []).forEach(function (t) {
+                    // Aggregate languages straight from the caches: movies contribute their
+                    // own tracks, series every episode's.
+                    picked.forEach(function (it) {
+                        var collect = function (list) {
+                            (list || []).forEach(function (t) {
                                 var k = normLang(t);
                                 langScan.langs[k] = (langScan.langs[k] || 0) + 1;
                             });
                         };
                         if (it.Type === 'Movie') {
-                            budget--;
-                            return cachedTracks(it.Id).then(function (t) {
-                                collect(t);
-                                langScan.done++;
-                                refreshDataline();
-                            });
+                            collect(trackCache[it.Id]);
+                            return;
                         }
-                        return cachedEpisodes(it.Id).then(function (eps) {
-                            var inner = Promise.resolve();
-                            eps.forEach(function (ep) {
-                                inner = inner.then(function () {
-                                    if (token !== langScanToken || budget <= 0) return null;
-                                    budget--;
-                                    return cachedTracks(ep.id).then(collect);
-                                });
-                            });
-                            return inner.then(function () {
-                                langScan.done++;
-                                refreshDataline();
-                            });
-                        });
+                        (episodesCache[it.Id] || []).forEach(function (ep) { collect(trackCache[ep.id]); });
                     });
-                });
 
-                seq.then(function () {
+                    langScan.running = false;
+                    refreshDataline();
+                }).catch(function (e) {
                     if (token !== langScanToken) return;
                     langScan.running = false;
-                    langScan.partial = budget <= 0;
+                    langScan.partial = true;
                     refreshDataline();
+                    diag('Could not read every subtitle list: ' + (e.message || e), true);
                 });
             }
 
@@ -1167,18 +1209,26 @@
                 var done = 0;
 
                 var all = [];
-                var seq = Promise.resolve();
-                items.forEach(function (it) {
-                    seq = seq.then(function () {
-                        return buildTasksForItem(it).then(function (t) {
-                            all = all.concat(t);
-                            done++;
-                            logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
-                                + (it.Type === 'Series' ? ' (all episodes)' : ''));
-                            $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + done + '/' + items.length + ' file'
-                                + (items.length === 1 ? '' : 's') + ', ' + all.length + ' track' + (all.length === 1 ? '' : 's') + ' so far';
+                // One bulk request per chunk fills the caches; assembling the task list is
+                // then pure bookkeeping with no further round-trips.
+                var seq = bulkLoadTracks(items.map(function (x) { return x.Id; }), true, function (loaded, total, trackCount) {
+                    $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + loaded + '/' + total + ' file'
+                        + (total === 1 ? '' : 's') + ', ' + trackCount + ' track' + (trackCount === 1 ? '' : 's') + ' so far';
+                }).then(function () {
+                    var inner = Promise.resolve();
+                    items.forEach(function (it) {
+                        inner = inner.then(function () {
+                            return buildTasksForItem(it).then(function (t) {
+                                all = all.concat(t);
+                                done++;
+                                logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
+                                    + (it.Type === 'Series' ? ' (all episodes)' : ''));
+                                $('ss-run-label').textContent = 'Queued ' + done + '/' + items.length + ' file'
+                                    + (items.length === 1 ? '' : 's') + ', ' + all.length + ' task' + (all.length === 1 ? '' : 's') + ' so far';
+                            });
                         });
                     });
+                    return inner;
                 });
 
                 seq.then(function () {
