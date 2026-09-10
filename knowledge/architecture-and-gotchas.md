@@ -294,6 +294,14 @@ logs the decision.
   analysis with no cached speech signal). It is used for one rule only: a second job for a
   media file may join a wave solely when that file's speech analysis is already cached, so
   two workers never race to build the same cache entry.
+- The queue is a **worker pool, not a wave barrier**: `PlanStart` computes the free slots
+  (`limit − running`) and starts that many jobs; each finishing job wakes the pump to refill its
+  own slot. Group semantics (awaiting a whole wave) wasted every finished worker's time and made
+  all workers step together, which also hits the disk in one burst. Starts within a single
+  dispatch are staggered by 400 ms.
+- A job whose media file is already being read waits for that file (to avoid racing the stored
+  audio analysis) but never for anyone else; in-use volumes and in-use media files are passed
+  into the selector as `InUseVolumes` / `InUseItemIds`.
 - Waves are bounded by `ParallelWorkers` and nothing else — there is no per-volume budget.
   Volume information (`VolumeOf` → `MediaVolume.Of`) only expresses a *preference*: the first
   selection pass takes the first job of each distinct volume so a wave spreads over the

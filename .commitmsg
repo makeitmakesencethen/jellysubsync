@@ -1,15 +1,26 @@
-Diagnostics for "how wide is this batch actually running?"
+Workers no longer wait for each other: slots instead of groups
 
-The wave selector is provably correct - a 20-episode batch with two subtitles per episode on a
-single disk selects four jobs, and eight when eight workers are configured (harness covers both)
-- so a batch that runs two at a time is either configured that way or held fewer eligible tasks
-than expected. Both are now visible instead of guessed:
+The pump started a group of jobs and awaited the whole group, so three finished workers sat
+idle while the fourth kept running, and then all of them started their next step at the same
+instant - which is also the worst possible moment to hit the disk. Extraction being fast now
+makes that waste obvious: extraction and syncing are short, independent steps, so a worker must
+be able to move on alone.
 
-- the batch view reports the effective worker limit, and the run line shows "2/4 workers"
-  (running / limit) whenever the batch is parallel and has work left;
-- every wave logs its width: "Wave: starting 2 job(s) (worker limit 4, mode ultimate, 37 still
-  queued) for batch ...".
+A job now occupies a slot. The dispatch decision (SubSyncService.PlanStart) starts as many jobs
+as there are free slots, and a job that finishes wakes the pump immediately to refill its slot
+instead of waiting for its neighbours. Consequences:
 
-Harness: 90 checks, ALL PASS, including the 20-episode cases.
+- no group barrier: one slow file no longer holds three idle workers;
+- the batch spreads out over time instead of moving in lockstep, so four extractions stop
+  starting in the same instant. A cold start still fills every slot at once, so starts in the
+  same dispatch are staggered by 400 ms;
+- a job for a media file that is already being read still waits for it (a second worker would
+  race to build the same stored audio analysis); it just does not hold anyone else back;
+- disks are still preferred, never required: a job is dispatched onto an idle volume first, but
+  a single-disk library still runs at the full worker count.
 
-Version 1.1.0.26.
+Harness: 98 checks, ALL PASS, including "empty pool fills every slot", "one free slot starts
+exactly one job", "a full pool starts nothing", "a file being read is not started twice" and
+"the idle disk is taken first".
+
+Version 1.1.0.27.

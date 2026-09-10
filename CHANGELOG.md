@@ -191,7 +191,26 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.26]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.27]
+
+### Fixed
+- **Workers no longer wait for each other.** The pump ran jobs in groups and awaited the whole
+  group, so when three of four finished their work, those three slots stayed idle until the
+  slowest job finished — and then every worker started its next step in the same instant, which
+  is also the worst moment to hit the disk. With extraction now fast, that waste is what you see:
+  three done, one bar left, and then four extractions starting together.
+
+  A job now occupies a **slot**: as many jobs start as there are free slots, and a job that
+  finishes wakes the scheduler immediately so its slot is refilled with the next queued job. No
+  barrier, no lockstep. A cold start still fills every slot at once, so starts within one
+  dispatch are staggered by 400 ms so several workers do not begin reading in the same instant.
+
+  What is preserved: a subtitle of a media file that is already being read waits for that run
+  (a second worker would race to build the same stored audio analysis) — it simply no longer
+  holds anyone else back; and an idle volume is preferred when choosing the next job, without
+  ever limiting how many run.
+
+## [1.1.0.26]
 
 ### Added
 - **Visible batch width.** The batch view now reports the effective worker limit and the run

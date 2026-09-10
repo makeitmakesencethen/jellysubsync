@@ -1003,6 +1003,20 @@ public class SubSyncService : IDisposable
         /// spreading a wave over several devices; it never blocks a job from running.
         /// </summary>
         public Func<SyncJob, string>? VolumeOf { get; set; }
+
+        /// <summary>
+        /// Gets or sets the volumes already being read by running jobs, so a newly started job
+        /// prefers a disk that is idle — a preference only; if the queue has nothing else, the
+        /// same volume is used.
+        /// </summary>
+        public IReadOnlyCollection<string>? InUseVolumes { get; set; }
+
+        /// <summary>
+        /// Gets or sets the media files that already have a job running, so a subtitle of such a
+        /// file waits for that run (it may then reuse its stored audio analysis) instead of
+        /// starting a second read of the same file.
+        /// </summary>
+        public IReadOnlyCollection<Guid>? InUseItemIds { get; set; }
     }
 
     /// <summary>
@@ -1141,8 +1155,10 @@ public class SubSyncService : IDisposable
 
         var wave = new List<SyncJob>();
         var taken = new HashSet<string>(StringComparer.Ordinal);
-        var claimedItems = new HashSet<Guid>();
-        var usedVolumes = new HashSet<string>(StringComparer.Ordinal);
+        var claimedItems = new HashSet<Guid>(policy.InUseItemIds ?? Array.Empty<Guid>());
+        var usedVolumes = new HashSet<string>(
+            policy.InUseVolumes ?? Array.Empty<string>(),
+            StringComparer.Ordinal);
 
         foreach (var candidate in candidates)
         {
@@ -1189,6 +1205,56 @@ public class SubSyncService : IDisposable
         }
 
         return wave.OrderBy(j => j.BatchIndex).ToList();
+    }
+
+    /// <summary>
+    /// Decides which queued jobs may start right now, given how many are already running.
+    ///
+    /// This is the difference between a worker pool and a group scheduler: the available slots
+    /// are what remains of the limit, and every finished job frees one immediately instead of
+    /// waiting for the rest of its group.
+    /// </summary>
+    /// <param name="queuedInOrder">Queued jobs, in queue order.</param>
+    /// <param name="running">Jobs currently running.</param>
+    /// <param name="headMode">Resolved mode of the batch at the head of the queue.</param>
+    /// <param name="headBatchId">Batch of the job at the head of the queue.</param>
+    /// <param name="limit">How many jobs may run at once.</param>
+    /// <param name="volumeOf">Volume lookup for a job.</param>
+    /// <param name="isHeavyIo">Whether a job needs the file's audio analysis.</param>
+    /// <param name="canShareMediaFile">Whether a second job may run for an already-claimed file.</param>
+    /// <returns>The jobs to start, in queue order (empty when every slot is busy).</returns>
+    public static List<SyncJob> PlanStart(
+        IEnumerable<SyncJob> queuedInOrder,
+        IReadOnlyCollection<SyncJob> running,
+        string headMode,
+        string? headBatchId,
+        int limit,
+        Func<SyncJob, string> volumeOf,
+        Func<SyncJob, bool> isHeavyIo,
+        Func<SyncJob, bool> canShareMediaFile)
+    {
+        var slots = limit - running.Count;
+        if (slots <= 0)
+        {
+            return new List<SyncJob>();
+        }
+
+        var runningVolumes = running.Select(volumeOf).ToList();
+        var runningItems = running.Select(j => j.ItemId).ToList();
+
+        return SelectWave(
+            queuedInOrder,
+            headMode,
+            headBatchId,
+            new WavePolicy
+            {
+                Limit = slots,
+                VolumeOf = volumeOf,
+                InUseVolumes = runningVolumes,
+                InUseItemIds = runningItems,
+                IsHeavyIo = isHeavyIo,
+                CanShareMediaFile = canShareMediaFile
+            });
     }
 
     /// <summary>
@@ -1262,102 +1328,124 @@ public class SubSyncService : IDisposable
         try { _wakePump.Release(); } catch (SemaphoreFullException) { /* already signalled */ }
     }
 
+    /// <summary>
+    /// Runs the queue with a fixed number of slots rather than in groups.
+    ///
+    /// A group (wave) model made every worker wait for the slowest job in its group and then
+    /// start the next step together, which wasted the finished workers' time and hit the disk in
+    /// bursts. Here a worker occupies a slot: the moment it finishes, the next queued job starts,
+    /// and a job needing the same media file as a running one waits only for that file.
+    /// </summary>
     private async Task PumpAsync()
     {
+        var inFlight = new Dictionary<Task, SyncJob>();
+
         while (!_disposing)
         {
-            List<SyncJob> jobs;
+            List<SyncJob> toStart;
+            var limit = 1;
+            var running = 0;
+
             lock (_queueLock)
             {
-                // The head of the queue decides how much runs at once: normal/fast run
-                // one job at a time, parallel runs up to ParallelWorkers jobs of the same
-                // batch together. Batches never interleave, so FIFO order still holds.
+                foreach (var finished in inFlight.Where(kvp => kvp.Key.IsCompleted).Select(kvp => kvp.Key).ToList())
+                {
+                    inFlight.Remove(finished);
+                }
+
+                running = inFlight.Count;
                 var head = _runOrder.FirstOrDefault(j => j.Status == SyncJobStatus.Queued);
+
                 if (head is null)
                 {
-                    jobs = new List<SyncJob>();
+                    toStart = new List<SyncJob>();
                 }
                 else
                 {
                     var config = Plugin.Instance?.Configuration;
                     var headMode = ResolveModeForBatch(head);
-                    var limit = IsParallelMode(headMode)
+                    limit = IsParallelMode(headMode)
                         ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
                         : 1;
 
-                    jobs = SelectWave(
+                    toStart = PlanStart(
                         _runOrder.Where(j => j.Status == SyncJobStatus.Queued),
+                        inFlight.Values.ToList(),
                         headMode,
                         head.BatchId,
-                        new WavePolicy
-                        {
-                            Limit = limit,
-                            VolumeOf = job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
-                            IsHeavyIo = job => JobNeedsHeavyIo(job, headMode),
-                            CanShareMediaFile = job => SpeechIsCached(job)
-                        });
+                        limit,
+                        job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
+                        job => JobNeedsHeavyIo(job, headMode),
+                        job => SpeechIsCached(job));
                 }
             }
 
-            if (jobs.Count == 0)
+            if (toStart.Count == 0)
             {
                 if (_disposing)
                 {
                     break;
                 }
 
+                // Nothing to start: either the slots are full (a finishing job wakes the pump) or
+                // the queue is empty (a new job wakes it).
                 await _wakePump.WaitAsync().ConfigureAwait(false);
                 continue;
             }
 
-            // Every wave states its own width, so "why only two at a time?" is answered by the
-            // log instead of by reasoning about the scheduler.
-            int stillQueued;
-            lock (_queueLock)
-            {
-                stillQueued = _runOrder.Count(j => j.Status == SyncJobStatus.Queued);
-            }
-
             _logger.LogInformation(
-                "Wave: starting {Count} job(s) (worker limit {Limit}, mode {Mode}, {Queued} still queued) for batch {Batch}",
-                jobs.Count,
-                EffectiveWorkerLimit,
-                NormalizeMode(jobs[0].Mode),
-                stillQueued,
-                jobs[0].BatchId ?? "(standalone)");
+                "Dispatching {Count} job(s) — {Running} running, limit {Limit}, {Queued} queued, batch {Batch}",
+                toStart.Count,
+                running,
+                limit,
+                CountQueued(),
+                toStart[0].BatchId ?? "(standalone)");
 
-            var runOne = async Task (SyncJob job) =>
+            for (var i = 0; i < toStart.Count; i++)
             {
-                try
+                var job = toStart[i];
+                lock (_queueLock)
                 {
-                    await RunSyncJobWithContext(job).ConfigureAwait(false);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Unhandled exception in sync job {JobId}", job.Id);
-                    job.Status = SyncJobStatus.Failed;
-                    job.Error = $"Internal error: {ex.Message}";
-                    RecordSweepOutcome(job, ok: false, outputPath: null, error: ex.Message);
-                }
-                finally
-                {
-                    job.FinishedAtUtc = DateTime.UtcNow;
-                }
-            };
+                    if (job.Status != SyncJobStatus.Queued)
+                    {
+                        continue;
+                    }
 
-            if (jobs.Count == 1)
-            {
-                _logger.LogInformation(
-                    "Pump starting job {JobId} (batch {Batch}, mode {Mode})",
-                    jobs[0].Id, jobs[0].BatchId ?? "none", NormalizeMode(jobs[0].Mode));
-                await runOne(jobs[0]).ConfigureAwait(false);
-                continue;
+                    // Claimed under the lock so the running count is right for the next pass.
+                    job.Status = SyncJobStatus.Running;
+                    job.StartedAtUtc = DateTime.UtcNow;
+                }
+
+                var task = Task.Run(() => RunSyncJobWithContext(job));
+                lock (_queueLock)
+                {
+                    inFlight[task] = job;
+                }
+
+                // Freeing a slot must wake the pump immediately, not at the end of a group.
+                _ = task.ContinueWith(
+                    _ => WakePump(),
+                    CancellationToken.None,
+                    TaskContinuationOptions.ExecuteSynchronously,
+                    TaskScheduler.Default);
+
+                // Small stagger between starts in the same dispatch so several workers do not
+                // hit the disk in the same instant.
+                if (i + 1 < toStart.Count)
+                {
+                    await Task.Delay(400).ConfigureAwait(false);
+                }
             }
+        }
+    }
 
-            _logger.LogInformation(
-                "Pump starting {Count} jobs in parallel (batch {Batch}, mode {Mode})",
-                jobs.Count, jobs[0].BatchId ?? "none", NormalizeMode(jobs[0].Mode));
-            await Task.WhenAll(jobs.Select(runOne)).ConfigureAwait(false);
+    /// <summary>Counts queued jobs, for log lines.</summary>
+    /// <returns>How many jobs are waiting.</returns>
+    private int CountQueued()
+    {
+        lock (_queueLock)
+        {
+            return _runOrder.Count(j => j.Status == SyncJobStatus.Queued);
         }
     }
 
