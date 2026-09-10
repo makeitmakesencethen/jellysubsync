@@ -25,6 +25,20 @@ jobs:
         with:
           dotnet-version: '9.0.x'
 
+      - name: Refuse to republish an already-published beta version
+        shell: bash
+        run: |
+          set -euo pipefail
+          V=$(grep -oP '(?<=<Version>)[^<]+' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)
+          echo "beta version: $V"
+          git fetch --depth=1 origin gh-pages >/dev/null 2>&1 || true
+          if git show origin/gh-pages:beta/manifest.json >/tmp/published.json 2>/dev/null; then
+            if grep -q "\"$V\"" /tmp/published.json; then
+              echo "::error::Version $V is already published in the beta catalog. Jellyfin will not offer it as a download because it looks already-installed. Bump <Version>/<AssemblyVersion>/<FileVersion> in Jellyfin.Plugin.SubSync.csproj first."
+              exit 1
+            fi
+          fi
+
       - name: Restore
         run: dotnet restore Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj
       - name: Build
