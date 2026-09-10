@@ -7,12 +7,14 @@ All notable changes to this plugin are documented here. Versions follow
 ## 1.1.0 (beta)
 
 - Added: multi-select in the library browser without checkboxes — click one movie or
-  series, then **shift-click** another to select the whole range between them (the
-  selection follows the current library + search view). The count line under the search
-  box shows a small **Select all** link (scoped to what is shown) and, once more than one
-  item is picked, a **Sync N selected** button: movies contribute their subtitle tracks,
-  series contribute one track per language per episode (external preferred). Works while
-  another run is streaming — the new batch joins the queue behind it.
+  series, then **shift-click** any other rows to add or remove them individually (picks
+  do not have to be adjacent). The count line under the search box keeps the **Select
+  all** link scoped to the current library + search view, and shows a **Sync N media**
+  button as soon as anything is picked, with a note that series sync all their episodes.
+  While the queue is being assembled the button reads "Reading subtitles… N/M media" so
+  the wait is visible, then the batch joins the server queue (behind a running batch if
+  one is streaming). Movies contribute their subtitle tracks; series contribute one track
+  per language per episode (external preferred).
 
 ## 1.0.10
 

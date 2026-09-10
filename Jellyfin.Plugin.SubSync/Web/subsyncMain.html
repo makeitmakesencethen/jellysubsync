@@ -488,9 +488,20 @@
                     '<a href="#" id="ss-selall-link" style="color:var(--theme-primary-color,#00a4dc);text-decoration:none;">' +
                     (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
-                if (n > 1) {
-                    html += ' <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised" style="margin-left:6px;padding:2px 12px;font-size:.82rem;">' +
-                        '<span>Sync ' + n + ' selected</span></button>';
+                if (n > 0) {
+                    var hasSeries = false;
+                    for (var si = 0; si < allItems.length; si++) {
+                        if (selectedIds[allItems[si].Id] && allItems[si].Type === 'Series') { hasSeries = true; break; }
+                    }
+                    var label = 'Sync ' + n + ' media';
+                    if (isBuilding || startInFlight) label += '\u2026';
+                    html += ' <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised"' +
+                        (isBuilding || startInFlight ? ' disabled' : '') +
+                        ' style="margin-left:6px;padding:2px 12px;font-size:.82rem;">' +
+                        '<span>' + esc(label) + '</span></button>';
+                    if (hasSeries) {
+                        html += ' <span style="opacity:.65;font-size:.78rem;">(series sync all their episodes)</span>';
+                    }
                 }
 
                 dl.innerHTML = html;
@@ -518,34 +529,26 @@
                 return n;
             }
 
-            // Rows are multi-selected by clicking one item and shift-clicking
-            // another (range). The last plain click is the action row and the
-            // anchor for the range.
-            var anchorIndex = -1;
+            // Rows are multi-selected by shift-clicking: a plain click selects
+            // one item (and shows its options), each shift-click adds or removes
+            // that item, so picks do not have to be adjacent.
+            var isBuilding = false; // a batch queue is being assembled
 
             function toggleSelectAllVisible() {
                 var vis = visibleItems();
                 var allPicked = vis.length > 0 && vis.every(function (x) { return selectedIds[x.Id]; });
                 if (allPicked) {
                     selectedIds = {};
-                    anchorIndex = -1;
                 } else {
                     selectedIds = {};
                     vis.forEach(function (x) { selectedIds[x.Id] = true; });
-                    anchorIndex = vis.length ? 0 : -1;
                 }
                 render();
             }
 
-            function applyRangeSelection(toIndex) {
-                var vis = visibleItems();
-                if (anchorIndex < 0 || toIndex < 0) return;
-                var from = Math.min(anchorIndex, toIndex);
-                var to = Math.max(anchorIndex, toIndex);
-                selectedIds = {};
-                for (var i = from; i <= to && i < vis.length; i++) {
-                    selectedIds[vis[i].Id] = true;
-                }
+            function togglePicked(id) {
+                if (selectedIds[id]) delete selectedIds[id];
+                else selectedIds[id] = true;
                 render();
             }
 
@@ -607,6 +610,7 @@
                 if (!items.length) { diag('Nothing selected.', true); return; }
 
                 startInFlight = true;
+                isBuilding = true;
                 refreshDataline();
                 var idle = !watchedBatchTimer;
                 if (idle) {
@@ -616,6 +620,7 @@
                     $('ss-progress').style.width = '0%';
                 }
                 logLine('Building queue for ' + items.length + ' selected item' + (items.length === 1 ? '' : 's') + '\u2026');
+                var done = 0;
 
                 var all = [];
                 var seq = Promise.resolve();
@@ -623,7 +628,11 @@
                     seq = seq.then(function () {
                         return buildTasksForItem(it).then(function (t) {
                             all = all.concat(t);
-                            logLine('  ' + it.Name + ': ' + t.length + ' task' + (t.length === 1 ? '' : 's'));
+                            done++;
+                            logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
+                                + (it.Type === 'Series' ? ' (all episodes)' : ''));
+                            $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + done + '/' + items.length + ' media, '
+                                + all.length + ' track' + (all.length === 1 ? '' : 's') + ' so far';
                         });
                     });
                 });
@@ -632,6 +641,7 @@
                     if (!all.length) {
                         logLine('No subtitle tracks found for the selected items.');
                         startInFlight = false;
+                        isBuilding = false;
                         refreshDataline();
                         if (idle) busy = false;
                         return;
@@ -652,11 +662,13 @@
                         var batchId = (view && (view.Id || view.id)) || '';
                         if (!batchId) throw new Error('server did not return a batch id');
                         startInFlight = false;
+                        isBuilding = false;
                         refreshDataline();
                         watchOrQueueBatch(batchId, label, all.length);
                     });
                 }).catch(function (e) {
                     startInFlight = false;
+                    isBuilding = false;
                     refreshDataline();
                     if (!watchedBatchTimer) busy = false;
                     diag('Could not start sync: ' + (e.message || e), true);
@@ -707,19 +719,21 @@
                         for (var i = 0; i < allItems.length; i++) if (allItems[i].Id === id) { match = allItems[i]; break; }
                         if (!match) return;
 
-                        var visIds = visibleItems().map(function (x) { return x.Id; });
-                        var idx = visIds.indexOf(id);
-
-                        if (e.shiftKey && anchorIndex >= 0 && idx >= 0) {
-                            // Shift-click extends the selection over the visible
-                            // range; the action row (and its options) stay put.
-                            applyRangeSelection(idx);
+                        if (e.shiftKey) {
+                            // Shift-click adds or removes just this item, so
+                            // non-adjacent media can be picked. The action row
+                            // (and its options) stay put.
+                            togglePicked(id);
                             return;
                         }
 
-                        selectedIds = {};
-                        selectedIds[id] = true;
-                        anchorIndex = idx;
+                        if (!selectedIds[id]) {
+                            // A plain click on an unpicked row starts a fresh
+                            // selection; clicking one that is already picked just
+                            // opens its options without losing the selection.
+                            selectedIds = {};
+                            selectedIds[id] = true;
+                        }
                         selectItem(match);
                     });
                 });
