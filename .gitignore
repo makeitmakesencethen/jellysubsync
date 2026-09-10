@@ -6,3 +6,8 @@ staging/
 .idea/
 *.user
 *.suo
+
+# Crash dumps: never commit these
+core
+core.*
+*.core
