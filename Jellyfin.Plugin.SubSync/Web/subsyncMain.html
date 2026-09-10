@@ -1189,9 +1189,6 @@
                         render();
                     });
                 } else {
-                    // Whole-series default: scan languages right away (unless a
-                    // saved season scope is being restored below, which rescans).
-                    if (!pendingScope) discoverLangOptions(item.Id, false);
                     var params = new URLSearchParams({
                         ParentId: item.Id,
                         IncludeItemTypes: 'Season',
@@ -1221,16 +1218,18 @@
                                 if (rowName2) rowName2.textContent = opt2.getAttribute('data-name') || opt2.textContent;
                             }
                         }
-                        var hadPending = pendingScope;
                         pendingScope = null;
-                        // Refresh the language list only when the scope actually
-                        // differs from the whole-series default already scanned.
-                        var cur = scope.value && scope.value !== 'series' ? scope.value : item.Id;
-                        if (hadPending || cur !== item.Id) {
-                            discoverLangOptions(cur, cur !== item.Id);
-                        }
                     }).catch(function (e) { diag('Could not load seasons: ' + (e.message || e), true); });
                     render();
+
+                    // The row — and with it the language select — only exists after
+                    // render(), so the scan has to start here. Starting it earlier
+                    // found no element and the Whole-series scope showed no
+                    // languages at all until a specific season was picked.
+                    var scopeNow = scopeTarget || item.Id;
+                    if (!langFilterCache[scopeNow]) {
+                        discoverLangOptions(scopeNow, scopeNow !== item.Id);
+                    }
                 }
             }
 
@@ -1292,7 +1291,9 @@
                         seq = seq.then(function () {
                             return listTracks(ep.id).then(function (tracks) {
                                 tracks.forEach(function (t) {
-                                    var lang = t.Language && t.Language !== 'und' ? t.Language : 'und';
+                                    // Canonical key: sv / swe / sv-SE / Swedish are
+                                    // one language, not four rows in the dropdown.
+                                    var lang = normLang(t);
                                     counts[lang] = (counts[lang] || 0) + 1;
                                 });
                             });
@@ -1300,11 +1301,13 @@
                     });
                     return seq.then(function () {
                         if (token !== langDiscoverToken) return; // scope changed meanwhile
-                        var codes = Object.keys(counts).sort();
+                        var codes = Object.keys(counts).sort(function (a, b) {
+                            return langLabel(a).localeCompare(langLabel(b));
+                        });
                         var html = '<option value="*">All subtitles (' + episodes.length + ' ep)</option>';
                         codes.forEach(function (c) {
-                            var pretty = (LANG_NAMES[c] ? LANG_NAMES[c] + ' \u00b7 ' : '') + c;
-                            html += '<option value="' + c + '">' + esc(pretty) + ' (' + counts[c] + ' tracks)</option>';
+                            html += '<option value="' + esc(c) + '">' + esc(langLabel(c))
+                                + ' (' + counts[c] + ' track' + (counts[c] === 1 ? '' : 's') + ')</option>';
                         });
                         sel.innerHTML = html;
                         if (prev && prev !== '*' && prev !== '__scan' && codes.indexOf(prev) !== -1) {

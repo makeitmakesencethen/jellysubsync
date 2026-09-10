@@ -43,6 +43,11 @@ All notable changes to this plugin are documented here. Versions follow
   1,240 German subtitle tracks to sync` — with the button reading `Sync 1,240 subtitles`
   in that case. Counts are only shown once the scan is complete, so the number always
   matches the queue that gets built.
+- Fixed: selecting a series in the library showed **no languages at all** in the row's
+  Subtitle picker unless a specific season was chosen — the language scan started before
+  the row existed; it now starts right after the row is rendered. The picker also folds
+  language codes together (`sv` / `swe` / `sv-SE` / `Swedish` are one entry, shown with
+  friendly names and per-track counts).
 
 ## 1.0.10
 
