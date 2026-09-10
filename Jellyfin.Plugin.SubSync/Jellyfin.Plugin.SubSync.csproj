@@ -4,9 +4,9 @@
     <RootNamespace>Jellyfin.Plugin.SubSync</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.1.0.5</Version>
-    <AssemblyVersion>1.1.0.5</AssemblyVersion>
-    <FileVersion>1.1.0.5</FileVersion>
+    <Version>1.1.0.6</Version>
+    <AssemblyVersion>1.1.0.6</AssemblyVersion>
+    <FileVersion>1.1.0.6</FileVersion>
   </PropertyGroup>
   <ItemGroup>
     <PackageReference Include="Jellyfin.Controller" Version="10.11.10">

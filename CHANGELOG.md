@@ -14,8 +14,11 @@ All notable changes to this plugin are documented here. Versions follow
   anything is picked a full-width action row appears with a **Sync N files** button, a
   **Subtitles** dropdown and a count note. The dropdown lists the languages actually
   present in the picked files (with track counts), gathered by a background scan that
-  reads the same cached subtitle lists the queue build uses; pick one language to sync
-  only that, or leave it on *All languages*. Series always expand to all their episodes.
+  reads the same cached subtitle lists the queue build uses; **several languages can be
+  picked at once** (they show as removable chips next to the dropdown, and *All languages*
+  clears them). Language codes are folded onto one canonical entry per language, so
+  `sv`, `swe`, `sv-SE` and `Swedish` all become a single "Swedish" option. Series always
+  expand to all their episodes.
   While the queue is assembled the button reads "Working…" and the run line shows
   "Reading subtitles… N/M files", then the batch joins the server queue (behind a running
   batch if one is streaming). Movies contribute their subtitle tracks; series contribute

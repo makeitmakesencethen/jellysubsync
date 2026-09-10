@@ -25,6 +25,8 @@
             .ss-selactions { display: flex; align-items: center; gap: 12px; margin: 6px 0 12px; }
             .ss-selactions button { min-height: 40px; padding: 0 24px; font-size: .95rem; font-weight: 600; letter-spacing: .02em; }
             .ss-selnote { font-size: .82rem; opacity: .7; }
+            .ss-selchips { display: inline-flex; gap: 6px; flex-wrap: wrap; }
+            .ss-selchips a { display: inline-flex; align-items: center; gap: 4px; font-size: .8rem; text-decoration: none; padding: 3px 8px; border-radius: 10px; background: rgba(120,170,255,.16); color: inherit; }
             .ss-selactions .emby-select { min-height: 40px; }
             .ss-row { user-select: none; -webkit-user-select: none; }
             .ss-toolbar { display: flex; flex-direction: column; align-items: stretch; gap: 4px; margin: 10px 0 14px; max-width: 620px; }
@@ -118,6 +120,7 @@
                                 <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
                                     <option value="">All languages</option>
                                 </select>
+                                <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
                             </div>
 
@@ -528,18 +531,34 @@
                 // disturbing the option the user picked.
                 var langSel = $('ss-sellang');
                 if (langSel) {
-                    var codes = Object.keys(langScan.langs).sort();
-                    var sig = codes.join(',');
+                    // Only rebuild when the discovered language set actually changed,
+                    // so a re-render never closes the open dropdown.
+                    var codes = Object.keys(langScan.langs).sort(function (a, b) {
+                        return langLabel(a).localeCompare(langLabel(b));
+                    });
+                    var sig = codes.join(',') + '|' + selLangs.join(',');
                     if (sig !== langScan.signature) {
                         langScan.signature = sig;
-                        var opts = '<option value="">All languages</option>';
+                        var first = selLangs.length ? 'Add another language\u2026' : 'All languages';
+                        var opts = '<option value="">' + first + '</option>';
                         codes.forEach(function (c) {
-                            opts += '<option value="' + esc(c) + '">' + esc(langLabel(c)) + ' (' + langScan.langs[c] + ')</option>';
+                            if (selLangs.indexOf(c) !== -1) return;
+                            opts += '<option value="' + esc(c) + '">' + esc(langLabel(c))
+                                + ' (' + langScan.langs[c] + ')</option>';
                         });
                         langSel.innerHTML = opts;
                     }
-                    langSel.value = selLang;
-                    if (langSel.value !== selLang) { selLang = ''; langSel.value = ''; }
+                    langSel.value = '';
+                }
+
+                var chips = $('ss-selchips');
+                if (chips) {
+                    var chipHtml = '';
+                    selLangs.forEach(function (c) {
+                        chipHtml += '<a href="#" data-ss-lang="' + esc(c) + '" title="Remove this language">'
+                            + esc(langLabel(c)) + ' \u2715</a>';
+                    });
+                    chips.innerHTML = chipHtml;
                 }
 
                 var hasSeries = false;
@@ -550,7 +569,9 @@
                 if (note) {
                     var words = n + ' file' + (n === 1 ? '' : 's') + ' selected';
                     if (hasSeries) words += ' \u2014 series sync all their episodes';
-                    if (selLang) words += ' \u2014 only ' + langLabel(selLang) + ' subtitles';
+                    if (selLangs.length) {
+                        words += ' \u2014 only ' + selLangs.map(langLabel).join(' + ') + ' subtitles';
+                    }
                     if (langScan.running) {
                         words += ' \u00b7 reading subtitles\u2026 ' + langScan.done + '/' + langScan.total;
                     } else if (langScan.partial) {
@@ -617,18 +638,70 @@
             // build walk the same data, so each item is only fetched once.
             var trackCache = {};
             var episodesCache = {};
-            var selLang = '';            // '' = every language
+            var selLangs = [];           // canonical codes; empty = every language
             var langScanToken = 0;
             var langScan = { running: false, done: 0, total: 0, langs: {}, partial: false, signature: '' };
             var LANG_SCAN_BUDGET = 400;  // max track requests per scan
 
+            // Jellyfin hands back language codes in whatever form the file used:
+            // two-letter ISO 639-1 ("sv"), three-letter 639-2/B ("swe", "chi") or
+            // occasionally a name. Everything is folded onto one canonical code so
+            // "Swedish", "sv" and "swe" collapse into a single dropdown entry.
+            var LANG_ALIASES = {};
+            var LANG_NAMES2 = {};
+            (function () {
+                var table = {
+                    eng: ['en', 'english'], swe: ['sv', 'swedish'], nor: ['no', 'nb', 'nn', 'norwegian'],
+                    dan: ['da', 'danish'], fin: ['fi', 'finnish'], isl: ['is', 'ice', 'icelandic'],
+                    deu: ['de', 'ger', 'german'], fra: ['fr', 'fre', 'french'], spa: ['es', 'spanish'],
+                    ita: ['it', 'italian'], nld: ['nl', 'dut', 'dutch'], por: ['pt', 'portuguese'],
+                    rus: ['ru', 'russian'], pol: ['pl', 'polish'], ces: ['cs', 'cze', 'czech'],
+                    slk: ['sk', 'slo', 'slovak'], hun: ['hu', 'hungarian'], ron: ['ro', 'rum', 'romanian'],
+                    bul: ['bg', 'bulgarian'], hrv: ['hr', 'croatian'], srp: ['sr', 'serbian'],
+                    slv: ['sl', 'slovenian'], bos: ['bs', 'bosnian'], mkd: ['mk', 'mac', 'macedonian'],
+                    sqi: ['sq', 'alb', 'albanian'], ell: ['el', 'gre', 'greek'], tur: ['tr', 'turkish'],
+                    ara: ['ar', 'arabic'], heb: ['he', 'iw', 'hebrew'], fas: ['fa', 'per', 'persian'],
+                    urd: ['ur', 'urdu'], hin: ['hi', 'hindi'], ben: ['bn', 'bengali'], tam: ['ta', 'tamil'],
+                    tel: ['te', 'telugu'], mal: ['ml', 'malayalam'], kan: ['kn', 'kannada'],
+                    mar: ['mr', 'marathi'], guj: ['gu', 'gujarati'], pan: ['pa', 'punjabi'],
+                    sin: ['si', 'sinhala'], nep: ['ne', 'nepali'], zho: ['zh', 'chi', 'chinese'],
+                    jpn: ['ja', 'japanese'], kor: ['ko', 'korean'], vie: ['vi', 'vietnamese'],
+                    tha: ['th', 'thai'], ind: ['id', 'indonesian'], msa: ['ms', 'may', 'malay'],
+                    tgl: ['tl', 'fil', 'tagalog'], khm: ['km', 'khmer'], lao: ['lo', 'lao'],
+                    mya: ['my', 'bur', 'burmese'], mon: ['mn', 'mongolian'], bod: ['bo', 'tib', 'tibetan'],
+                    uzb: ['uz', 'uzbek'], kaz: ['kk', 'kazakh'], aze: ['az', 'azerbaijani'],
+                    hye: ['hy', 'arm', 'armenian'], kat: ['ka', 'geo', 'georgian'], ukr: ['uk', 'ukrainian'],
+                    bel: ['be', 'belarusian'], est: ['et', 'estonian'], lav: ['lv', 'latvian'],
+                    lit: ['lt', 'lithuanian'], eus: ['eu', 'baq', 'basque'], cat: ['ca', 'catalan'],
+                    glg: ['gl', 'galician'], cym: ['cy', 'wel', 'welsh'], gle: ['ga', 'irish'],
+                    afr: ['af', 'afrikaans'], swa: ['sw', 'swahili'], amh: ['am', 'amharic'],
+                    som: ['so', 'somali'], hau: ['ha', 'hausa'], yor: ['yo', 'yoruba'],
+                    zul: ['zu', 'zulu'], xho: ['xh', 'xhosa'], kur: ['ku', 'kurdish'],
+                    pus: ['ps', 'pashto'], und: ['unknown', 'unk']
+                };
+                Object.keys(table).forEach(function (canon) {
+                    LANG_ALIASES[canon] = canon;
+                    var aliases = table[canon];
+                    aliases.forEach(function (a) { LANG_ALIASES[a] = canon; });
+                    var name = null;
+                    for (var i = 0; i < aliases.length; i++) {
+                        if (aliases[i].length > 3) { name = aliases[i]; break; }
+                    }
+                    LANG_NAMES2[canon] = name ? (name.charAt(0).toUpperCase() + name.slice(1)) : canon.toUpperCase();
+                });
+            })();
+
             function normLang(t) {
-                return (t && t.Language && t.Language !== 'und') ? String(t.Language).toLowerCase() : 'und';
+                var raw = (t && t.Language) ? String(t.Language).trim().toLowerCase() : '';
+                if (!raw) return 'und';
+                raw = raw.split(/[-_]/)[0]; // sv-SE -> sv
+                if (LANG_ALIASES[raw]) return LANG_ALIASES[raw];
+                return LANG_ALIASES[raw.slice(0, 2)] || raw;
             }
 
             function langLabel(code) {
                 if (!code) return 'All languages';
-                return code === 'und' ? 'Unknown' : (LANG_NAMES[code] || code);
+                return LANG_NAMES2[code] || LANG_NAMES[code] || code.toUpperCase();
             }
 
             function cachedTracks(id) {
@@ -650,10 +723,14 @@
             // One track per language per episode (external preferred over embedded),
             // mirroring what the queue build does.
             function bestPerLanguage(tracks, onlyLang) {
+                var want = null;
+                if (onlyLang && onlyLang.length) {
+                    want = (typeof onlyLang === 'string') ? [onlyLang] : onlyLang;
+                }
                 var byLang = {};
                 (tracks || []).forEach(function (t) {
                     var k = normLang(t);
-                    if (onlyLang && k !== onlyLang) return;
+                    if (want && want.indexOf(k) === -1) return;
                     var cur = byLang[k];
                     if (!cur || (!cur.IsExternal && t.IsExternal)) byLang[k] = t;
                 });
@@ -720,7 +797,7 @@
             function buildTasksForItem(item) {
                 if (item.Type === 'Movie') {
                     return cachedTracks(item.Id).then(function (tracks) {
-                        var chosen = selLang ? bestPerLanguage(tracks, selLang) : (tracks || []);
+                        var chosen = selLangs.length ? bestPerLanguage(tracks, selLangs) : (tracks || []);
                         return chosen.map(function (t) {
                             return { itemId: item.Id, index: t.Index, title: item.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) };
                         });
@@ -733,7 +810,7 @@
                     episodes.forEach(function (ep) {
                         seq = seq.then(function () {
                             return cachedTracks(ep.id).then(function (tracks) {
-                                bestPerLanguage(tracks, selLang).forEach(function (t) {
+                                bestPerLanguage(tracks, selLangs).forEach(function (t) {
                                     tasks.push({ itemId: ep.id, index: t.Index, title: ep.name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) });
                                 });
                             });
@@ -777,7 +854,7 @@
                     $('ss-progress').style.width = '0%';
                 }
                 logLine('Building queue for ' + items.length + ' picked file' + (items.length === 1 ? '' : 's')
-                    + (selLang ? ' (' + langLabel(selLang) + ' subtitles only)' : '') + '\u2026');
+                    + (selLangs.length ? ' (' + selLangs.map(langLabel).join(' + ') + ' subtitles only)' : '') + '\u2026');
                 var done = 0;
 
                 var all = [];
@@ -1444,13 +1521,26 @@
             var selLangSel = $('ss-sellang');
             if (selLangSel) {
                 selLangSel.addEventListener('change', function () {
-                    selLang = selLangSel.value || '';
+                    var v = selLangSel.value || '';
+                    if (!v) {
+                        selLangs = [];
+                    } else if (selLangs.indexOf(v) === -1) {
+                        selLangs.push(v);
+                    }
                     refreshDataline();
                 });
             }
             var selBar = $('ss-selactions');
             if (selBar) {
                 selBar.addEventListener('click', function (e) {
+                    var chip = e.target.closest('[data-ss-lang]');
+                    if (chip) {
+                        e.preventDefault();
+                        var code = chip.getAttribute('data-ss-lang');
+                        selLangs = selLangs.filter(function (c) { return c !== code; });
+                        refreshDataline();
+                        return;
+                    }
                     if (e.target.closest('#ss-syncsel-btn')) {
                         e.preventDefault();
                         startSyncSelected();
