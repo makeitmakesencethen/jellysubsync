@@ -191,7 +191,18 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.20]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.21]
+
+### Changed
+- Parallel waves now **spread across storage volumes as a preference**: the scheduler takes
+  one file per volume first, then fills the remaining worker slots with whatever is left,
+  same disk or not. A batch that spans several disks runs one file from each instead of
+  hammering one; a batch that lives on a single disk still runs at the full worker count,
+  because nothing is blocked. Volumes never cap a wave — they only decide which job goes in
+  first. The rule that several subtitles of the same media file never start before that
+  file's audio analysis is cached is unchanged.
+
+## [1.1.0.20]
 
 ### Removed
 - The **per-volume heavy-read limit** is gone, along with its `HeavyReadsPerVolume` setting.

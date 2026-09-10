@@ -256,10 +256,11 @@ logs the decision.
   analysis with no cached speech signal). It is used for one rule only: a second job for a
   media file may join a wave solely when that file's speech analysis is already cached, so
   two workers never race to build the same cache entry.
-- Waves are bounded by `ParallelWorkers` **alone**. There is deliberately no per-volume
-  budget: the OS sees the real device queue and schedules better than a path through the
-  mount table does, and any such gate silently drops a wave below the requested worker
-  count (which showed up as "why is parallel running one file at a time?").
+- Waves are bounded by `ParallelWorkers` and nothing else — there is no per-volume budget.
+  Volume information (`VolumeOf` → `MediaVolume.Of`) only expresses a *preference*: the first
+  selection pass takes the first job of each distinct volume so a wave spreads over the
+  storage you have, and a second pass then fills the remaining slots with whatever is left,
+  same volume or not. A queue that lives on one disk therefore still runs at full width.
 
 `MediaVolume.Of` maps a path to its mount point + device via `/proc/mounts` (longest match
 wins), falling back to the path root where that file does not exist.

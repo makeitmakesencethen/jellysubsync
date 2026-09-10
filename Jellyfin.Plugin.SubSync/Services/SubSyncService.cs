@@ -943,6 +943,12 @@ public class SubSyncService : IDisposable
         /// left to the OS, which sees the real device queue.
         /// </summary>
         public Func<SyncJob, bool>? IsHeavyIo { get; set; }
+
+        /// <summary>
+        /// Gets or sets a predicate identifying the storage volume of a job. Used to prefer
+        /// spreading a wave over several devices; it never blocks a job from running.
+        /// </summary>
+        public Func<SyncJob, string>? VolumeOf { get; set; }
     }
 
     /// <summary>
@@ -1039,14 +1045,19 @@ public class SubSyncService : IDisposable
         typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
 
     /// <summary>
-    /// Picks the next wave of jobs to run: same batch, same mode, up to the policy's limit,
-    /// with storage-aware gating. Batches never interleave, so queue order between them is
-    /// preserved.
+    /// Picks the next wave of jobs to run: same batch, same mode, up to the policy's limit.
+    /// Batches never interleave, so queue order between them is preserved.
+    ///
+    /// Volumes are a preference, never a filter: the first pass walks the queue and takes
+    /// the first job of each distinct volume, so parallel work spreads over the storage you
+    /// have; the second pass then fills the remaining slots with whatever is left, whatever
+    /// volume it sits on. A queue that lives entirely on one disk therefore still runs at
+    /// full width — it simply has nothing to spread over.
     /// </summary>
     /// <param name="queuedInOrder">Queued jobs in queue order.</param>
     /// <param name="headMode">Resolved mode at the head of the queue.</param>
     /// <param name="headBatchId">Batch id of the job at the head of the queue.</param>
-    /// <param name="policy">Scheduling policy (limit, media sharing, volume gating).</param>
+    /// <param name="policy">Scheduling policy (limit, media sharing, volume preference).</param>
     /// <returns>The wave, in queue order.</returns>
     public static List<SyncJob> SelectWave(
         IEnumerable<SyncJob> queuedInOrder,
@@ -1054,18 +1065,9 @@ public class SubSyncService : IDisposable
         string? headBatchId,
         WavePolicy policy)
     {
-        var wave = new List<SyncJob>();
-        var claimedItems = new HashSet<Guid>();
-        // Waves are bounded by the worker count alone: no per-volume budget, so a wave is
-        // never throttled below what the queue asks for.
-
+        var candidates = new List<SyncJob>();
         foreach (var candidate in queuedInOrder)
         {
-            if (wave.Count >= policy.Limit)
-            {
-                break;
-            }
-
             if (!string.Equals(SyncJobMode.Normalize(candidate.Mode), headMode, StringComparison.Ordinal))
             {
                 continue;
@@ -1076,23 +1078,87 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
-            var heavy = policy.IsHeavyIo?.Invoke(candidate) ?? false;
-
-            if (!claimedItems.Add(candidate.ItemId))
+            candidates.Add(candidate);
+            if (candidates.Count >= policy.Limit * 4)
             {
-                // Another subtitle of a file already in this wave: allowed only when that
-                // file's speech analysis is cached, so both workers share one reference
-                // instead of racing to build it.
-                if (heavy || policy.CanShareMediaFile?.Invoke(candidate) != true)
-                {
-                    continue;
-                }
+                break; // enough to fill a wave several times over; keeps the scan bounded
+            }
+        }
+
+        var wave = new List<SyncJob>();
+        var taken = new HashSet<string>(StringComparer.Ordinal);
+        var claimedItems = new HashSet<Guid>();
+        var usedVolumes = new HashSet<string>(StringComparer.Ordinal);
+
+        foreach (var candidate in candidates)
+        {
+            if (wave.Count >= policy.Limit)
+            {
+                break;
+            }
+
+            var volume = policy.VolumeOf?.Invoke(candidate) ?? "unknown";
+            if (usedVolumes.Contains(volume))
+            {
+                continue; // a job from this volume is already in the wave — try to spread
+            }
+
+            if (!TryTake(candidate, policy, claimedItems))
+            {
+                continue;
+            }
+
+            usedVolumes.Add(volume);
+            taken.Add(candidate.Id);
+            wave.Add(candidate);
+        }
+
+        // Second pass: no spreading left to do, so fill the wave to its full width.
+        foreach (var candidate in candidates)
+        {
+            if (wave.Count >= policy.Limit)
+            {
+                break;
+            }
+
+            if (taken.Contains(candidate.Id))
+            {
+                continue;
+            }
+
+            if (!TryTake(candidate, policy, claimedItems))
+            {
+                continue;
             }
 
             wave.Add(candidate);
         }
 
-        return wave;
+        return wave.OrderBy(j => j.BatchIndex).ToList();
+    }
+
+    /// <summary>
+    /// Decides whether a candidate may join the wave, claiming its media file when it does.
+    /// Several subtitles of one file may share a wave only when that file's speech analysis
+    /// is cached, so two workers never race to build the same cache entry.
+    /// </summary>
+    /// <param name="candidate">Job under consideration.</param>
+    /// <param name="policy">Scheduling policy.</param>
+    /// <param name="claimedItems">Media files already represented in the wave.</param>
+    /// <returns>True when the candidate joins the wave.</returns>
+    private static bool TryTake(SyncJob candidate, WavePolicy policy, HashSet<Guid> claimedItems)
+    {
+        var heavy = policy.IsHeavyIo?.Invoke(candidate) ?? false;
+
+        if (!claimedItems.Add(candidate.ItemId))
+        {
+            if (heavy || policy.CanShareMediaFile?.Invoke(candidate) != true)
+            {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1165,6 +1231,7 @@ public class SubSyncService : IDisposable
                         new WavePolicy
                         {
                             Limit = limit,
+                            VolumeOf = job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
                             IsHeavyIo = job => JobNeedsHeavyIo(job, headMode),
                             CanShareMediaFile = job => SpeechIsCached(job)
                         });
