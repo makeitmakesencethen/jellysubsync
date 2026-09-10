@@ -64,7 +64,7 @@
             .ss-compact { width: auto !important; max-width: 220px; }
             .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
-            .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; }
+            .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; max-height: 420px; overflow-y: auto; }
             .ss-worker {
                 display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
                 background: rgba(255,255,255,.04); border-radius: 6px; padding: 6px 9px;
@@ -235,7 +235,7 @@
                                     </div>
                                 </div>
                                 <div class="ss-field">
-                                    <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
+                                    <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="64" />
                                     <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
                                 </div>
                                 <div class="ss-field">
@@ -330,6 +330,9 @@
             var shiftAnchor = -1;      // last checkbox clicked, for shift-range selection
 
             var STATE_KEY = 'subsync.state.v1';
+            // Largest worker count the server accepts; refreshed from every batch view so the
+            // two cannot drift apart. Keep in step with SubSyncService.MaxParallelWorkers.
+            var workerCeiling = 64;
             var pendingScope = null; // scope to restore once seasons load
             var lastInitAt = 0;
             var reattached = false; // a run was reattached after page load
@@ -551,6 +554,8 @@
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'auto';
                     $('ss-workers').value = c.ParallelWorkers || 4;
+                    var workerInput = $('ss-workers');
+                    if (workerInput) workerInput.max = workerCeiling;
                     renderLangChips();
                 });
             }
@@ -569,7 +574,7 @@
                     c.FastMkvExtraction = $('ss-fastmkv').checked;
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'auto';
-                    c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
+                    c.ParallelWorkers = Math.min(workerCeiling, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';
@@ -1589,6 +1594,8 @@
                     api('SubSync/Batch/' + batchId).then(function (view) {
                         if (!view) return;
                         var tasks = (view.Tasks) || (view.tasks) || [];
+                        var ceilFromServer = view.WorkerCeiling || view.workerCeiling;
+                        if (ceilFromServer) workerCeiling = ceilFromServer;
                         var status = view.Status || view.status;
                         var total = (view.Total != null) ? view.Total : view.total;
                         var ok = (view.Ok != null) ? view.Ok : view.ok;

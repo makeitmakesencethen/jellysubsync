@@ -1,26 +1,18 @@
-Workers no longer wait for each other: slots instead of groups
+Honour any worker count: 1, 3, 32 — never silently rewritten to 8
 
-The pump started a group of jobs and awaited the whole group, so three finished workers sat
-idle while the fourth kept running, and then all of them started their next step at the same
-instant - which is also the worst possible moment to hit the disk. Extraction being fast now
-makes that waste obvious: extraction and syncing are short, independent steps, so a worker must
-be able to move on alone.
+The setting was capped or rewritten in five separate places: the service clamped the worker count
+at 8, both settings pages carried max="8" and Math.min(8, ...) on save, and the batch view
+reported a hard 16. Anyone asking for 32 got 8 without being told.
 
-A job now occupies a slot. The dispatch decision (SubSyncService.PlanStart) starts as many jobs
-as there are free slots, and a job that finishes wakes the pump immediately to refill its slot
-instead of waiting for its neighbours. Consequences:
+The ceiling is now one documented constant (SubSyncService.MaxParallelWorkers = 64), stated in
+the settings text rather than kept secret, and it exists only so a mistyped value (10000) cannot
+spawn thousands of processes. Every value in range is used exactly as written: 1 means one, 3
+means three, 32 means thirty-two. The batch view advertises the ceiling so the pages clamp
+against the same number the server uses, instead of each carrying its own copy; the worker list
+scrolls, so a 32-row batch stays readable.
 
-- no group barrier: one slow file no longer holds three idle workers;
-- the batch spreads out over time instead of moving in lockstep, so four extractions stop
-  starting in the same instant. A cold start still fills every slot at once, so starts in the
-  same dispatch are staggered by 400 ms;
-- a job for a media file that is already being read still waits for it (a second worker would
-  race to build the same stored audio analysis); it just does not hold anyone else back;
-- disks are still preferred, never required: a job is dispatched onto an idle volume first, but
-  a single-disk library still runs at the full worker count.
+Harness: 111 checks, ALL PASS, including "1 worker stays 1", "3 workers stay 3", "32 workers
+stay 32", "a mistyped value falls back to the ceiling, not to 8", and the pool filling to 3, 16,
+32 and 64 jobs when the queue has them.
 
-Harness: 98 checks, ALL PASS, including "empty pool fills every slot", "one free slot starts
-exactly one job", "a full pool starts nothing", "a file being read is not started twice" and
-"the idle disk is taken first".
-
-Version 1.1.0.27.
+Version 1.1.0.28.

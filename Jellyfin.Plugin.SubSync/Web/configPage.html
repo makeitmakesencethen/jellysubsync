@@ -125,8 +125,8 @@
 
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ParallelWorkers">Parallel workers</label>
-                            <input is="emby-input" type="number" id="ParallelWorkers" name="ParallelWorkers" min="1" max="8" />
-                            <div class="fieldDescription">How many subtitles run at once in Parallel mode (1-8). Default: 4. A wave always covers different media files — several tracks of the same file never run at once. Each worker is CPU-bound and holds a few hundred MB while analysing audio.</div>
+                            <input is="emby-input" type="number" id="ParallelWorkers" name="ParallelWorkers" min="1" max="64" />
+                            <div class="fieldDescription">How many subtitles run at once (1-64), used by Parallel mode and by Auto when it picks a parallel strategy. Default: 4. Whatever you enter is used as written. Each worker is CPU-bound and holds a few hundred MB while analysing audio, so raise it with the hardware in mind; a second subtitle of the same media file waits for the first one, since it reuses that file's stored audio analysis.</div>
                         </div>
 
                         </div>
@@ -324,7 +324,7 @@
                         config.FastIndexedExtraction = document.querySelector('#FastIndexedExtraction').checked;
                         config.ExtractionTimeoutMinutes = Math.min(240, Math.max(1, parseInt(document.querySelector('#ExtractionTimeoutMinutes').value, 10) || 20));
                         config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
-                        config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
+                        config.ParallelWorkers = Math.min(64, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
                         config.SyncLanguages = document.querySelector('#SyncLanguages').value
                             .split(',')
                             .map(function (x) { return x.trim(); })

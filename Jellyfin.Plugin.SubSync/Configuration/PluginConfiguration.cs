@@ -39,7 +39,7 @@ public class PluginConfiguration : BasePluginConfiguration
     public string MultiSyncMode { get; set; } = "normal";
 
     /// <summary>
-    /// Gets or sets the worker count used by <c>parallel</c> mode (1-8).
+    /// Gets or sets the worker count used by the parallel strategies (1-64).
     /// Each worker is CPU-bound and holds a few hundred MB while analysing audio,
     /// so keep this low on slow storage or a small server.
     /// </summary>

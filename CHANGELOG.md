@@ -191,7 +191,18 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.27]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.28]
+
+### Fixed
+- **Any worker count is honoured.** The setting was capped or rewritten in five places: the
+  service clamped it at 8, both settings pages carried `max="8"` and `Math.min(8, ...)` on save,
+  and the batch view reported a hard 16 — asking for 32 silently produced 8. The ceiling is now
+  one documented constant (`MaxParallelWorkers = 64`), stated in the settings text, and every
+  value in range is used exactly as written. The batch view advertises the ceiling so the pages
+  clamp against the same number the server uses, and the worker list scrolls so a 32-row batch
+  stays readable.
+
+## [1.1.0.27]
 
 ### Fixed
 - **Workers no longer wait for each other.** The pump ran jobs in groups and awaited the whole

@@ -246,7 +246,7 @@ public class SubSyncController : ControllerBase
             FinishedAtUtc = jobs.Max(j => j.FinishedAtUtc),
             Mode = Services.SyncJobMode.Normalize(jobs[0].Mode),
             WorkerLimit = Services.SyncJobMode.IsParallel(Services.SyncJobMode.Normalize(jobs[0].Mode))
-                ? Math.Clamp(_syncService.EffectiveWorkerLimit, 1, 16)
+                ? Math.Clamp(_syncService.EffectiveWorkerLimit, 1, Services.SubSyncService.MaxParallelWorkers)
                 : 1,
             RunningTasks = jobs
                 .Where(j => j.Status == Services.SyncJobStatus.Running)
@@ -565,6 +565,12 @@ public class BatchView
     /// several media files at once, so the UI shows one row per running task.
     /// </summary>
     public List<BatchTask> RunningTasks { get; set; } = new();
+
+    /// <summary>
+    /// Gets or sets the largest worker count the server accepts, so the pages clamp against the
+    /// same number the server uses instead of carrying their own copy.
+    /// </summary>
+    public int WorkerCeiling { get; set; } = Services.SubSyncService.MaxParallelWorkers;
 
     /// <summary>
     /// Gets or sets how many tasks this batch may run at once (the configured worker count for

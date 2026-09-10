@@ -1302,8 +1302,20 @@ public class SubSyncService : IDisposable
 
     private static bool IsSpeechCachingMode(string mode) => SyncJobMode.UsesSpeechCache(mode);
 
-    /// <summary>Worker count for parallel mode, clamped to a sane range.</summary>
-    private static int NormalizeWorkers(int workers) => workers < 1 ? 1 : (workers > 8 ? 8 : workers);
+    /// <summary>
+    /// Upper bound for <see cref="Configuration.PluginConfiguration.ParallelWorkers"/>.
+    ///
+    /// This is not a performance opinion: it exists so a mistyped value (10000) cannot spawn
+    /// thousands of processes. Everything from 1 upwards is honoured as written — 1, 3, 32 all
+    /// mean exactly what they say, and the setting is the only thing that decides the width.
+    /// </summary>
+    public const int MaxParallelWorkers = 64;
+
+    /// <summary>Worker count for parallel mode, clamped to the documented range.</summary>
+    /// <param name="workers">Configured worker count.</param>
+    /// <returns>The count actually used, which is the configured one for every value in range.</returns>
+    public static int NormalizeWorkers(int workers) =>
+        workers < 1 ? 1 : (workers > MaxParallelWorkers ? MaxParallelWorkers : workers);
 
     /// <summary>
     /// Gets how many jobs may run at once with the current settings. Reported to the UI so the
