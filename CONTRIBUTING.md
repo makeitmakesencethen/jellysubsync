@@ -28,6 +28,41 @@ release is wrong, publish a fix forward.
    documented behaviour — docs are part of the work, not a follow-up.
 4. Squash-merge into `master`.
 
+## Testing without publishing to everyone
+
+Two levels, use both:
+
+**1. Local loop (only you, fastest).** Build the plugin and drop it into your own
+Jellyfin, without any GitHub round-trip:
+
+```bash
+dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj -c Release
+# docker: copy the DLL over the installed plugin and restart Jellyfin
+docker cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll \
+  jellyfin:/config/plugins/SubSync_<installed-version>/Jellyfin.Plugin.SubSync.dll
+docker restart jellyfin
+```
+
+Plugin assemblies only load at server startup, so **a restart is always required**.
+For code paths that don't touch the DLL (the embedded `Web/*.html` and `subsync.js`),
+the files are embedded resources — rebuild + reinstall is still needed.
+
+**2. Beta channel (safe public testing).** The `beta` branch is built by
+`.github/workflows/beta.yml` into a *separate* catalog:
+
+```
+https://<owner>.github.io/<repo>/beta/manifest.json
+```
+
+Stable users are untouched — the beta catalog is a different URL that must be added
+explicitly (Dashboard → Plugins → Catalog → add repository, then install the entry named
+**SubSync (Beta)**). Anyone who wants to help test can add it; everyone else keeps
+getting `master` releases.
+
+Promotion flow: work on `beta` → test via the beta catalog (or locally) → merge `beta`
+into `master` → bump version + `CHANGELOG.md` entry → tag `vX.Y.Z` → stable release.
+Because the beta catalog is a different URL, a broken beta can never reach stable users.
+
 ## Releasing
 
 Releases are cut when there is a meaningful set of changes — not per commit, and not

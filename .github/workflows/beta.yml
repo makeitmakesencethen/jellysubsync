@@ -1,0 +1,94 @@
+name: beta
+
+# Builds the `beta` branch and publishes it as a SEPARATE catalog at
+#   https://<owner>.github.io/<repo>/beta/manifest.json
+# Stable users (who added the root manifest.json) are never affected: the beta
+# catalog is a different URL that must be added explicitly in Jellyfin.
+#
+# Flow: work on `beta` → add the beta catalog in your test Jellyfin → install and
+# test → when happy, merge `beta` into `master` and cut a normal release.
+
+on:
+  push:
+    branches: ['beta']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  beta:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj --configuration Release --no-restore
+
+      - name: Build bundled ffsubsync binary (linux-x64)
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 -m venv /tmp/ffbuild
+          /tmp/ffbuild/bin/pip install --quiet ffsubsync==0.5.1 pyinstaller
+          mkdir -p /tmp/ffhooks
+          curl -s https://raw.githubusercontent.com/smacke/ffsubsync/0.5.1/gui/hooks/hook-webrtcvad.py \
+            -o /tmp/ffhooks/hook-webrtcvad.py
+          cd /tmp
+          /tmp/ffbuild/bin/python -m PyInstaller --noconfirm --onedir \
+            --additional-hooks-dir /tmp/ffhooks --name ffsubsync \
+            /tmp/ffbuild/bin/ffsubsync --distpath /tmp/ffbin
+          test -x /tmp/ffbin/ffsubsync/ffsubsync
+
+      - name: Package plugin zip
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          mkdir -p staging dist/beta
+          cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll staging/
+          cp Jellyfin.Plugin.SubSync/meta.json staging/
+          mkdir -p "staging/ffsubsync/linux-x64"
+          cp -r /tmp/ffbin/ffsubsync/ffsubsync "staging/ffsubsync/linux-x64/ffsubsync"
+          cp -r /tmp/ffbin/ffsubsync/_internal "staging/ffsubsync/linux-x64/_internal"
+          (cd staging && zip -q -r "../dist/beta/Jellyfin.Plugin.SubSync_${VER}.zip" .)
+
+      - name: Write beta catalog manifest
+        shell: bash
+        env:
+          OWNER: "${{ github.repository_owner }}"
+          REPO: "${{ github.repository }}"
+          REF: "${{ github.ref_name }}"
+        run: |
+          set -euo pipefail
+          VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
+          ZIP="dist/beta/Jellyfin.Plugin.SubSync_${VER}.zip"
+          CHECKSUM="$(md5sum "$ZIP" | cut -d' ' -f1)"
+          python3 scripts/write_manifest.py \
+            manifest.json "$ZIP" "$CHECKSUM" \
+            "https://${OWNER}.github.io/${REPO#*/}/beta" \
+            "https://github.com/${REPO}/tree/beta" \
+            dist/beta/manifest.json "$OWNER"
+          # Mark it clearly as the beta channel so both catalogs are tellable apart.
+          python3 - <<'PY'
+          import json
+          path = 'dist/beta/manifest.json'
+          data = json.load(open(path))
+          data[0]['name'] = data[0]['name'] + ' (Beta)'
+          json.dump(data, open(path, 'w'), indent=2)
+          PY
+          cat dist/beta/manifest.json
+
+      # Deploys only the beta/ subfolder; keep_files preserves the stable
+      # manifest, zips and images already on gh-pages.
+      - name: Deploy beta to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: dist
+          keep_files: true
