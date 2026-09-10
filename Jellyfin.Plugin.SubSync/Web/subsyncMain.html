@@ -480,13 +480,14 @@
             // One row per task currently syncing. Only parallel/ultimate modes have
             // more than one, but the panel is harmless for a single task and makes the
             // phase visible while it works.
+            // Only say something when there is something to say: plain sequential work is the
+            // normal case and needs no badge.
             function modeBadge(mode) {
                 switch ((mode || '').toLowerCase()) {
-                    case 'ultimate': return 'parallel + reusing audio analysis';
+                    case 'ultimate': return 'parallel';
                     case 'parallel': return 'parallel';
-                    case 'fast': return 'reusing audio analysis';
-                    case 'auto': return 'automatic';
-                    default: return 'single';
+                    case 'fast': return 'reusing the audio analysis';
+                    default: return '';
                 }
             }
 
@@ -1203,8 +1204,7 @@
                 // One bulk request per chunk fills the caches; assembling the task list is
                 // then pure bookkeeping with no further round-trips.
                 var seq = bulkLoadTracks(items.map(function (x) { return x.Id; }), true, function (loaded, total, trackCount) {
-                    $('ss-run-label').textContent = 'Reading subtitles\u2026 ' + loaded + '/' + total + ' file'
-                        + (total === 1 ? '' : 's') + ', ' + trackCount + ' track' + (trackCount === 1 ? '' : 's') + ' so far';
+                    $('ss-run-label').textContent = 'Loading\u2026';
                 }).then(function () {
                     var inner = Promise.resolve();
                     items.forEach(function (it) {
@@ -1214,8 +1214,7 @@
                                 done++;
                                 logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
                                     + (it.Type === 'Series' ? ' (all episodes)' : ''));
-                                $('ss-run-label').textContent = 'Queued ' + done + '/' + items.length + ' file'
-                                    + (items.length === 1 ? '' : 's') + ', ' + all.length + ' task' + (all.length === 1 ? '' : 's') + ' so far';
+                                $('ss-run-label').textContent = 'Loading\u2026';
                             });
                         });
                     });
@@ -1233,7 +1232,7 @@
                     }
 
                     var label = 'Selection (' + items.length + ' file' + (items.length === 1 ? '' : 's') + ')';
-                    $('ss-run-label').textContent = 'Sending ' + all.length + ' task(s) to the server queue\u2026';
+                    $('ss-run-label').textContent = 'Loading\u2026';
 
                     return api('SubSync/Batch', {
                         method: 'POST',
@@ -1624,19 +1623,23 @@
                             if (iid && episodeIds.indexOf(iid) < 0) episodeIds.push(iid);
                         });
                         var totalEp = episodeIds.length;
-                        var badge = modeBadge(view.Mode || view.mode) + ' \u00b7 ' + (view.RunningTasks || view.runningTasks || []).length + ' worker' +
-                            (((view.RunningTasks || view.runningTasks || []).length === 1) ? '' : 's');
+                        // Keep this line short: one strategy note when there is something to
+                        // say, the worker count only when more than one is running, and a single
+                        // position counter (episodes when the batch covers several).
+                        var workersNow = (view.RunningTasks || view.runningTasks || []).length;
+                        var bits = [];
+                        var badge = modeBadge(view.Mode || view.mode);
+                        if (badge) bits.push(badge);
+                        if (workersNow > 1) bits.push(workersNow + ' workers');
                         if (current) {
                             var cTitle = current.Title || current.title || '';
                             var phase = current.Phase || current.phase || '';
                             var curIid = current.ItemId || current.itemId;
                             var epPos = episodeIds.indexOf(curIid) + 1;
-                            if (totalEp > 1) {
-                                $('ss-run-label').textContent = badge + ' \u00b7 episode ' + epPos + '/' + totalEp +
-                                    ' \u00b7 task ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
-                            } else {
-                                $('ss-run-label').textContent = badge + ' \u00b7 task ' + Math.min(pos + 1, total) + '/' + total + ': ' + cTitle;
-                            }
+                            bits.push(totalEp > 1
+                                ? 'episode ' + epPos + '/' + totalEp
+                                : 'task ' + Math.min(pos + 1, total) + '/' + total);
+                            $('ss-run-label').textContent = bits.join(' \u00b7 ');
                             $('ss-phase').textContent = phase;
                             var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);
                             var overall = total ? ((pos + prog) / total) : 0;
@@ -1753,7 +1756,7 @@
                 var seasonOnly = !isMovie && scopeId !== selected.Id;
                 var label = scopeLabel || selected.Name;
 
-                $('ss-run-label').textContent = 'Building queue\u2026';
+                $('ss-run-label').textContent = 'Loading\u2026';
 
                 episodesInScopeChain(isMovie ? null : scopeId, seasonOnly).then(function (result) {
                     var tasks = result ? result.queue : [];
@@ -1768,7 +1771,7 @@
                         return;
                     }
                     logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' across ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's') + ' to sync.');
-                    $('ss-run-label').textContent = 'Sending ' + tasks.length + ' task(s) to the server queue\u2026';
+                    $('ss-run-label').textContent = 'Loading\u2026';
 
                     var payload = {
                         label: label,

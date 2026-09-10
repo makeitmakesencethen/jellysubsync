@@ -225,6 +225,12 @@ public class SubSyncService : IDisposable
     // "Kill" action does.
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellation = new();
 
+    /// <summary>
+    /// Every child process currently running (ffsubsync, ffmpeg), so Kill can terminate the
+    /// whole tree instead of only cancelling a token and hoping the process notices.
+    /// </summary>
+    private readonly ConcurrentDictionary<int, Process> _liveProcesses = new();
+
     // Cleanup timer for evicting old completed/failed jobs
     private readonly Timer _cleanupTimer;
 
@@ -877,11 +883,59 @@ public class SubSyncService : IDisposable
             }
         }
 
+        // Cancelling a token only helps processes that poll it. Kill the trees directly as
+        // well: ffsubsync spawns ffmpeg, and both must be gone before the file handles are
+        // released and the job is really finished.
+        var processesKilled = 0;
+        foreach (var process in _liveProcesses.Values.ToList())
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    processesKilled++;
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not kill process {Pid}", process.Id);
+            }
+        }
+
+        // Give the kernel a moment, then report what is left instead of claiming success.
+        var deadline = DateTime.UtcNow.AddSeconds(3);
+        while (DateTime.UtcNow < deadline && _liveProcesses.Values.Any(p => !SafeHasExited(p)))
+        {
+            Thread.Sleep(100);
+        }
+
+        var survivors = _liveProcesses.Values.Count(p => !SafeHasExited(p));
         _logger.LogInformation(
-            "Kill requested: {Queued} queued task(s) cancelled, {Running} running run(s) terminated",
-            queuedCancelled, runningKilled);
-        return (queuedCancelled, runningKilled);
+            "Kill requested: {Queued} queued task(s) cancelled, {Running} run token(s) cancelled, {Killed} process tree(s) killed, {Survivors} still alive",
+            queuedCancelled, runningKilled, processesKilled, survivors);
+
+        return (queuedCancelled, processesKilled > 0 ? Math.Max(processesKilled, runningKilled) : runningKilled);
     }
+
+    /// <summary>True when a process has exited, without throwing when it is gone.</summary>
+    /// <param name="process">Process to check.</param>
+    /// <returns>True when it is no longer running.</returns>
+    private static bool SafeHasExited(Process process)
+    {
+        try
+        {
+            return process.HasExited;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    /// <summary>How many child processes are tracked right now (used by the status endpoint).</summary>
+    /// <returns>Number of live processes.</returns>
+    private int LiveProcessCount() => _liveProcesses.Values.Count(p => !SafeHasExited(p));
 
     /// <summary>
     /// Gets a summary of what is executing right now, so the UI can tell the user whether
@@ -1024,7 +1078,7 @@ public class SubSyncService : IDisposable
 
             var key = SpeechCache.KeyFor(
                 ctx.Video.Path,
-                (ctx.Config.VadMethod ?? "subs_then_webrtc") + "|ref=" + SpeechCacheReferenceHint(job),
+                (ctx.Config.VadMethod ?? "subs_then_webrtc") + "|audio",
                 EngineIdentity());
             return SpeechCache.TryGet(key) is not null;
         }
@@ -1845,6 +1899,9 @@ public class SubSyncService : IDisposable
                     job,
                     video.RunTimeTicks,
                     cancellationToken).ConfigureAwait(false);
+
+                // A kill during extraction must not turn into "try the next method".
+                cancellationToken.ThrowIfCancellationRequested();
                 job.Phase = "Extracted subtitle with " + DescribeExtraction(extractionMethod);
             }
 
@@ -1863,7 +1920,13 @@ public class SubSyncService : IDisposable
             string? speechKey = null;
             var usingCachedSpeech = false;
 
-            if (IsSpeechCachingMode(mode))
+            // The speech signal depends on the media file, the VAD method and the engine
+            // build — never on the subtitle, its language or the mode. Analysing it is work
+            // that happens anyway, so it is always kept: the other subtitles of that file and
+            // any later run then skip the audio pass entirely.
+            var usesAudioReference = referenceStream is null
+                || referenceStream.StartsWith("a:", StringComparison.Ordinal);
+            if (usesAudioReference)
             {
                 // Identity of everything that shapes the speech signal: the binary in use,
                 // the bundled engine version and this plugin's own version. A path alone is
@@ -1875,21 +1938,21 @@ public class SubSyncService : IDisposable
                     typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
                 speechKey = SpeechCache.KeyFor(
                     videoPath,
-                    (config.VadMethod ?? "subs_then_webrtc") + "|ref=" + (referenceStream ?? "auto"),
+                    (config.VadMethod ?? "subs_then_webrtc") + "|audio",
                     engineIdentity);
                 var cached = SpeechCache.TryGet(speechKey);
                 if (cached is not null)
                 {
                     referencePath = cached;
                     usingCachedSpeech = true;
-                    job.Phase = "Syncing (reusing audio analysis)";
-                    _logger.LogInformation("Fast mode: reusing cached speech analysis for {Video}", videoPath);
+                    job.Phase = "Syncing (reusing the audio analysis)";
+                    _logger.LogInformation("Reusing the stored audio analysis for {Video}", videoPath);
                 }
                 else
                 {
                     referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
                     serializeSpeech = true;
-                    job.Phase = "Syncing (analysing audio, then caching it)";
+                    job.Phase = "Syncing (analysing the audio)";
                 }
             }
 
@@ -1906,7 +1969,7 @@ public class SubSyncService : IDisposable
                 {
                     ParseFfSubSyncStderr(line, job);
                 },
-                CancellationToken.None).ConfigureAwait(false);
+                cancellationToken).ConfigureAwait(false);
 
             if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
             {
@@ -1935,7 +1998,7 @@ public class SubSyncService : IDisposable
                 throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.");
             }
 
-            if (IsSpeechCachingMode(mode) && speechKey is not null && serializeSpeech)
+            if (speechKey is not null && serializeSpeech)
             {
                 // Harvest covers the fallback where ffsubsync wrote the .npz next to the
                 // media file; DropLink removes the temporary symlink either way.
@@ -2071,6 +2134,14 @@ public class SubSyncService : IDisposable
                 video.GetParent(),
                 ItemUpdateType.MetadataImport,
                 CancellationToken.None).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            _logger.LogInformation("Sync job {JobId} was killed by the user", job.Id);
+            job.Status = SyncJobStatus.Cancelled;
+            job.Phase = "Killed";
+            job.Error = "Killed by the user.";
+            job.FinishedAtUtc = DateTime.UtcNow;
         }
         catch (Exception ex)
         {
@@ -2366,7 +2437,7 @@ public class SubSyncService : IDisposable
             job.Phase = "Extracting subtitle from the Matroska index";
             var watch = System.Diagnostics.Stopwatch.StartNew();
             var progress = new Action<string>(line => job.Phase = "Extracting subtitle: " + line);
-            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why, progress, out var stats))
+            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why, progress, out var stats, cancellationToken))
             {
                 await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
@@ -2583,7 +2654,7 @@ public class SubSyncService : IDisposable
 
         _logger.LogInformation("Extracting subtitle: ffmpeg {Args}", string.Join(" ", args));
 
-        var (exitCode, stderr) = await RunProcessArgumentListAsync(ffmpegPath, args, null, CancellationToken.None).ConfigureAwait(false);
+        var (exitCode, stderr) = await RunProcessArgumentListAsync(ffmpegPath, args, null, cancellationToken).ConfigureAwait(false);
         if (exitCode != 0)
         {
             throw new InvalidOperationException($"ffmpeg subtitle extraction failed: {FfmpegError(stderr)}");
@@ -2630,7 +2701,13 @@ public class SubSyncService : IDisposable
             process.StartInfo.WorkingDirectory = workingDir;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
         process.Start();
+        _liveProcesses[process.Id] = process;
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -2642,7 +2719,14 @@ public class SubSyncService : IDisposable
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _liveProcesses.TryRemove(process.Id, out _);
+        }
 
         var stderr = await stderrTask.ConfigureAwait(false);
         await stdoutTask.ConfigureAwait(false);
@@ -2669,7 +2753,13 @@ public class SubSyncService : IDisposable
             process.StartInfo.WorkingDirectory = workingDir;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
         process.Start();
+        _liveProcesses[process.Id] = process;
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -2681,7 +2771,14 @@ public class SubSyncService : IDisposable
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _liveProcesses.TryRemove(process.Id, out _);
+        }
 
         var stderr = await stderrTask.ConfigureAwait(false);
         var stdout = await stdoutTask.ConfigureAwait(false);
@@ -2707,7 +2804,13 @@ public class SubSyncService : IDisposable
             process.StartInfo.WorkingDirectory = workingDir;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
         process.Start();
+        _liveProcesses[process.Id] = process;
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -2719,7 +2822,14 @@ public class SubSyncService : IDisposable
         var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
         var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _liveProcesses.TryRemove(process.Id, out _);
+        }
 
         var stderr = await stderrTask.ConfigureAwait(false);
         var stdout = await stdoutTask.ConfigureAwait(false);
@@ -2764,7 +2874,13 @@ public class SubSyncService : IDisposable
             process.StartInfo.WorkingDirectory = workingDir;
         }
 
+        if (cancellationToken.IsCancellationRequested)
+        {
+            throw new OperationCanceledException(cancellationToken);
+        }
+
         process.Start();
+        _liveProcesses[process.Id] = process;
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -2791,7 +2907,14 @@ public class SubSyncService : IDisposable
             }
         }, cancellationToken);
 
-        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        finally
+        {
+            _liveProcesses.TryRemove(process.Id, out _);
+        }
 
         await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
 

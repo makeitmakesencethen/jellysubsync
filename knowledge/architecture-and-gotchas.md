@@ -240,6 +240,18 @@ worked:
      fall back to ffmpeg, which read the whole file.
    - reads are unbuffered (`bufferSize: 0`), so a seek costs the bytes it asks for instead
      of a 64 KB buffered refill.
+   - reads are **windowed**: a 4 KB window while walking cluster headers, and a window
+     sized to the cluster (up to 512 KB) while enumerating the blocks of a cluster the
+     cue index named. A real remux cluster holds ~150 blocks (mostly audio frames), so
+     one window per block would be ~150 device round trips per cluster — for an episode
+     with 315 subtitle cue clusters that is ~46,000 round trips (the "reading cluster
+     32/315" crawl). Windowed: 540 → 127 reads on a real 8.2 GB remux.
+   - the audio analysis is cached **per media file** (path + VAD method + engine
+     build), never per title, and always — the analysis happens regardless, so keeping
+     it costs one small file and saves the whole audio pass on any later run.
+   - cancellable: Kill's token is checked between clusters, so a slow read cannot pin a
+     worker. Every child process (ffsubsync, ffmpeg) is started with the job token and
+     registered, and Kill terminates whole trees rather than hoping a token is noticed.
    - reports `MkvExtractionStats` (method, clusters, blocks, MB, read calls, timings), which
      the service logs: `Extracted embedded subtitle in 28 ms (40 cues, seekhead-cues: 40
      clusters, 40 blocks, 0.2 MB in 505 reads, 28 ms ...)`. Assert on **bytes read**, not

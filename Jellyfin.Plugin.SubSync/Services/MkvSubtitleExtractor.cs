@@ -6,6 +6,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 
 namespace Jellyfin.Plugin.SubSync.Services;
 
@@ -180,6 +181,7 @@ public static class MkvSubtitleExtractor
     /// <param name="reason">Why extraction was skipped, when it returns false.</param>
     /// <param name="progress">Called with a short status line while the file is being read.</param>
     /// <param name="stats">What the extraction cost.</param>
+    /// <param name="cancellationToken">Cancels a long read (Kill in the UI).</param>
     /// <returns>True when a complete SRT was produced.</returns>
     public static bool TryExtract(
         string videoPath,
@@ -187,7 +189,8 @@ public static class MkvSubtitleExtractor
         out string srtText,
         out string reason,
         Action<string>? progress,
-        out MkvExtractionStats stats)
+        out MkvExtractionStats stats,
+        CancellationToken cancellationToken = default)
     {
         srtText = string.Empty;
         reason = string.Empty;
@@ -201,7 +204,7 @@ public static class MkvSubtitleExtractor
             // buffered refill. Without this, a metadata walk of a 60 GB file reads the file.
             using var stream = new FileStream(videoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 0);
             reader = new BlobReader(stream);
-            var result = Extract(reader, subtitleOrdinal, progress, out srtText, out reason, stats);
+            var result = Extract(reader, subtitleOrdinal, progress, out srtText, out reason, stats, cancellationToken);
             stats.BytesRead = reader.BytesRead;
             stats.ReadCalls = reader.ReadCalls;
             stats.TotalMs = watch.Elapsed.TotalMilliseconds;
@@ -225,7 +228,8 @@ public static class MkvSubtitleExtractor
         Action<string>? progress,
         out string srtText,
         out string reason,
-        MkvExtractionStats stats)
+        MkvExtractionStats stats,
+        CancellationToken cancellationToken = default)
     {
         srtText = string.Empty;
         reason = string.Empty;
@@ -427,6 +431,7 @@ public static class MkvSubtitleExtractor
         if (clusterOffsets.Count > 0)
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
+
             var seen = new HashSet<long>();
             var index = 0;
             foreach (var offset in clusterOffsets)
@@ -437,13 +442,20 @@ public static class MkvSubtitleExtractor
                     continue;
                 }
 
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    reason = "cancelled";
+                    stats.Method = "cancelled";
+                    return false;
+                }
+
                 index++;
                 if (progress is not null && (index % 16 == 0 || index == clusterOffsets.Count))
                 {
                     progress($"reading cluster {index}/{clusterOffsets.Count} from the cue index");
                 }
 
-                if (!ReadCluster(reader, position, track, cues, stats))
+                if (!ReadCluster(reader, position, track, cues, stats, wideWindow: true))
                 {
                     reason = "unsupported block encoding";
                     return false;
@@ -456,8 +468,16 @@ public static class MkvSubtitleExtractor
             // payloads are skipped, so a 60 GB remux costs a few megabytes of reads, where
             // handing it back to ffmpeg would cost all 60 GB.
             stats.Method = "metadata-scan";
-            if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress))
+            reader.WindowSize = 4 * 1024;
+            if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress, cancellationToken))
             {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    reason = "cancelled";
+                    stats.Method = "cancelled";
+                    return false;
+                }
+
                 reason = "unsupported block encoding";
                 return false;
             }
@@ -480,11 +500,34 @@ public static class MkvSubtitleExtractor
     }
 
     /// <summary>Reads a cluster: block headers first, payloads only for the wanted track.</summary>
-    private static bool ReadCluster(BlobReader reader, long clusterPosition, SubtitleTrack track, List<Cue> cues, MkvExtractionStats stats)
+    /// <param name="reader">File reader.</param>
+    /// <param name="clusterPosition">Cluster header position.</param>
+    /// <param name="track">Track being extracted.</param>
+    /// <param name="cues">Collected subtitles.</param>
+    /// <param name="stats">Cost counters.</param>
+    /// <param name="wideWindow">
+    /// True when the cue index named this cluster, so its blocks are worth reading in wide
+    /// windows; false while walking every cluster, where a small window keeps the bytes down.
+    /// </param>
+    private static bool ReadCluster(
+        BlobReader reader,
+        long clusterPosition,
+        SubtitleTrack track,
+        List<Cue> cues,
+        MkvExtractionStats stats,
+        bool wideWindow = false)
     {
         if (!reader.TryReadElementHeaderAt(clusterPosition, out var id, out var size, out var headerLength) || id != IdCluster)
         {
             return false;
+        }
+
+        if (wideWindow && size != ulong.MaxValue)
+        {
+            // A cue cluster holds the subtitle block plus every audio frame of that stretch
+            // (~150 blocks in practice). Sizing the window to the cluster means a handful of
+            // round trips instead of one per block.
+            reader.WindowSize = (int)Math.Clamp((long)size / 8, 64 * 1024, 512 * 1024);
         }
 
         stats.ClustersVisited++;
@@ -610,7 +653,8 @@ public static class MkvSubtitleExtractor
         SubtitleTrack track,
         List<Cue> cues,
         MkvExtractionStats stats,
-        Action<string>? progress)
+        Action<string>? progress,
+        CancellationToken cancellationToken = default)
     {
         var cursor = startPosition;
         var visited = 0;
@@ -629,6 +673,10 @@ public static class MkvSubtitleExtractor
             {
                 visited++;
                 stats.ClustersVisited++;
+                if ((visited & 0x3F) == 0 && cancellationToken.IsCancellationRequested)
+                {
+                    return false; // the caller turns this into a cancellation
+                }
                 if (progress is not null && visited % ProgressEveryClusters == 0)
                 {
                     progress($"scanning clusters ({visited} read, {stats.BytesRead / 1e6:0.0} MB, {cues.Count} subtitles found)");
@@ -686,7 +734,7 @@ public static class MkvSubtitleExtractor
 
         Span<byte> header = stackalloc byte[16];
         var headerBytes = (int)Math.Min(header.Length, Math.Min(length, reader.Length - dataStart));
-        if (headerBytes <= 0 || reader.ReadAt(dataStart, header[..headerBytes]) < headerBytes)
+        if (headerBytes <= 0 || reader.ReadNear(dataStart, header[..headerBytes]) < headerBytes)
         {
             return true; // truncated tail: nothing more to read here
         }
@@ -726,7 +774,7 @@ public static class MkvSubtitleExtractor
         }
 
         var payload = new byte[payloadLength];
-        var payloadRead = reader.ReadAt(dataStart + offset, payload);
+        var payloadRead = reader.ReadNear(dataStart + offset, payload);
         if (payloadRead < payloadLength)
         {
             payload = payload.AsSpan(0, payloadRead).ToArray();
@@ -1267,7 +1315,21 @@ public static class MkvSubtitleExtractor
     /// </summary>
     private sealed class BlobReader
     {
+        /// <summary>Largest window the reader may use.</summary>
+        private const int MaxWindowSize = 64 * 1024;
+
         private readonly FileStream _stream;
+        private readonly byte[] _window = new byte[MaxWindowSize];
+        private long _windowStart = -1;
+        private int _windowLength;
+
+        /// <summary>
+        /// Gets or sets how much is read in one go. Enumerating the blocks of a cluster the
+        /// cue index pointed at wants this large (a cluster holds ~150 blocks, mostly audio
+        /// frames, and each one otherwise costs its own round trip); walking cluster headers
+        /// in a metadata scan wants it small.
+        /// </summary>
+        public int WindowSize { get; set; } = 4 * 1024;
 
         public BlobReader(FileStream stream)
         {
@@ -1321,6 +1383,48 @@ public static class MkvSubtitleExtractor
             return read;
         }
 
+        /// <summary>
+        /// Reads a small span, reusing recently read bytes when they cover it. One window
+        /// read replaces several element-by-element reads inside the same cluster, which is
+        /// what keeps high-latency storage from dominating the extraction.
+        /// </summary>
+        /// <param name="position">Where to start.</param>
+        /// <param name="destination">Where the bytes go.</param>
+        /// <returns>How many bytes were available.</returns>
+        public int ReadNear(long position, Span<byte> destination)
+        {
+            if (destination.Length == 0)
+            {
+                return 0;
+            }
+
+            var windowSize = Math.Clamp(WindowSize, 512, MaxWindowSize);
+            if (destination.Length > windowSize)
+            {
+                return ReadAt(position, destination);
+            }
+
+            if (_windowStart >= 0
+                && position >= _windowStart
+                && position + destination.Length <= _windowStart + _windowLength)
+            {
+                _window.AsSpan((int)(position - _windowStart), destination.Length).CopyTo(destination);
+                return destination.Length;
+            }
+
+            var length = (int)Math.Min(windowSize, Length - position);
+            if (length < destination.Length)
+            {
+                return ReadAt(position, destination);
+            }
+
+            _windowStart = position;
+            _windowLength = ReadAt(position, _window.AsSpan(0, length));
+            var available = Math.Min(destination.Length, _windowLength);
+            _window.AsSpan(0, available).CopyTo(destination);
+            return available;
+        }
+
         /// <summary>Reads a whole element payload in one go (used for indexes).</summary>
         /// <param name="position">Where the payload starts.</param>
         /// <param name="length">How many bytes.</param>
@@ -1359,7 +1463,7 @@ public static class MkvSubtitleExtractor
             }
 
             Span<byte> buffer = stackalloc byte[8];
-            var read = ReadAt(position, buffer[..(int)length]);
+            var read = ReadNear(position, buffer[..(int)length]);
             return read <= 0 ? 0 : ReadUnsignedBytes(buffer[..read]);
         }
 
@@ -1382,7 +1486,7 @@ public static class MkvSubtitleExtractor
 
             Span<byte> buffer = stackalloc byte[16];
             var available = (int)Math.Min(buffer.Length, Length - position);
-            var got = ReadAt(position, buffer[..available]);
+            var got = ReadNear(position, buffer[..available]);
             if (got < 2)
             {
                 return false;

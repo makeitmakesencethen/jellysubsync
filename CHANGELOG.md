@@ -191,7 +191,52 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.23]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.24]
+
+### Fixed
+- **Kill now kills.** The sync's ffsubsync run was started with `CancellationToken.None`, so
+  the per-job token that Cancel/Kill fires never reached it: the process kept running after
+  the button was pressed, and so did the ffmpeg it spawns internally. Every child process
+  (ffsubsync, both ffmpeg paths) now gets the job's token, all of them are registered while
+  they run, Kill terminates whole process trees directly instead of relying on a token being
+  noticed, and the log reports what was killed and whether anything survived. A killed job is
+  recorded as *cancelled*, not failed. The in-process Matroska extraction honours the token
+  too, so a slow read can be interrupted instead of holding a worker.
+
+- **Reading a cue cluster no longer costs one disk round trip per block.** A real remux holds
+  ~150 blocks in a cluster (mostly audio frames), and the reader has to look at each one to
+  find the subtitle block — with unbuffered reads that was ~150 round trips per cluster, and
+  an episode with 315 subtitle cue clusters meant roughly 46,000 of them. That is the
+  "reading cluster 32/315" crawl. Reads are now windowed: a 4 KB window while walking cluster
+  headers, and a window sized to the cluster (up to 512 KB) while enumerating the blocks of a
+  cluster the cue index pointed at. Measured on a real 8.2 GB Blu-ray remux: **540 → 127 read
+  calls**, 29.6 ms, identical 4 cues.
+
+### Changed
+- **The audio analysis is always kept.** It was only cached in `fast`/`ultimate` mode, so a
+  single-subtitle sync threw the result away and every later run (or the next subtitle of
+  that file) analysed the audio again. The cache key is per *media file* (path + VAD method +
+  engine build), never per title, so a series gets one entry per episode and nothing is keyed
+  by name. Since the analysis happens anyway, keeping it costs one small file and makes
+  re-runs and extra subtitles skip the audio pass. The UI no longer narrates caching — the
+  phase simply says *analysing the audio* or *reusing the audio analysis*.
+
+- **Run line simplified.** While the batch is assembled it says `Loading…` instead of a
+  running commentary of file and track counts. While it runs it shows only what is meaningful:
+  a strategy word (`parallel`, `reusing the audio analysis`) when there is one to state, the
+  worker count only when more than one worker is active, and a single position counter
+  (`episode 6/160`, or `task 4/12` when the batch covers one episode). Sequential runs no
+  longer label themselves "single", and episode/task counters are no longer repeated.
+
+### Audited
+- The library browser and series sync use the same service code as every other entry point,
+  so the settings apply there too: the language filter and image-track exclusion (enforced
+  server-side when tracks are listed *and* re-checked when a job runs), the sync strategy and
+  worker count, copy vs replace, golden-section search, VAD method, ffmpeg/ffsubsync paths,
+  encoding, offset limits, and the indexed-extraction settings. The browser sends no mode of
+  its own — it inherits the configured one, including the automatic strategy.
+
+## [1.1.0.23]
 
 ### Fixed
 - **Several subtitles of one movie now sync in parallel, not one after another.** The
