@@ -185,6 +185,23 @@
                                     <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
                                 </div>
 
+                                <h3 class="ss-subhead">Extraction &amp; sync engine</h3>
+                                <div class="ss-field">
+                                    <div class="checkboxContainer checkboxContainer-withDescription">
+                                        <label class="emby-checkbox-label">
+                                            <input is="emby-checkbox" type="checkbox" id="ss-fastmkv" />
+                                            <span>Read embedded Matroska subtitles via the file's cue index</span>
+                                        </label>
+                                        <div class="fieldDescription checkboxFieldDescription">
+                                            Instead of demuxing the whole container for a few kilobytes of text, the
+                                            subtitle blocks are read straight from the clusters the file's cue index points
+                                            at. On a 1.7 GB file that is ~0.2 s instead of ~2.3 s, and it avoids a full read of
+                                            a NAS-hosted file. Anything it cannot handle (image tracks, laced or compressed
+                                            blocks, missing index) falls back to ffmpeg automatically.
+                                        </div>
+                                    </div>
+                                </div>
+
                                 <h3 class="ss-subhead">Multi-subtitle sync mode</h3>
                                 <div class="ss-field">
                                     <select is="emby-select" id="ss-multimode" label="When one sync covers several subtitles">
@@ -204,7 +221,7 @@
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="8" />
-                                    <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 2.</div>
+                                    <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
                                 </div>
                                 <div class="ss-field">
                                     <label class="selectLabel">Cached audio analysis</label>
@@ -463,10 +480,11 @@
                     $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
+                    $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'normal';
                     batchMode = c.MultiSyncMode || 'normal';
                     if ($('ss-batchmode')) $('ss-batchmode').value = batchMode;
-                    $('ss-workers').value = c.ParallelWorkers || 2;
+                    $('ss-workers').value = c.ParallelWorkers || 4;
                     syncLanguages = (c.SyncLanguages || []).map(function (l) { return normLang({ Language: l }); });
                     renderLangChips();
                 });
@@ -483,9 +501,10 @@
                     c.FfSubSyncPath = $('ss-ffsubsync').value || 'ffsubsync';
                     c.SyncModeCopy = $('ss-mode').value === 'copy';
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
+                    c.FastMkvExtraction = $('ss-fastmkv').checked;
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'normal';
-                    c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 2));
+                    c.ParallelWorkers = Math.min(8, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
                     $('ss-save-status').textContent = 'Saved.';

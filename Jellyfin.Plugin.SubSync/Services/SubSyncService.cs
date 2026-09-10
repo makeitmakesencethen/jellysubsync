@@ -778,6 +778,9 @@ public class SubSyncService : IDisposable
     /// <summary>Worker count for parallel mode, clamped to a sane range.</summary>
     private static int NormalizeWorkers(int workers) => workers < 1 ? 1 : (workers > 8 ? 8 : workers);
 
+    /// <summary>Default worker count for parallel mode.</summary>
+    public const int DefaultParallelWorkers = 4;
+
     private void WakePump()
     {
         lock (_queueLock)
@@ -814,12 +817,30 @@ public class SubSyncService : IDisposable
                         ? NormalizeWorkers(config?.ParallelWorkers ?? 2)
                         : 1;
 
-                    jobs = _runOrder
+                    // Parallel waves span *different* media files. Several subtitle
+                    // tracks of one file are legitimate work, but running them
+                    // simultaneously would have two ffmpeg/ffsubsync processes reading
+                    // the same file and repeating the same audio analysis, so one file
+                    // only ever occupies one worker slot per wave.
+                    var seenItems = new HashSet<Guid>();
+                    jobs = new List<SyncJob>();
+                    foreach (var candidate in _runOrder
                         .Where(j => j.Status == SyncJobStatus.Queued)
                         .Where(j => NormalizeMode(j.Mode) == headMode)
-                        .Where(j => head.BatchId is null ? j.BatchId is null : j.BatchId == head.BatchId)
-                        .Take(limit)
-                        .ToList();
+                        .Where(j => head.BatchId is null ? j.BatchId is null : j.BatchId == head.BatchId))
+                    {
+                        if (jobs.Count >= limit)
+                        {
+                            break;
+                        }
+
+                        if (!seenItems.Add(candidate.ItemId))
+                        {
+                            continue; // another track of a file already in this wave
+                        }
+
+                        jobs.Add(candidate);
+                    }
                 }
             }
 
@@ -1094,9 +1115,9 @@ public class SubSyncService : IDisposable
     /// </summary>
     /// <param name="video">The video item.</param>
     /// <param name="target">The embedded subtitle stream to extract.</param>
-    /// <returns>The real container stream index (for ffmpeg "-map 0:N").</returns>
+    /// <returns>The real container stream index and the 0-based subtitle ordinal.</returns>
     /// <exception cref="InvalidOperationException">The stream could not be mapped.</exception>
-    private async Task<int> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
+    private async Task<(int ContainerIndex, int SubtitleOrdinal)> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
     {
         var ffmpegPath = ResolveFfmpegPath();
         var (_, stderr) = await RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
@@ -1116,7 +1137,7 @@ public class SubSyncService : IDisposable
 
         if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
         {
-            return containerSubs[pos];
+            return (containerSubs[pos], pos);
         }
 
         throw new InvalidOperationException(
@@ -1305,9 +1326,37 @@ public class SubSyncService : IDisposable
                 // stream count on files mixing embedded + external tracks), so
                 // the real stream is located by probing the file with ffmpeg
                 // and matching by position among embedded subtitle streams.
-                var containerIndex = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
-                _logger.LogInformation("Extracting embedded subtitle (container stream {Stream}) from {Video}", containerIndex, videoPath);
-                await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath).ConfigureAwait(false);
+                var (containerIndex, subtitleStreamOrdinal) = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
+
+                // Matroska carries a cue index, so a text subtitle can be read straight
+                // from its clusters (kilobytes) instead of demuxing the whole file
+                // (one full read — minutes for a big file over a NAS).
+                var extractedFast = false;
+                if (config.FastMkvExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
+                {
+                    var watch = System.Diagnostics.Stopwatch.StartNew();
+                    if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleStreamOrdinal, out var indexedText, out var skipReason))
+                    {
+                        watch.Stop();
+                        await File.WriteAllTextAsync(subtitleInputPath, indexedText, new System.Text.UTF8Encoding(false)).ConfigureAwait(false);
+                        extractedFast = true;
+                        _logger.LogInformation(
+                            "Extracted embedded subtitle via the Matroska cue index in {Elapsed} ms ({Cues} cues) from {Video}",
+                            watch.ElapsedMilliseconds, indexedText.Split("-->").Length - 1, videoPath);
+                    }
+                    else
+                    {
+                        _logger.LogInformation(
+                            "Indexed Matroska extraction not used for {Video} ({Reason}) — falling back to ffmpeg",
+                            videoPath, skipReason);
+                    }
+                }
+
+                if (!extractedFast)
+                {
+                    _logger.LogInformation("Extracting embedded subtitle (container stream {Stream}) from {Video}", containerIndex, videoPath);
+                    await ExtractSubtitle(videoPath, containerIndex, subtitleInputPath).ConfigureAwait(false);
+                }
             }
 
             // Step 2: Run ffsubsync → temp output

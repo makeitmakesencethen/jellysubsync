@@ -94,6 +94,18 @@
                             <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title -SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place. Video files are never modified — embedded tracks are extracted and saved as a new external subtitle file instead of being remuxed back in.</div>
                         </div>
 
+                        <div class="checkboxContainer checkboxContainer-withDescription">
+                            <label class="emby-checkbox-label">
+                                <input is="emby-checkbox" type="checkbox" id="FastMkvExtraction" name="FastMkvExtraction" />
+                                <span>Read embedded Matroska subtitles via the file's cue index</span>
+                            </label>
+                            <div class="fieldDescription checkboxFieldDescription">
+                                Reads the subtitle blocks from the clusters the Matroska cue index points at instead of
+                                demuxing the entire file (measured 0.2 s vs 2.3 s on a 1.7 GB file). Falls back to ffmpeg
+                                automatically for anything it cannot handle.
+                            </div>
+                        </div>
+
                         <div class="selectContainer">
                             <label class="selectLabel" for="MultiSyncMode">Multi-subtitle sync mode</label>
                             <select is="emby-select" id="MultiSyncMode" name="MultiSyncMode">
@@ -112,7 +124,7 @@
                         <div class="inputContainer">
                             <label class="inputLabel inputLabelUnfocused" for="ParallelWorkers">Parallel workers</label>
                             <input is="emby-input" type="number" id="ParallelWorkers" name="ParallelWorkers" min="1" max="8" />
-                            <div class="fieldDescription">How many subtitles run at once in Parallel mode (1-8). Default: 2. Each worker is CPU-bound and holds a few hundred MB while analysing audio.</div>
+                            <div class="fieldDescription">How many subtitles run at once in Parallel mode (1-8). Default: 4. A wave always covers different media files — several tracks of the same file never run at once. Each worker is CPU-bound and holds a few hundred MB while analysing audio.</div>
                         </div>
 
                         <div class="inputContainer">
@@ -243,8 +255,9 @@
                         document.querySelector('#OutputEncoding').value = config.OutputEncoding || 'utf-8';
                         document.querySelector('#UseGoldenSectionSearch').checked = config.UseGoldenSectionSearch || false;
                         document.querySelector('#SyncModeCopy').value = config.SyncModeCopy !== false ? 'true' : 'false';
+                        document.querySelector('#FastMkvExtraction').checked = config.FastMkvExtraction !== false;
                         document.querySelector('#MultiSyncMode').value = config.MultiSyncMode || 'normal';
-                        document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 2;
+                        document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 4;
                         document.querySelector('#SyncLanguages').value = (config.SyncLanguages || []).join(', ');
                         Dashboard.hideLoadingMsg();
                     });
@@ -297,8 +310,9 @@
                         config.OutputEncoding = document.querySelector('#OutputEncoding').value || 'utf-8';
                         config.UseGoldenSectionSearch = document.querySelector('#UseGoldenSectionSearch').checked;
                         config.SyncModeCopy = document.querySelector('#SyncModeCopy').value === 'true';
+                        config.FastMkvExtraction = document.querySelector('#FastMkvExtraction').checked;
                         config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
-                        config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 2));
+                        config.ParallelWorkers = Math.min(8, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
                         config.SyncLanguages = document.querySelector('#SyncLanguages').value
                             .split(',')
                             .map(function (x) { return x.trim(); })

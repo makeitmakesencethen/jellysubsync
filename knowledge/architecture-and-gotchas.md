@@ -165,3 +165,32 @@ eviction rules and skip-cache logic.
 See also:
 - [api-reference.md](api-reference.md) for REST endpoint details
 - [config-and-validation.md](config-and-validation.md) for configuration fields and validation rules
+
+
+## Embedded subtitle extraction: index reads vs demuxing
+
+`SubSyncService.RunSyncJob` extracts an embedded track in one of two ways:
+
+1. **Indexed (Matroska only, default on via `FastMkvExtraction`)** —
+   `MkvSubtitleExtractor.TryExtract` walks EBML/segment → `Tracks` → `Cues`, then reads
+   only the clusters that hold the target track's blocks and writes SRT itself. Touches
+   kilobytes.
+2. **ffmpeg fallback** — `ExtractSubtitle` maps the resolved container stream index and
+   converts to SRT. Correct for every container, but it demuxes the whole file: measured
+   cold 2.32 s for a 1.7 GB file, and it tracks the full-file read rather than the
+   1 MB read (0.01 s).
+
+The extractor deliberately returns `false` (→ ffmpeg) for anything it cannot prove:
+non-Matroska, no cue index, unknown codec, images (`S_HDMV/PGS`, `S_VOBSUB`), laced blocks
+(`lacing != 0` — decoding them wrongly would be silent corruption), `ContentEncodings`
+compression, or a malformed EBML structure. It never partially succeeds.
+
+Ordinals: Jellyfin's `MediaStream.Index` is not a container index, so
+`ResolveContainerSubtitleIndexAsync` probes with ffmpeg and matches by position. That same
+position (0-based among subtitle streams, including image tracks) is what the extractor
+takes, and it keeps non-text tracks in its own list so `0:s:N` numbering lines up.
+
+Verified (`MkvSubtitleExtractor` vs ffmpeg on real files): subrip and ASS tracks, 600/600
+cues, identical text, ≤0.023 s timing difference (the extractor's timestamps equal the
+muxed source; ffmpeg re-times slightly); and a 3-track file where ordinals 0/1/2 returned
+English/ASS-Swedish/German exactly as `ffmpeg -map 0:s:N` did.

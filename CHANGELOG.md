@@ -51,6 +51,16 @@ All notable changes to this plugin are documented here. Versions follow
   directory (~2 KB per file) and is keyed by file size/mtime, VAD method and ffsubsync
   build, so a replaced file never reuses stale data. Nothing is ever written into media
   folders.
+- Added: **fast embedded extraction for Matroska** — embedded text subtitles are read via
+  the file's cue index instead of demuxing the whole container. On a 1.7 GB test file that
+  is 202 ms instead of 2.32 s (the fallback path scales with file size: minutes over a
+  NAS), with the same cues and identical text. Falls back to ffmpeg automatically for
+  anything it cannot handle (image codecs, laced blocks, compressed blocks, no cue index)
+  and can be disabled with `FastMkvExtraction`.
+- Changed: parallel waves now cover **different media files only** — several subtitle
+  tracks of the same file are never processed simultaneously, since that would have two
+  processes reading the same file and repeating the same audio analysis.
+- Changed: default parallel workers 2 → **4**.
 - Added: speech-cache housekeeping — entries unused for 30 days are pruned automatically
   and the cache is capped at 250 MB; the Settings tab shows its current size with a
   **Clear cache** button (`POST SubSync/SpeechCache/Clear`). Each entry is a few KB and
