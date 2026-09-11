@@ -2071,7 +2071,18 @@
                 if (span) span.textContent = label;
                 el.classList.toggle('ss-kill', !!isKill);
                 el.disabled = false;
+                // Any other label means the pending confirmation is gone (the run stopped by itself).
+                if (!/^Confirm:/.test(label)) {
+                    killArmed = false;
+                    killArmedUntil = 0;
+                }
             }
+
+            // One press of a red button used to stop every run on the server, for every user. The first
+            // press now asks, the second within eight seconds does it, and the line under it says what
+            // "all" means before anything happens.
+            var killArmed = false;
+            var killArmedUntil = 0;
 
             function reportStillRunning() {
                 api('SubSync/Active').then(function (a) {
@@ -2121,6 +2132,20 @@
             }
 
             function killAllSyncing() {
+                // A global, id-less stop deserves a second press: this ends other people's runs too.
+                if (!killArmed || Date.now() > killArmedUntil) {
+                    killArmed = true;
+                    killArmedUntil = Date.now() + 8000;
+                    setCancelButton('Confirm: kill all syncing', true);
+                    $('ss-phase').textContent = 'Press again to stop every sync on this server '
+                        + '\u2014 that includes runs other users started. Nothing has been stopped yet.';
+                    logLine('Kill armed \u2014 press the button again within 8 seconds to stop every run on '
+                        + 'this server.');
+                    return;
+                }
+
+                killArmed = false;
+                killArmedUntil = 0;
                 var el = $('ss-cancel');
                 if (el) el.disabled = true;
                 $('ss-run-label').textContent = 'Killing running syncs\u2026';
