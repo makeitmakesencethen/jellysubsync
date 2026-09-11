@@ -799,6 +799,38 @@ public class SubSyncService : IDisposable
     /// <exception cref="InvalidOperationException">Thrown when the subtitle stream is not found.</exception>
     public SyncJob EnqueueSync(Guid itemId, int subtitleIndex, string? label, string? batchId, string? batchLabel, int batchIndex, string? mode = null)
     {
+        return EnqueueSyncTimed(itemId, subtitleIndex, label, batchId, batchLabel, batchIndex, mode).Job;
+    }
+
+    /// <summary>
+    /// Queues one task and reports where the time went.
+    /// </summary>
+    /// <remarks>
+    /// Queueing has to be fast: the scheduler can only start what is already in the queue, and a
+    /// batch that trickles in one task every few seconds therefore looks exactly like a plugin that
+    /// refuses to run more than one job at a time. The parts are timed so the slow one can be named
+    /// instead of guessed at.
+    /// </remarks>
+    /// <param name="itemId">Media item.</param>
+    /// <param name="subtitleIndex">Subtitle stream index.</param>
+    /// <param name="label">Display label.</param>
+    /// <param name="batchId">Batch this task belongs to.</param>
+    /// <param name="batchLabel">Batch label.</param>
+    /// <param name="batchIndex">Position within the batch.</param>
+    /// <param name="mode">Requested mode.</param>
+    /// <returns>The queued job and the cost of each part.</returns>
+    internal (SyncJob Job, string Timing) EnqueueSyncTimed(
+        Guid itemId,
+        int subtitleIndex,
+        string? label,
+        string? batchId,
+        string? batchLabel,
+        int batchIndex,
+        string? mode = null)
+    {
+        var total = System.Diagnostics.Stopwatch.StartNew();
+        var phase = System.Diagnostics.Stopwatch.StartNew();
+        long itemMs = 0, sourcesMs = 0, settingsMs = 0, logMs = 0;
         if (subtitleIndex < 0)
         {
             throw new ArgumentException("Subtitle index must be non-negative.");
@@ -816,6 +848,8 @@ public class SubSyncService : IDisposable
         // not fill its workers ("starting 1 of 8"). A missing file is caught when the job runs, with
         // the same clear message.
         // Validation therefore works from Jellyfin's cached metadata only.
+        itemMs = phase.ElapsedMilliseconds;
+        phase.Restart();
         var mediaSources = video.GetMediaSources(true);
         if (mediaSources.Count == 0)
         {
@@ -838,6 +872,8 @@ public class SubSyncService : IDisposable
         var subtitleOrdinal = subtitleStream.Index;
 
         var config = Services.SettingsSource.Current() ?? new Configuration.PluginConfiguration();
+        sourcesMs = phase.ElapsedMilliseconds;
+        phase.Restart();
 
         _logger.LogInformation(
             "Queued sync: item {ItemId} subtitle stream {SubtitleIndex} — output mode: {Mode}",
@@ -851,8 +887,10 @@ public class SubSyncService : IDisposable
             BatchLabel = batchLabel,
             BatchIndex = batchIndex,
             Label = label,
-            Mode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode)
+            Mode = NormalizeMode(mode ?? config.MultiSyncMode)
         };
+        settingsMs = phase.ElapsedMilliseconds;
+        phase.Restart();
 
         _jobs[job.Id] = job;
         _jobContexts[job.Id] = (video, subtitleStream, subtitleOrdinal, config);
@@ -868,7 +906,20 @@ public class SubSyncService : IDisposable
         }
 
         WakePump();
-        return job;
+        logMs = phase.ElapsedMilliseconds;
+        total.Stop();
+
+        var timing = $"item={itemMs} ms, sources={sourcesMs} ms, settings={settingsMs} ms, "
+            + $"log={logMs} ms, total={total.ElapsedMilliseconds} ms";
+
+        // Anything beyond a few milliseconds here is worth naming: a slow enqueue is invisible in
+        // every other view and looks exactly like a scheduler that will not parallelise.
+        if (total.ElapsedMilliseconds > 250)
+        {
+            PluginLog.Info($"enqueue slow: {timing} stream={subtitleIndex} video={video.Path}");
+        }
+
+        return (job, timing);
     }
 
     /// <summary>
@@ -887,14 +938,22 @@ public class SubSyncService : IDisposable
         var batchWatch = System.Diagnostics.Stopwatch.StartNew();
         var slowestMs = 0L;
         var slowestIndex = -1;
+        var slowestDetail = string.Empty;
+        var previousEnd = 0L;
 
         for (var i = 0; i < tasks.Count; i++)
         {
             var task = tasks[i];
             var taskWatch = System.Diagnostics.Stopwatch.StartNew();
+            // Time spent between the previous task and this one, inside this loop. If a queue fills
+            // slowly but every task's own parts are fast, the cost is here, not in the task.
+            var gapMs = taskWatch.ElapsedMilliseconds - previousEnd;
+            var detail = string.Empty;
             try
             {
-                jobs.Add(EnqueueSync(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode));
+                var queued = EnqueueSyncTimed(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode);
+                detail = queued.Timing;
+                jobs.Add(queued.Job);
             }
             catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or ArgumentException)
             {
@@ -917,21 +976,24 @@ public class SubSyncService : IDisposable
             }
 
             taskWatch.Stop();
+            previousEnd = taskWatch.ElapsedMilliseconds;
             if (taskWatch.ElapsedMilliseconds > slowestMs)
             {
                 slowestMs = taskWatch.ElapsedMilliseconds;
                 slowestIndex = i;
+                slowestDetail = $"gap={gapMs} ms; {detail}";
             }
         }
 
         batchWatch.Stop();
 
-        // How long it took to get the whole batch into the queue. This matters more than it looks:
-        // while a batch is still being enqueued the scheduler only sees the first few tasks, so a
-        // slow enqueue looks exactly like "the plugin refuses to run more than one at a time".
+        // How long it took to get the whole batch into the queue, and which part of the slowest task
+        // was slow. This matters more than it looks: while a batch is still being enqueued the
+        // scheduler only sees the first few tasks, so a slow enqueue looks exactly like "the plugin
+        // refuses to run more than one at a time".
         PluginLog.Info(
             $"batch {batchId} queued: tasks={tasks.Count} mode={resolvedMode} label='{label}' "
-            + $"totalMs={batchWatch.ElapsedMilliseconds} slowestTaskMs={slowestMs} (index {slowestIndex})");
+            + $"totalMs={batchWatch.ElapsedMilliseconds} slowestTaskMs={slowestMs} (index {slowestIndex}: {slowestDetail})");
 
         return jobs;
     }

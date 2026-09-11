@@ -450,8 +450,10 @@
             function batchToLines(view) {
                 // Render a server batch view as readable log lines (same format
                 // as live progress: OK/FAIL per task with the written path).
+                // Queued and running tasks are not results: they are counted, not called failures.
                 var lines = [];
                 var tasks = (view && view.Tasks) || (view && view.tasks) || [];
+                var pending = 0;
                 tasks.forEach(function (t) {
                     var title = t.Title || t.title || ('track ' + (t.SubtitleIndex != null ? t.SubtitleIndex : (t.BatchIndex || 0)));
                     var status = t.Status || t.status;
@@ -461,8 +463,12 @@
                     var extractNote = t.ExtractionNote || t.extractionNote || '';
                     if (status === 'Completed') lines.push('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
                     else if (status === 'Cancelled') lines.push('SKIP ' + title + ' \u2014 cancelled');
-                    else lines.push('FAIL ' + title + ' \u2014 ' + (error || status));
+                    else if (status === 'Failed') lines.push('FAIL ' + title + ' \u2014 ' + (error || status));
+                    else pending++;
                 });
+                if (pending > 0) {
+                    lines.push('(' + pending + ' task' + (pending === 1 ? '' : 's') + ' still queued or running)');
+                }
                 return lines.length ? lines.join('\n') : '(no tasks recorded)';
             }
 
@@ -1662,13 +1668,16 @@
             var watchedBatchTimer = null;
 
             function logTerminal(taskLines, view) {
-                // After a batch finishes, write any tasks we haven't logged yet.
+                // After a batch finishes, write any tasks we haven't logged yet. Only finished tasks:
+                // a task that is still queued or running has no result yet, and reporting it as FAIL
+                // -- Queued was exactly the sort of false alarm this panel must never raise.
                 if (!taskLines || !view) return;
                 var tasks = (view.Tasks) || (view.tasks) || [];
                 tasks.forEach(function (t) {
                     var idx = (t.BatchIndex != null) ? t.BatchIndex : -1;
                     if (taskLines[idx] !== undefined) return;
                     var status = t.Status || t.status;
+                    if (status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled') return;
                     var title = t.Title || t.title || ('track ' + (t.BatchIndex != null ? t.BatchIndex : ''));
                     var error = t.Error || t.error;
                     var outPath = t.OutputPath || t.outputPath;

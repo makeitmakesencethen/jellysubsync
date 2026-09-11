@@ -191,7 +191,32 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.51]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.52]
+
+### Fixed
+- **A queued task is no longer reported as a failure.** Opening a batch while it was still being
+  queued listed every task as `FAIL <title> — Queued`, which reads as a run that failed instantly and
+  it was not: the tasks had not run yet. Only finished tasks are reported now (`OK`, `SKIP`, `FAIL`),
+  and anything still waiting is counted instead: `(37 tasks still queued or running)`. The batch view
+  in History had the same flaw and is fixed the same way.
+
+### Added
+- **The enqueue path reports where its time goes.** Queueing has to be fast: the scheduler can only
+  start what is already in the queue, so a batch that trickles in one task every few seconds looks
+  exactly like a plugin that refuses to parallelise - which is how a real run on 1.1.0.51 behaved
+  (twelve tasks in 13 ms, then about 5.3 s per task once a job was running). Every task is now timed
+  part by part, and the batch line names the slowest one:
+
+  ```
+  batch <id> queued: tasks=147 mode=auto label='...' totalMs=524374 slowestTaskMs=20050
+    (index 53: gap=12 ms; item=1 ms, sources=19980 ms, settings=2 ms, log=1 ms, total=19996 ms)
+  enqueue slow: item=1 ms, sources=19980 ms, settings=2 ms, log=1 ms, total=19996 ms stream=43 video=...
+  ```
+
+  `gap` is the time spent between two tasks inside the loop, so a cost that is not inside the task is
+  still visible. With that line the slow part can be named instead of guessed at.
+
+## [1.1.0.51]
 
 ### Changed
 - **A file is read once and every queued subtitle of it comes out of that one pass.** Until now each

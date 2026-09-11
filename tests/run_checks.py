@@ -1102,6 +1102,16 @@ def run_page_checks():
            'waiting for earlier runs to finish' not in main_html)
     report('the detail dialog tolerates a failed poll', 'pollFailures' in client)
 
+    # A queued task is not a failed task. It was rendered as "FAIL <title> -- Queued" the moment a
+    # batch was opened, which reads as a run that failed instantly.
+    report('queued or running tasks are never reported as failures',
+           "status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled'" in main_html
+           and 'still queued or running' in main_html)
+
+    # The enqueue path is timed part by part, so a slow one can be named instead of guessed at.
+    report('the enqueue path reports where its time goes',
+           'enqueue slow:' in '\n'.join(plugin_sources) and 'gap={gapMs} ms' in '\n'.join(plugin_sources))
+
     # A synchronous extraction on a pool thread starves everything else the server does, including
     # the request still queueing the batch: that is what made a 50-task batch trickle in a few tasks
     # every few seconds. It gets its own thread.
