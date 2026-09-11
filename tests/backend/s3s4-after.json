@@ -1,0 +1,125 @@
+{
+  "label": "after",
+  "episode_dll": {
+    "IsInstalled": true,
+    "ManagedBinaryPath": "/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync",
+    "VenvPath": "/opt/data/jf12test/data/data/subsync/venv",
+    "ResolvedBinaryPath": "/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync",
+    "PythonAvailable": true,
+    "PythonVersion": "Python 3.13.5",
+    "FfSubSyncVersion": "ffsubsync 0.5.1",
+    "SpeechCacheSummary": "2 entries, 0.0 MB \u00b7 references: none (references are rebuilt as each file runs) \u00b7 extracted subtitles: 52 subtitles, 2.6 MB",
+    "PluginVersion": "2.0.9.0",
+    "LogFile": "/opt/data/jf12test/data/data/subsync/logs/subsync.log (352.4 kB)",
+    "PluginIdentity": "/opt/data/jf12test/data/plugins/SubSync_2.0.9.0/Jellyfin.Plugin.SubSync.dll  \u00b7  /opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml",
+    "WorkerSummary": "4 in use (setting 4)"
+  },
+  "measured_at": "2026-09-11T23:35:07",
+  "S3": {
+    "label": "S3",
+    "http": 200,
+    "job_id": "047b4890071d4aebb25afb6110193b22",
+    "status": "Failed",
+    "phase": "Refused",
+    "error": "refused: the alignment came from the reference subtitle s:1 and moved this subtitle by -59080 ms, more than the 30 s a subtitle reference is trusted for \u2014 a shift this size usually means that track is from a different cut. Nothing was written. Raise \"Maximum shift from a subtitle reference\" if the track really is the same cut, or sync this subtitle against the audio instead.",
+    "outcome": "",
+    "output": null,
+    "refused_log": [
+      "6110193b22 REFUSED: aligned to the reference subtitle s:1 at -59080 ms, over the 30 s limit for a subtitle reference \u2014 the reference track is probably not the same cut; nothing written, source untouched, file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv"
+    ],
+    "notes": [],
+    "sidecar_before": {
+      "size": 476,
+      "sha256": "8a76f2c5a462b79cbb18ef47e4fdf699967066ff2718f234cb5d28a6b891f86d"
+    },
+    "sidecar_after": {
+      "size": 476,
+      "sha256": "8a76f2c5a462b79cbb18ef47e4fdf699967066ff2718f234cb5d28a6b891f86d"
+    },
+    "sidecar_unchanged": true,
+    "track": {
+      "Index": 8,
+      "Title": "Forced - English - SUBRIP",
+      "Language": "eng",
+      "IsExternal": false,
+      "IsForced": true,
+      "HasSyncedVersion": false
+    }
+  },
+  "S4": {
+    "fixture": "/opt/data/jf12test/media-fixtures/Empty Track (2026).mkv",
+    "sidecars_before": [
+      {
+        "name": "Ass Track (2026).SYNCED.eng.srt",
+        "size": 1926
+      },
+      {
+        "name": "External Copy (2026).en.SYNCED.srt",
+        "size": 1947
+      },
+      {
+        "name": "External Replace (2026).en.SYNCED.srt",
+        "size": 1947
+      },
+      {
+        "name": "MixedPatched (2026).SYNCED.eng.srt",
+        "size": 1947
+      },
+      {
+        "name": "Mp4 Test (2026).SYNCED.eng.srt",
+        "size": 1926
+      },
+      {
+        "name": "Single Track (2026).SYNCED.eng.srt",
+        "size": 1947
+      },
+      {
+        "name": "Truncated (2026).SYNCED.eng.srt",
+        "size": 1947
+      }
+    ],
+    "run": {
+      "label": "S4",
+      "http": 200,
+      "job_id": "0f490268fb004a358e93b9f9a15b274c",
+      "status": "Failed",
+      "phase": "Writing output",
+      "error": "Subtitle verification failed \u2014 synced output is missing or empty. Nothing was written next to the media: the engine produced no subtitles for this track.",
+      "outcome": "",
+      "output": null,
+      "refused_log": [],
+      "notes": []
+    },
+    "sidecars_after": [
+      {
+        "name": "Ass Track (2026).SYNCED.eng.srt",
+        "size": 1926
+      },
+      {
+        "name": "External Copy (2026).en.SYNCED.srt",
+        "size": 1947
+      },
+      {
+        "name": "External Replace (2026).en.SYNCED.srt",
+        "size": 1947
+      },
+      {
+        "name": "MixedPatched (2026).SYNCED.eng.srt",
+        "size": 1947
+      },
+      {
+        "name": "Mp4 Test (2026).SYNCED.eng.srt",
+        "size": 1926
+      },
+      {
+        "name": "Single Track (2026).SYNCED.eng.srt",
+        "size": 1947
+      },
+      {
+        "name": "Truncated (2026).SYNCED.eng.srt",
+        "size": 1947
+      }
+    ],
+    "zero_byte_left": []
+  }
+}

@@ -51,3 +51,25 @@ proportionally to the bytes returned, **only** for paths under `SLOWREAD_PREFIX`
 ```sh
 node browser-item.js    # needs require('/tmp/audit/pw/node_modules/playwright') to resolve
 ```
+
+## Added 2026-09-11 (session 2)
+
+| File | What it does |
+|---|---|
+| `start-server.sh` | starts the test server the only way that works here (`LD_LIBRARY_PATH` for libicu, `JELLYFIN_*_DIR` under `/opt/data/jf12test`); `SLOW=1` starts it under the slow-storage shim and builds `slowread.so` if it is missing |
+| `s11_reference.py` | S11: queues a batch on the 2.38 GB episode and watches the reference tree and the plugin/server logs while it runs. Before: 7 Completed + 1 Failed (`unable to read reference`), the reference deleted with jobs still running; after: 8/8 Completed and the tree removed only when nothing was running |
+| `s3s4_refusal.py` | S3 (a reference-derived shift past the limit) and S4 (a job that produces no subtitle text): job status, plugin log line, and that nothing in the library changed (sha256 before/after, no 0-byte sidecar) |
+| `acceptance.py` | A4/A5/A6 runs: every track of an episode/series/season, then statuses, wall clock, empty or missing outputs, cue counts against the extracted set, cache leftovers, alive engine processes |
+| `s11b_cancel.py` | S11b: cancels a batch while the engine's own child is running (`engine-cancel`) or kills the plugin mid-extraction (`lane-kill`) and reports what survived. **Not yet measured** — see the report |
+
+Facts learned the hard way, worth not rediscovering:
+
+* **`MediaStream.Index` is not stable.** Adding a sidecar to a library item renumbered this episode's
+  subtitles from 4..54 to 8..57, so a hard-coded index silently syncs a different track. Select the
+  track by language/forced flags, or re-read `/SubSync/Subtitles/{id}` immediately before queueing.
+* **`/SubSync/Sync` answers with the job record itself** (`{"Id": …}`), not `{"JobId": …}`.
+* **The slow profile must be proved, not assumed**: the plugin logs `extract: storage <ms> ms per
+  16 KB read`, and `0.01 ms` means the shim never loaded.
+* `/SubSync/Subtitles/{id}` hides the plugin's own `.SYNCED.` sidecars, but `/SubSync/Sync` accepts an
+  index that resolves to one and synced it into `X.SYNCED.ukr.SYNCED.srt`. The junk file was removed;
+  the listing/sync mismatch is not fixed yet and is written up as a finding.
