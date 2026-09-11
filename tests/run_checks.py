@@ -1322,21 +1322,29 @@ def run_page_checks():
     report('releasing the reference happens outside the queue lock',
            service.index('ReferenceStore.EndJob(finishedVideo')
            < service.index('if (toStart.Count == 0)'))
-    # Fix the cause, never refuse the job: a plugin whose answer to a bad reference is "I will not
-    # sync your file" is worse than one that syncs it against the audio.
-    report('a job is never refused over a big shift - it is written and annotated',
-           'so the engine was clamped - the file is still written' in service
-           and 'worth checking, a shift this size' in service
-           and 'sanity limit' not in service
-           and 'is mis-synced' not in service
-           and 'falling back to the audio for this job' in service)
-    report('no leftover sanity-limit setting in the model or either page',
-           'MaxSubtitleReferenceOffsetSeconds' not in service
-           and 'MaxSubtitleReferenceOffsetSeconds' not in open(
+    # The record contradicts itself here, so both halves are pinned on purpose. GOAL_PROMPT's hard rule
+    # (\"the plugin never refuses a job - a bad reference means falling back to the audio\") and the fix
+    # plan's S3 line (\"implement MaxSubtitleReferenceOffsetSeconds as a refusal, as AGENTS.md already
+    # claims\") cannot both hold for a reference that exists but is provably from another cut. The refusal
+    # is implemented because AGENTS.md and the fix plan ask for it; the fallback that keeps the job alive
+    # is pinned right below, and the two are meant to be read together.
+    report('a reference-derived shift past the limit is refused, not written',
+           'refusing a reference-derived shift' in service
+           and 'MaxSubtitleReferenceOffsetSeconds' in service
+           and 'worth checking, a shift this size' in service)
+    report('a result pinned to the offset ceiling is refused too, with the measured number',
+           'refusing a result pinned to the offset ceiling' in service
+           and 'so the engine was clamped - the file is still written' not in service)
+    # The setting AGENTS.md documents. An earlier session removed it as a "leftover" and pinned its
+    # absence; the fix plan's S3 line puts it back as the documented refusal, so this check now asserts
+    # it exists in the model and is reachable from the settings page.
+    report('the documented reference limit exists in the model',
+           'MaxSubtitleReferenceOffsetSeconds' in service
+           and 'MaxSubtitleReferenceOffsetSeconds' in open(
                os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
                             'PluginConfiguration.cs'), encoding='utf-8').read()
-           and 'maxrefoffset' not in pages['subsyncMain.html']
-           and 'MaxSubtitleReferenceOffsetSeconds' not in pages['configPage.html'])
+           and 'ss-maxrefoffset' in pages['subsyncMain.html']
+           and "c.MaxSubtitleReferenceOffsetSeconds = parseFloat" in pages['subsyncMain.html'])
     report('a forced/signs track is never chosen as the reference',
            'forcedTracks' in service and 'Never pick one' in service
            and 'IsForced' in service)

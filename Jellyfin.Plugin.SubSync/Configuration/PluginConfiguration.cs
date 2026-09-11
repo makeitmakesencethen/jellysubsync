@@ -67,6 +67,20 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxOffsetSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Gets or sets how far (in seconds) a subtitle may be moved by an alignment that was taken from
+    /// another subtitle track of the same file.
+    /// </summary>
+    /// <remarks>
+    /// A subtitle reference is exact when it is the same cut, and catastrophically wrong when it is
+    /// not: a reference from a different release drags every subtitle of the file onto it, and the
+    /// result is a plausible-looking sidecar, not an error. Measured on this project's own fixture:
+    /// the forced track of a 49-minute episode was "aligned" to a sibling at -59 080 ms and written as
+    /// a success. A shift beyond this limit is therefore refused with the measured numbers, and the
+    /// audio is the way to sync a file whose tracks are not from the same cut.
+    /// </remarks>
+    public double MaxSubtitleReferenceOffsetSeconds { get; set; } = 30.0;
+
+    /// <summary>
     /// Gets or sets the output encoding for synced subtitles.
     /// </summary>
     public string OutputEncoding { get; set; } = "utf-8";

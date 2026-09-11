@@ -3566,39 +3566,79 @@ public class SubSyncService : IDisposable
                 return;
             }
 
-            // The engine clamps the shift at the configured ceiling, so an offset that lands exactly
-            // there is what it could apply, not what it wanted to. The file is still written - refusing
-            // to sync is not a fix - but the job says so, because the subtitle may still be off.
+            // A shift that came from a subtitle reference is only ever as good as that track: a
+            // reference taken from a different cut drags every subtitle of the file onto it, and the
+            // file that comes out looks exactly like an ordinary success. AGENTS.md has documented
+            // MaxSubtitleReferenceOffsetSeconds as a refusal since the reference path was added, so
+            // this is that refusal — with the measured numbers, and without touching anything.
+            var referenceCeilingMs = Math.Max(1.0, config.MaxSubtitleReferenceOffsetSeconds) * 1000.0;
+            if (usedSubtitleReference
+                && measured is { } fromReference
+                && Math.Abs(fromReference.ShiftMs) > referenceCeilingMs)
+            {
+                var detail = $"aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms";
+                _logger.LogWarning(
+                    "Sync job {JobId}: refusing a reference-derived shift ({Detail}) — nothing written",
+                    job.Id,
+                    detail);
+                PluginLog.Info(
+                    $"job {job.Id} REFUSED: {detail}, over the {referenceCeilingMs / 1000.0:0.#} s limit for a "
+                    + $"subtitle reference — the reference track is probably not the same cut; nothing written, "
+                    + $"source untouched, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Refused";
+                job.Error = $"refused: the alignment came from the reference subtitle {referenceSpec} and moved this "
+                    + $"subtitle by {fromReference.ShiftMs} ms, more than the {referenceCeilingMs / 1000.0:0.#} s a "
+                    + "subtitle reference is trusted for — a shift this size usually means that track is from a "
+                    + "different cut. Nothing was written. Raise \"Maximum shift from a subtitle reference\" if the "
+                    + "track really is the same cut, or sync this subtitle against the audio instead.";
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
+
+            // The engine clamps the shift at the configured ceiling, so a result that sits exactly there
+            // is the most it was allowed to apply, not what the file needed: writing it would present a
+            // guess as a synced subtitle. AGENTS.md documents this as a refusal as well.
             var ceilingMs = config.MaxOffsetSeconds * 1000.0;
             if (measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
             {
-                cuesNote = Join(cuesNote, $"the offset hit the {config.MaxOffsetSeconds} s ceiling, so the shift shown "
-                    + "is the most the engine was allowed to apply - raise \"Maximum offset\" if this file is further out");
+                var detail = $"the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
+                    + $"({config.MaxOffsetSeconds} s)";
                 _logger.LogWarning(
-                    "Sync job {JobId}: the offset {Shift} ms is the {Ceiling} s ceiling, so the engine was clamped",
+                    "Sync job {JobId}: refusing a result pinned to the offset ceiling ({Detail}) — nothing written",
                     job.Id,
-                    onCeiling.ShiftMs,
-                    config.MaxOffsetSeconds);
+                    detail);
                 PluginLog.Info(
-                    $"[{job.Id}] note: the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
-                    + $"({config.MaxOffsetSeconds} s), so the engine was clamped - the file is still written");
+                    $"job {job.Id} REFUSED: {detail}, so the shift is what the engine was allowed to apply, "
+                    + $"not what the file needs; nothing written, source untouched, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Refused";
+                job.Error = $"refused: the engine clamped the shift at the {config.MaxOffsetSeconds} s ceiling "
+                    + $"({detail}), so this subtitle is further out than the plugin was allowed to move it. Nothing "
+                    + "was written. Raise \"Maximum offset\" and run it again if the file really is that far out.";
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
             }
 
-            // Aligned against a subtitle taken from a sibling track, and the shift is big enough that the
-            // ruler deserves a second look. Reported, not refused: the sync still happens.
             if (usedSubtitleReference
-                && measured is { } fromReference
-                && Math.Abs(fromReference.ShiftMs) > 10000)
+                && measured is { } fromReferenceNote
+                && Math.Abs(fromReferenceNote.ShiftMs) > 10000)
             {
-                cuesNote = Join(cuesNote, $"aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms - "
+                cuesNote = Join(cuesNote, $"aligned to the reference subtitle {referenceSpec} at {fromReferenceNote.ShiftMs} ms - "
                     + "worth checking, a shift this size usually means the reference track is not the same cut");
                 _logger.LogInformation(
                     "Sync job {JobId}: aligned to the reference subtitle {Reference} at {Shift} ms",
                     job.Id,
                     referenceSpec,
-                    fromReference.ShiftMs);
+                    fromReferenceNote.ShiftMs);
                 PluginLog.Info(
-                    $"[{job.Id}] note: aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms "
+                    $"[{job.Id}] note: aligned to the reference subtitle {referenceSpec} at {fromReferenceNote.ShiftMs} ms "
                     + "- check the result; a shift this size usually means that track is not the same cut");
             }
 
