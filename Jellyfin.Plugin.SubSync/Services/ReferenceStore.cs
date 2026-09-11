@@ -136,6 +136,22 @@ public static class ReferenceStore
         }
     }
 
+    /// <summary>
+    /// Stops offering a reference for this media file: the track just proved unusable (a signs track
+    /// holds too few cues to align anything), so the jobs that follow fall back to the audio instead of
+    /// reusing it. The file itself is left alone - a sibling job may be reading it right now - and the
+    /// run's cleanup removes the directory.
+    /// </summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <param name="streamSpec">Stream specifier of the reference that was rejected.</param>
+    public static void Discard(string videoPath, string? streamSpec)
+    {
+        if (Entries.TryGetValue(VideoKey(videoPath), out var entry))
+        {
+            entry.Ready = false;
+        }
+    }
+
     /// <summary>Removes every reference of this run (plugin shutdown, or an operator asking for a clean slate).</summary>
     public static void Clear()
     {

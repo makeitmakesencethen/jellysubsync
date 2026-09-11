@@ -1308,6 +1308,13 @@ public class SubSyncService : IDisposable
     /// True when this job's media file already has its speech analysis cached, so it can run
     /// without touching storage (and may share the file with another worker).
     /// </summary>
+    /// <summary>Joins a note with another, so callers do not repeat the separator.</summary>
+    /// <param name="existing">Note so far, or null.</param>
+    /// <param name="addition">Note to append.</param>
+    /// <returns>The combined note.</returns>
+    private static string Join(string? existing, string addition) =>
+        string.IsNullOrEmpty(existing) ? addition : existing + " \u00b7 " + addition;
+
     /// <summary>How long one answer about a media file's speech cache is trusted.</summary>
     private static readonly TimeSpan SpeechCachedTtl = TimeSpan.FromSeconds(5);
 
@@ -2253,8 +2260,13 @@ public class SubSyncService : IDisposable
     /// <param name="isEmbedded">Whether the subtitle being synced came from this file.</param>
     /// <param name="subtitleCodecs">Codecs in subtitle-stream order.</param>
     /// <param name="targetOrdinal">0-based position of the subtitle being synced.</param>
+    /// <param name="forcedTracks">Forced flag per subtitle stream, when known.</param>
     /// <returns>An ffmpeg stream specifier ("s:1", "a:0") or null to leave the default.</returns>
-    public static string? SelectReferenceStream(bool isEmbedded, IReadOnlyList<string> subtitleCodecs, int targetOrdinal)
+    public static string? SelectReferenceStream(
+        bool isEmbedded,
+        IReadOnlyList<string> subtitleCodecs,
+        int targetOrdinal,
+        IReadOnlyList<bool>? forcedTracks = null)
     {
         if (!isEmbedded)
         {
@@ -2265,6 +2277,14 @@ public class SubSyncService : IDisposable
         for (var position = 0; position < subtitleCodecs.Count; position++)
         {
             if (position == targetOrdinal)
+            {
+                continue;
+            }
+
+            // A forced/signs track holds a handful of lines over a whole episode. Using one as the
+            // reference drags every other track onto it: measured on a real server, a 8-cue signs track
+            // moved five full language tracks by the same +57.5 s. Never pick one.
+            if (forcedTracks is not null && position < forcedTracks.Count && forcedTracks[position])
             {
                 continue;
             }
@@ -2566,8 +2586,13 @@ public class SubSyncService : IDisposable
         // before anything is written.
         var usedSubtitleReference = false;
 
-        // Which track became the reference, for both log lines and the refusal message.
+        // Which track became the reference, for both log lines and the outcome text.
         string? referenceSpec = null;
+
+        // Duration of the video, used to judge whether a track is a full subtitle or just signs.
+        var videoDurationForReference = video.RunTimeTicks is { } refTicks && refTicks > 0
+            ? TimeSpan.FromTicks(refTicks)
+            : TimeSpan.Zero;
 
         // Paths for the safe atomic-replace workflow
         string? backupPath = null;   // .bak of original subtitle file (replace mode only)
@@ -2630,7 +2655,18 @@ public class SubSyncService : IDisposable
                 // Keep ffsubsync from using the very track we are fixing as its speech
                 // signal (see SelectReferenceStream) — that would report every embedded
                 // subtitle as already in sync.
-                referenceStream = SelectReferenceStream(true, subtitleCodecs, subtitleStreamOrdinal);
+                var embeddedSubtitleStreams = video.GetMediaSources(true)
+                    .SelectMany(source => source.MediaStreams)
+                    .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !stream.IsExternal)
+                    .ToList();
+
+                referenceStream = SelectReferenceStream(
+                    true,
+                    subtitleCodecs,
+                    subtitleStreamOrdinal,
+                    embeddedSubtitleStreams.Count == subtitleCodecs.Count
+                        ? embeddedSubtitleStreams.Select(stream => stream.IsForced).ToList()
+                        : null);
                 _logger.LogInformation(
                     "Embedded sync of {Video}: deriving the speech signal from '{Reference}'",
                     videoPath, referenceStream);
@@ -2751,6 +2787,29 @@ public class SubSyncService : IDisposable
                 var referenceTarget = referenceOrdinal >= 0
                     ? ReferenceStore.Reserve(videoPath, referenceStream!, referenceIdentity)
                     : null;
+
+                // A reference with a handful of cues over a whole episode is a signs/forced track: it
+                // cannot align anything. Take it out of the running and let this job use the audio
+                // instead - the sync still happens, it just stops being built on a bad ruler.
+                var referenceCues = referenceTarget is not null && File.Exists(referenceTarget)
+                    ? ReferenceStore.CueCount(referenceTarget)
+                    : -1;
+                if (referenceTarget is not null
+                    && LooksLikeSignsTrack(referenceCues, videoDurationForReference))
+                {
+                    _logger.LogWarning(
+                        "The reference subtitle {Track} for {Video} holds only {Cues} cue(s) - a signs track, not usable as a reference; syncing against the audio instead",
+                        referenceSpec,
+                        videoPath,
+                        referenceCues);
+                    PluginLog.Info(
+                        $"[{job.Id}] reference {referenceSpec} has only {referenceCues} cue(s) (a signs/forced track), "
+                        + "so it is not usable as a ruler - falling back to the audio for this job");
+                    ReferenceStore.Discard(videoPath, referenceSpec!);
+                    referenceStream = null;
+                    referenceTarget = null;
+                    referenceSpec = null;
+                }
 
                 if (referenceTarget is not null && File.Exists(referenceTarget))
                 {
@@ -2920,63 +2979,40 @@ public class SubSyncService : IDisposable
                 return;
             }
 
-            // A result that sits on the configured offset ceiling is a clamp, not a fit: the engine
-            // wanted to move further and was not allowed to. Writing it produces a subtitle that is
-            // still wrong while the job reports success - measured on a real server as a whole episode
-            // written with exactly "+60000 ms" against a 60 s ceiling.
+            // The engine clamps the shift at the configured ceiling, so an offset that lands exactly
+            // there is what it could apply, not what it wanted to. The file is still written - refusing
+            // to sync is not a fix - but the job says so, because the subtitle may still be off.
             var ceilingMs = config.MaxOffsetSeconds * 1000.0;
             if (measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
             {
+                cuesNote = Join(cuesNote, $"the offset hit the {config.MaxOffsetSeconds} s ceiling, so the shift shown "
+                    + "is the most the engine was allowed to apply - raise \"Maximum offset\" if this file is further out");
                 _logger.LogWarning(
-                    "Sync job {JobId}: refusing a result pinned to the offset ceiling ({Shift} ms of {Ceiling} ms) - nothing written",
+                    "Sync job {JobId}: the offset {Shift} ms is the {Ceiling} s ceiling, so the engine was clamped",
                     job.Id,
                     onCeiling.ShiftMs,
-                    ceilingMs);
+                    config.MaxOffsetSeconds);
                 PluginLog.Info(
-                    $"job {job.Id} REFUSED: the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
-                    + $"({config.MaxOffsetSeconds} s), so the engine was clamped and the result is not a fit; "
-                    + $"nothing written, source untouched, file={video.Path}");
-                job.Status = SyncJobStatus.Failed;
-                job.Phase = "Refused";
-                job.Error = $"refused: the offset came out at {onCeiling.ShiftMs} ms, which is the configured ceiling "
-                    + $"({config.MaxOffsetSeconds} s). That is a clamp, not a fit, so nothing was written. "
-                    + "Raise \"Maximum offset\" only if this file really is that far out of sync.";
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
-                return;
+                    $"[{job.Id}] note: the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
+                    + $"({config.MaxOffsetSeconds} s), so the engine was clamped - the file is still written");
             }
 
-            // Aligning to a reference taken from a sibling subtitle is only ever as good as that track.
-            // When the result needs an implausible shift, the reference is the suspect, and writing it
-            // pushes the same error into every track of the file.
+            // Aligned against a subtitle taken from a sibling track, and the shift is big enough that the
+            // ruler deserves a second look. Reported, not refused: the sync still happens.
             if (usedSubtitleReference
                 && measured is { } fromReference
-                && Math.Abs(fromReference.ShiftMs) > config.MaxSubtitleReferenceOffsetSeconds * 1000.0)
+                && Math.Abs(fromReference.ShiftMs) > 10000)
             {
-                var referenceDetail = $"{referenceSpec ?? "another subtitle track"}";
-                _logger.LogWarning(
-                    "Sync job {JobId}: refusing a {Shift} ms shift against the reference subtitle {Reference} (limit {Limit} s) - nothing written",
+                cuesNote = Join(cuesNote, $"aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms - "
+                    + "worth checking, a shift this size usually means the reference track is not the same cut");
+                _logger.LogInformation(
+                    "Sync job {JobId}: aligned to the reference subtitle {Reference} at {Shift} ms",
                     job.Id,
-                    fromReference.ShiftMs,
-                    referenceDetail,
-                    config.MaxSubtitleReferenceOffsetSeconds);
+                    referenceSpec,
+                    fromReference.ShiftMs);
                 PluginLog.Info(
-                    $"job {job.Id} REFUSED: aligning to the reference subtitle {referenceDetail} moved this track by "
-                    + $"{fromReference.ShiftMs} ms, past the {config.MaxSubtitleReferenceOffsetSeconds} s sanity limit - "
-                    + $"a reference that drags every track of a file by that much is mis-synced; nothing written, file={video.Path}");
-                job.Status = SyncJobStatus.Failed;
-                job.Phase = "Refused";
-                job.Error = $"refused: the reference subtitle {referenceDetail} moved this track by {fromReference.ShiftMs} ms "
-                    + $"(sanity limit {config.MaxSubtitleReferenceOffsetSeconds} s), which usually means that reference track "
-                    + "is mis-synced. Nothing was written. Sync this file against its audio, or raise \"Reference sanity limit\" "
-                    + "if the subtitles really are that far out.";
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
-                return;
+                    $"[{job.Id}] note: aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms "
+                    + "- check the result; a shift this size usually means that track is not the same cut");
             }
 
             if (measured is { IsNoChange: true } noChange)

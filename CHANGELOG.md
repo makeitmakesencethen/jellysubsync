@@ -4,6 +4,26 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.2 (beta)
+
+Two fixes to the same mistake: 2.0.1 answered a bad alignment by refusing the job, which is worse than
+useless - the plugin exists to sync subtitles, and "which usually means that reference track is
+mis-synced" blames the user's files for our bug.
+
+- **Fixed: a forced/signs track is never used as the reference.** A signs track holds a handful of lines
+  over a whole episode, and aligning full subtitles to it drags every language onto the same wrong
+  offset - measured on a real server as five tracks moved by the same +57.5 s. The reference picker now
+  skips forced tracks, and a reference that turns out to hold too few cues is thrown away at extraction
+  time and the job continues **against the audio** instead. The sync still happens; it just stops being
+  built on a ruler that cannot measure anything.
+- **Fixed: nothing is refused.** 2.0.1's "Reference sanity limit" and its refusals are gone, along with
+  the setting. A clamped offset (one that lands on "Maximum offset") is written and annotated in the
+  job's result rather than failing the job, and an unusually large shift against a subtitle reference is
+  reported as something to check, not as a refusal. The only refusal left is the pre-existing one for an
+  unrequested framerate rescale, which is a different class of wrongness.
+- The log still names the reference for every job, and now says when it was discarded for having too
+  few cues.
+
 ## 2.0.1 (beta)
 
 Fixes around the subtitle a sync is aligned against (the "reference"), all found by reading a real

@@ -1288,17 +1288,28 @@ def run_page_checks():
     report('releasing the reference happens outside the queue lock',
            service.index('ReferenceStore.EndJob(finishedVideo')
            < service.index('if (toStart.Count == 0)'))
-    report('a result pinned to the offset ceiling is refused, not written',
-           'the measured offset' in service and 'That is a clamp, not a fit' in service)
-    report('a shift past the reference sanity limit is refused',
-           'MaxSubtitleReferenceOffsetSeconds' in service
-           and 'is mis-synced. Nothing was written.' in service)
-    report('the sanity limit is configurable from the model and both pages',
-           'MaxSubtitleReferenceOffsetSeconds' in open(
+    # Fix the cause, never refuse the job: a plugin whose answer to a bad reference is "I will not
+    # sync your file" is worse than one that syncs it against the audio.
+    report('a job is never refused over a big shift - it is written and annotated',
+           'so the engine was clamped - the file is still written' in service
+           and 'worth checking, a shift this size' in service
+           and 'sanity limit' not in service
+           and 'is mis-synced' not in service
+           and 'falling back to the audio for this job' in service)
+    report('no leftover sanity-limit setting in the model or either page',
+           'MaxSubtitleReferenceOffsetSeconds' not in service
+           and 'MaxSubtitleReferenceOffsetSeconds' not in open(
                os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
                             'PluginConfiguration.cs'), encoding='utf-8').read()
-           and 'ss-maxrefoffset' in pages['subsyncMain.html']
-           and 'MaxSubtitleReferenceOffsetSeconds' in pages['configPage.html'])
+           and 'maxrefoffset' not in pages['subsyncMain.html']
+           and 'MaxSubtitleReferenceOffsetSeconds' not in pages['configPage.html'])
+    report('a forced/signs track is never chosen as the reference',
+           'forcedTracks' in service and 'Never pick one' in service
+           and 'IsForced' in service)
+    report('a reference with too few cues is dropped and the audio used instead',
+           'LooksLikeSignsTrack(referenceCues' in service
+           and 'falling back to the audio for this job' in service
+           and 'ReferenceStore.Discard' in service and 'public static void Discard' in store)
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
 
