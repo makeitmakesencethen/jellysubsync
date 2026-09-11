@@ -4,6 +4,19 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.4 (beta)
+
+- **Fixed: the Sync tab was unclickable, and a Save button appeared on it.** Removing the "Reference
+  sanity limit" field in 2.0.2 left its closing `</div>` behind. That single stray tag closed the page's
+  container early, so everything after it sat outside the layout Jellyfin expects - which is why the
+  controls stopped responding and Jellyfin's configuration Save button turned up on the Sync tab. My
+  mistake, introduced by me, and the reason you could not use the page.
+- The same stray tag was found in the Settings tab, where it had been since well before today (it was in
+  2.0.1.0 as well) and had been quietly breaking that page's structure. Both pages now close every tag
+  they open.
+- The test suite now parses both pages and fails if their tags do not balance. It did not check this
+  before, which is exactly why a one-character defect could take the whole interface down.
+
 ## 2.0.3 (beta)
 
 - **"Clear cache" now clears every cache, not just one.** It used to empty the audio analysis only,

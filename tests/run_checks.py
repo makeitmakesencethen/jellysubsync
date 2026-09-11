@@ -1314,6 +1314,42 @@ def run_page_checks():
            'SpeechCache.Clear()' in controller
            and 'ReferenceStore.Clear()' in controller
            and 'ClearStaleJobDirectories()' in controller)
+    # A stray </div> left behind by a removed field closes the page's container early: the rest of the
+    # form lands outside it, the layout comes apart, controls stop responding, and Jellyfin renders a
+    # Save button on a page that is not a configuration page. Nothing in this suite noticed, so it
+    # shipped - the check below exists so that it cannot happen again.
+    def structure_problems(path):
+        from html.parser import HTMLParser
+
+        class Diag(HTMLParser):
+            def __init__(self):
+                super().__init__(convert_charrefs=True)
+                self.stack = []
+                self.problems = []
+
+            def handle_starttag(self, tag, attrs):
+                if tag not in ('input', 'br', 'img', 'meta', 'link', 'hr'):
+                    self.stack.append(tag)
+
+            def handle_endtag(self, tag):
+                if tag in ('input', 'br', 'img', 'meta', 'link', 'hr'):
+                    return
+                if self.stack and self.stack[-1] == tag:
+                    self.stack.pop()
+                else:
+                    self.problems.append((self.getpos()[0], tag))
+
+        parser = Diag()
+        parser.feed(open(path, encoding='utf-8').read())
+        return parser.problems
+
+    for page in ('subsyncMain.html', 'configPage.html'):
+        path = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Web', page)
+        problems = structure_problems(path)
+        report('the ' + page + ' markup closes every tag it opens',
+               not problems,
+               problems[:3] if problems else '')
+
     report('clearing never deletes a running job\'s scratch folder',
            '_jobs.ContainsKey(name)' in service and 'ref" continue' not in service)
     report('the button says what it clears',
