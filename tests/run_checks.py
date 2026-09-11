@@ -626,6 +626,32 @@ Check("a huge queue cannot stall the scan", SubSyncService.PlanStart(
     Array.Empty<SyncJob>(), "ultimate", "wide", 4,
     _ => "/library", _ => true, _ => false).Count == 4);
 
+// A wide setting must fill on many-track episodes too: the scan window scales with the worker
+// count, so this is the combination worth pinning down.
+var manyTracks = new List<SyncJob>();
+for (var file = 0; file < 100; file++)
+{
+    var fileId = Guid.NewGuid();
+    for (var track = 0; track < 10; track++)
+    {
+        manyTracks.Add(PJob(fileId, "wide", "ultimate", (file * 10) + track));
+    }
+}
+
+int PlanMany(int workers) => SubSyncService.PlanStart(
+    manyTracks, Array.Empty<SyncJob>(), "ultimate", "wide", workers,
+    _ => "/library", _ => true, _ => false).Count;
+
+Check("2 workers fill on 10-track episodes", PlanMany(2) == 2, "got " + PlanMany(2));
+Check("3 workers fill on 10-track episodes", PlanMany(3) == 3, "got " + PlanMany(3));
+Check("8 workers fill on 10-track episodes", PlanMany(8) == 8, "got " + PlanMany(8));
+Check("16 workers fill on 10-track episodes", PlanMany(16) == 16, "got " + PlanMany(16));
+Check("32 workers fill on 10-track episodes", PlanMany(32) == 32, "got " + PlanMany(32));
+Check("64 workers fill on 10-track episodes", PlanMany(64) == 64, "got " + PlanMany(64));
+Check("the jobs planned are all different episodes",
+    SubSyncService.PlanStart(manyTracks, Array.Empty<SyncJob>(), "ultimate", "wide", 32,
+        _ => "/library", _ => true, _ => false).Select(j => j.ItemId).Distinct().Count() == 32);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 
