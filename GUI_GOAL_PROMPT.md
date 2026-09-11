@@ -39,6 +39,41 @@ without re-proving it.
 missing `$('id')` targets; every `innerHTML` sink escapes via `esc()` or `textContent` (no XSS found).
 The stray `</div>` (F26) is already fixed.
 
+## 0b. Where to start, and what not to redo (not optional)
+
+Five backend fixes from the 2026-09-11 session are **in the working tree on the branch
+`fix/extraction-parity-and-backup` and are NOT on `beta`** (beta is still at `8f82ffb`):
+
+| Already fixed | Where |
+|---|---|
+| D17 — a half-read subtitle track is refused instead of cached and reported Completed | `MkvSubtitleExtractor.cs` |
+| D16 — replace mode keeps every backup and says so in the result | `SubSyncService.cs` |
+| S6 — a job no longer reads a file the extraction lane is already reading | `SubSyncService.cs` |
+| D15 — `Install`, `Kill`, `SpeechCache/Clear`, `Log` are administrator-only | `SubSyncController.cs` |
+| 334 checks in `tests/run_checks.py` (was 333) | `tests/run_checks.py` |
+
+**Do not redo any of those, and do not test the GUI against a backend that lacks them.** Work on the
+branch that carries them. If you start from `beta` you will test an old backend, your edits to the two
+shared files will be made against stale code, and the check count will be wrong.
+
+**The two sessions share exactly two production files** — `Api/SubSyncController.cs` and
+`Services/SubSyncService.cs` — so these GUI findings are *backend* edits, not frontend ones:
+
+| Finding | Where the fix lands |
+|---|---|
+| D5 "4 in use (setting 4)" while nothing runs | `SubSyncService.cs` (`WorkerSummary`) |
+| D11 / F27 the resolved mode is opaque; `/SubSync/Active` omits the worker triple | `SubSyncController.cs` |
+| D12 two versions reported at once | `SubSyncController.cs` (`InstallationStatus`) |
+| D2 "installed successfully", and a status line that names a binary that is not there | `SubSyncController.cs` + `SubSyncService.cs` |
+| F28 inconsistent error bodies | `SubSyncController.cs` |
+| F4 the residual cross-user history leak (`Jobs`/`Batches`/`InstallationStatus` are still open to any user) | `SubSyncController.cs`, and it needs the dialog driven as a non-admin to prove it |
+
+Everything else in the matrix is `Web/subsyncMain.html`, `Web/configPage.html`, `Web/subsync.js`, or
+documentation. `MkvSubtitleExtractor.cs` is not yours to touch.
+
+Phase 2 for this brief is **the GUI**; where a GUI-visible lie has its cause in the backend, fix the
+backend in one commit and say so in the report. Do not fold an unrelated backend rewrite into this work.
+
 ## 1. Hard rules (breaking these fails the job)
 
 - **A real browser against a real server, or nothing.** Chromium via Playwright is installed at
