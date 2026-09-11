@@ -58,6 +58,21 @@ Whatever is left when the session ends is written into the report under "not att
 and the smallest step that would finish it. **The report is the deliverable that makes the next session
 possible** — a session that fixes nothing but documents precisely where it stopped has done its job.
 
+## The loop — how this actually gets finished
+
+`knowledge/FIX_PLAN.md` is the work list: **87 findings**, one line each, from both records, in four tiers
+with the state of every one. It is the mechanism that makes one prompt enough for many sessions:
+
+1. Read `knowledge/FIX_PLAN.md`, take the topmost item that is not `done` / `refuted` / `blocked`.
+2. Reproduce it. Fix it. Verify the fix the same way you reproduced it. Commit it on its own.
+3. Tick that line in `FIX_PLAN.md`: set `state`, add the commit hash and the evidence.
+4. Repeat until your budget runs out, then leave the rest unticked with a one-line note each and write the
+   report.
+
+A later session pointed at this same file continues where you left off — that is what turns "one session
+can't do 87 things" into "the work gets done, in order, without anything being lost". The state file and
+the report are as much a deliverable as the fixes.
+
 ## 0. The record (read these; do not rediscover them)
 
 | Document | What it is |
