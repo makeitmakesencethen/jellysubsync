@@ -1287,9 +1287,11 @@ def run_page_checks():
            'ReferenceStore.EndJob' in service and 'moreQueuedForThisFile' in store)
     report('an interrupted run cannot leave a reference behind',
            'ReferenceStore.SweepLeftovers' in plugin_source and 'SweepLeftovers' in store)
-    report('the scheduler asks the in-memory store whether a reference is ready',
-           'ReferenceStore.IsReady' in service
-           and 'ReferenceStore.EndJob(finishedVideo' in service)
+    report('a run releases its reference when it closes',
+           'ReferenceStore.EndJob(finishedVideo' in service)
+    report('the start decision is "your subtitle is extracted", not "may I share the file"',
+           'job => ExtractionReady(job)' in service
+           and 'SpeechIsCached(job)\n                            || (_jobContexts' not in service)
     report('releasing the reference happens outside the queue lock',
            service.index('ReferenceStore.EndJob(finishedVideo')
            < service.index('if (toStart.Count == 0)'))
@@ -1370,6 +1372,31 @@ def run_page_checks():
            and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
     report('the storage probe steps forward at distinct offsets, not on one cached block',
            'foreach (var step in new[] { 0L, 64 * 1024, 128 * 1024 })' in extractor_source)
+
+    # The run that made all this visible: 240 jobs queued, four workers limit, and the plugin silent
+    # for 46 s and then 83 s because the pump waited on a signal that a job becoming startable never
+    # sends. And extraction sat inside the job, holding a worker slot for the whole read.
+    report('the scheduler pump re-plans on a timer instead of sleeping until signalled',
+           '_wakePump.WaitAsync(TimeSpan.FromMilliseconds(750))' in service
+           and 'await _wakePump.WaitAsync().ConfigureAwait(false)' not in service)
+    report('extraction runs in its own lane, not inside a sync worker',
+           'ExtractLaneAsync' in service and 'NextFileToExtract' in service
+           and 'WakeExtractor();' in service)
+    report('a job is only started once its subtitle is already extracted',
+           'job => ExtractionReady(job)' in service)
+    report('the lane is a safety valve, not a single point of failure',
+           '_extractTask is null || _extractTask.IsCompleted' in service)
+    report('the planner asks whether a job may start, not only whether it may share',
+           'policy.MayStart is not null && !policy.MayStart(candidate)' in service)
+    report('the lane produces the reference track as well as the languages',
+           'ReferenceOrdinalsFor' in service and 'foreach (var referenceOrdinal in ReferenceOrdinalsFor' in service)
+    report('a track with no text is asked for once, not every pass',
+           '_extractTried' in service)
+    report('a failed ffsubsync says why, not just the exit code',
+           'throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}")' in service)
+
+    report('the lane reports what it produced for each file',
+           'extract lane:' in service and 'DescribeExtraction(stats.Method)' in service)
 
     report('clear cache empties the extracted-subtitle cache too',
            'SubtitleCache.Clear()' in controller and 'removedSubtitles' in controller)

@@ -272,6 +272,28 @@ public class SubSyncService : IDisposable
     // idle. Extra signals only cost an empty pass or two.
     private readonly SemaphoreSlim _wakePump = new(0);
 
+    // --- the extraction lane ------------------------------------------------------------------
+    // Reading a media file is the slow part and it is not what a sync worker should be doing: a worker
+    // that reads a file occupies a slot for tens of seconds while ffsubsync - about a second of work -
+    // waits behind it, and every other subtitle of that file waits for the same read. So extraction
+    // happens in its own lane, and a job is only started once its subtitle is already out of the file
+    // (see ExtractionReady). A pass that has produced 1 of 30 languages lets that one job start
+    // immediately instead of holding all thirty.
+    private readonly SemaphoreSlim _extractWake = new(0);
+    private readonly ConcurrentDictionary<string, byte> _passInFlight = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, byte> _extractedReady = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, List<int>> _referenceOrdinals = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Tracks a pass has already tried and come back empty for (a bitmap track with no text). Without
+    /// this the lane would ask for the same track twice a second, forever, on the user's storage.
+    /// </summary>
+    private readonly ConcurrentDictionary<string, byte> _extractTried = new(StringComparer.Ordinal);
+
+    /// <summary>When the lane last finished a pass, used to tell a lane that is gone from one that is busy.</summary>
+    private DateTime _lastPassFinishedUtc = DateTime.UtcNow;
+    private Task? _extractTask;
+
     // Subtitle text extracted from a file while it was being read for another subtitle of the same
     // file. Each entry is a few kilobytes of text; the queue keeps the oldest ones out.
     private readonly ConcurrentDictionary<string, string> _extractedText = new(StringComparer.Ordinal);
@@ -1220,6 +1242,16 @@ public class SubSyncService : IDisposable
         public Func<SyncJob, bool>? CanShareMediaFile { get; set; }
 
         /// <summary>
+        /// Gets or sets a predicate saying whether a job may start at all, asked about every
+        /// candidate including the first one for a media file. The plugin uses it for "this job's
+        /// subtitle is already out of the file, so it has nothing to read": a job that is not ready
+        /// waits in the queue instead of holding a worker slot while it reads the file, and instead
+        /// of duplicating the read the extraction lane is already doing. Null means "anything may
+        /// start", which is what the plain wave tests want.
+        /// </summary>
+        public Func<SyncJob, bool>? MayStart { get; set; }
+
+        /// <summary>
         /// Gets or sets a predicate saying whether a job needs the file's speech analysis
         /// built (embedded extraction or an uncached audio pass). Used only to decide whether
         /// a second job may join the wave for the same file — storage scheduling itself is
@@ -1366,6 +1398,308 @@ public class SubSyncService : IDisposable
     private readonly Dictionary<string, (bool Cached, DateTime At)> _speechCachedMemo = new(StringComparer.Ordinal);
 
     private readonly object _speechCachedGate = new();
+
+    /// <summary>
+    /// True when this job's subtitle is already out of the media file, so the job has nothing to read
+    /// and can start syncing straight away.
+    /// </summary>
+    /// <param name="job">Job being considered for a worker slot.</param>
+    /// <returns>True when the subtitle text is available.</returns>
+    private bool ExtractionReady(SyncJob job)
+    {
+        if (!_jobContexts.TryGetValue(job.Id, out var context))
+        {
+            return false;
+        }
+
+        // A sidecar subtitle is already a file of its own: there is nothing to extract.
+        if (context.Stream.IsExternal)
+        {
+            return true;
+        }
+
+        var path = context.Video?.Path;
+        if (string.IsNullOrEmpty(path))
+        {
+            return false;
+        }
+
+        var key = ExtractedKeyOf(path, context.Ordinal);
+        if (_extractedReady.ContainsKey(key))
+        {
+            return true;
+        }
+
+        if (SubtitleCache.TryGet(path, context.Ordinal.ToString(CultureInfo.InvariantCulture), out var text)
+            && text.Length > 0)
+        {
+            _extractedReady[key] = 0;
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>Key for "this track of this file has been extracted".</summary>
+    /// <param name="videoPath">Media file.</param>
+    /// <param name="ordinal">Subtitle ordinal within the file.</param>
+    /// <returns>Lookup key.</returns>
+    private static string ExtractedKeyOf(string videoPath, int ordinal) => videoPath + "\u0000" + ordinal;
+
+    /// <summary>Wakes the extraction lane, starting it if it is not running.</summary>
+    private void WakeExtractor()
+    {
+        lock (_queueLock)
+        {
+            if (_extractTask is null || _extractTask.IsCompleted)
+            {
+                _extractTask = Task.Run(ExtractLaneAsync);
+            }
+        }
+
+        try { _extractWake.Release(); }
+        catch (SemaphoreFullException) { /* already signalled */ }
+    }
+
+    /// <summary>
+    /// Keeps the queue's subtitles extracted.
+    ///
+    /// Pulls one media file at a time, extracts every queued subtitle of it in a single pass, stores
+    /// each result as it arrives and lets the scheduler start those jobs. Runs for the life of the
+    /// plugin and is signalled by the enqueue path and by the planner.
+    /// </summary>
+    private async Task ExtractLaneAsync()
+    {
+        PluginLog.Info("extract lane: started");
+        while (!_disposing)
+        {
+            var work = NextFileToExtract();
+            if (work is null)
+            {
+                try
+                {
+                    await _extractWake.WaitAsync(TimeSpan.FromMilliseconds(500)).ConfigureAwait(false);
+                }
+                catch (ObjectDisposedException)
+                {
+                    return;
+                }
+
+                continue;
+            }
+
+            var (videoPath, ordinals) = work.Value;
+            if (!_passInFlight.TryAdd(videoPath, 0))
+            {
+                continue;
+            }
+
+            try
+            {
+                var results = new Dictionary<int, string>();
+                var stats = new MkvExtractionStats();
+                foreach (var ordinal in ordinals)
+                {
+                    _extractTried.TryRemove(ExtractedKeyOf(videoPath, ordinal), out _);
+                }
+
+                var ok = await Task.Factory.StartNew(
+                    () => MkvSubtitleExtractor.TryExtractMany(
+                        videoPath,
+                        ordinals,
+                        out results,
+                        out var reason,
+                        out stats,
+                        CancellationToken.None,
+                        // Hand each subtitle over the moment the pass has read its last line, not when
+                        // the whole file is done: that job starts syncing straight away, which is the
+                        // difference between a language waiting for the other twenty-nine and it going
+                        // as soon as it is out. The pass keeps reading for the rest.
+                        (ordinal, text) =>
+                        {
+                            if (text.Length == 0)
+                            {
+                                return;
+                            }
+
+                            SubtitleCache.Store(videoPath, ordinal.ToString(CultureInfo.InvariantCulture), text);
+                            _extractedReady[ExtractedKeyOf(videoPath, ordinal)] = 0;
+                            WakePump();
+                        }),
+                    CancellationToken.None,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).ConfigureAwait(false);
+
+                foreach (var pair in results)
+                {
+                    if (pair.Value.Length == 0)
+                    {
+                        continue;
+                    }
+
+                    // Already stored by the callback for most of them; this covers a track the pass
+                    // produced without passing its last cue (an unindexed track, or a truncated file).
+                    SubtitleCache.Store(videoPath, pair.Key.ToString(CultureInfo.InvariantCulture), pair.Value);
+                    _extractedReady[ExtractedKeyOf(videoPath, pair.Key)] = 0;
+                }
+
+                SubtitleCache.Prune();
+                PluginLog.Info(
+                    $"extract lane: {Path.GetFileName(videoPath)} -> {results.Count}/{ordinals.Count} subtitle(s), "
+                    + $"{stats.BytesRead / 1e6:0.0} MB, {stats.ReadCalls} reads, {stats.TotalMs:0} ms, ok={ok} "
+                    + $"({DescribeExtraction(stats.Method)})");
+
+                foreach (var ordinal in ordinals)
+                {
+                    if (!results.ContainsKey(ordinal) || results[ordinal].Length == 0)
+                    {
+                        // Nothing in this track to sync (a picture track, or an empty one). Recording it
+                        // stops the lane from asking again on every pass.
+                        _extractTried[ExtractedKeyOf(videoPath, ordinal)] = 0;
+                    }
+                }
+
+                _lastPassFinishedUtc = DateTime.UtcNow;
+                if (results.Count > 0)
+                {
+                    WakePump();
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Extraction lane failed for {Video}", videoPath);
+            }
+            finally
+            {
+                _passInFlight.TryRemove(videoPath, out _);
+            }
+        }
+
+        PluginLog.Info("extract lane: stopped");
+    }
+
+    /// <summary>
+    /// Picks the next media file with queued subtitles that are not extracted yet, and the ordinals it
+    /// still owes. Skips files a pass is already running on, and sidecar subtitles, which need nothing.
+    /// </summary>
+    /// <returns>The file and its missing ordinals, or null when there is nothing to do.</returns>
+    private (string VideoPath, List<int> Ordinals)? NextFileToExtract()
+    {
+        const int MaxTracksPerPass = 48;
+        var byFile = new Dictionary<string, List<int>>(StringComparer.Ordinal);
+        lock (_queueLock)
+        {
+            foreach (var job in _runOrder)
+            {
+                if (job.Status != SyncJobStatus.Queued
+                    || !_jobContexts.TryGetValue(job.Id, out var context)
+                    || context.Stream.IsExternal)
+                {
+                    continue;
+                }
+
+                var path = context.Video?.Path;
+                if (string.IsNullOrEmpty(path) || _passInFlight.ContainsKey(path))
+                {
+                    continue;
+                }
+
+                if (!byFile.TryGetValue(path, out var wanted))
+                {
+                    wanted = new List<int>();
+                    byFile[path] = wanted;
+                }
+
+                if (!wanted.Contains(context.Ordinal) && wanted.Count < MaxTracksPerPass)
+                {
+                    wanted.Add(context.Ordinal);
+                }
+
+                // The ruler comes out of the same pass. ffsubsync aligns each subtitle against another
+                // subtitle track of the same file, and a job that finds the reference missing reads the
+                // file again for it - measured on a real episode, four such passes of ~330 MB each for
+                // one file. Asking for it here means one read produces both the languages and the ruler.
+                foreach (var referenceOrdinal in ReferenceOrdinalsFor(path, context.Ordinal, context.Video))
+                {
+                    if (!wanted.Contains(referenceOrdinal) && wanted.Count < MaxTracksPerPass)
+                    {
+                        wanted.Add(referenceOrdinal);
+                    }
+                }
+            }
+        }
+
+        foreach (var (path, wanted) in byFile)
+        {
+            var missing = wanted
+                .Where(o => !_extractedReady.ContainsKey(ExtractedKeyOf(path, o))
+                    && !_extractTried.ContainsKey(ExtractedKeyOf(path, o)))
+                .ToList();
+            if (missing.Count > 0)
+            {
+                return (path, missing);
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Track ordinals a job may align against, which the extraction lane wants produced as well.
+    ///
+    /// The choice itself belongs to the job (it must not align a track against that same track), so
+    /// this asks the same picker the job path uses, with Jellyfin's stream list instead of the ffprobe
+    /// list the job builds. The two agree on codec and order in practice; when they do not, the job
+    /// extracts the reference for itself exactly as it did before, so a miss costs a read and never
+    /// correctness. Memoised: the planner asks twice a second for every queued job.
+    /// </summary>
+    /// <param name="videoPath">Media file, part of the memo key.</param>
+    /// <param name="targetOrdinal">Subtitle this job is fixing.</param>
+    /// <param name="video">The library item.</param>
+    /// <returns>Ordinals to extract, empty when the picker cannot decide.</returns>
+    private IEnumerable<int> ReferenceOrdinalsFor(string videoPath, int targetOrdinal, Video? video)
+    {
+        var key = ExtractedKeyOf(videoPath, targetOrdinal) + "\u0000ref";
+        if (_referenceOrdinals.TryGetValue(key, out var cached))
+        {
+            return cached;
+        }
+
+        var ordinals = new List<int>();
+        try
+        {
+            if (video is null)
+            {
+                return ordinals;
+            }
+
+            var streams = video.GetMediaSources(true)
+                .SelectMany(source => source.MediaStreams)
+                .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !stream.IsExternal)
+                .OrderBy(stream => stream.Index)
+                .ToList();
+
+            if (streams.Count > 0)
+            {
+                var spec = SelectReferenceStream(
+                    true,
+                    streams.Select(stream => stream.Codec).ToList(),
+                    targetOrdinal,
+                    streams.Select(stream => stream.IsForced).ToList());
+                var ordinal = SubtitleStreamOrdinal(spec);
+                if (ordinal >= 0)
+                {
+                    ordinals.Add(ordinal);
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not work out the reference track for {Video}; the job will extract it", videoPath);
+        }
+
+        return _referenceOrdinals.GetOrAdd(key, ordinals);
+    }
 
     private bool SpeechIsCached(SyncJob job)
     {
@@ -1667,6 +2001,10 @@ public class SubSyncService : IDisposable
     /// <param name="volumeOf">Volume lookup for a job.</param>
     /// <param name="isHeavyIo">Whether a job needs the file's audio analysis.</param>
     /// <param name="canShareMediaFile">Whether a second job may run for an already-claimed file.</param>
+    /// <param name="mayStart">
+    /// Whether a job may start at all, asked about every candidate. The plugin passes "this job's
+    /// subtitle is already extracted"; null means anything may start.
+    /// </param>
     /// <returns>The jobs to start, in queue order (empty when every slot is busy).</returns>
     public static List<SyncJob> PlanStart(
         IEnumerable<SyncJob> queuedInOrder,
@@ -1676,7 +2014,8 @@ public class SubSyncService : IDisposable
         int limit,
         Func<SyncJob, string> volumeOf,
         Func<SyncJob, bool> isHeavyIo,
-        Func<SyncJob, bool> canShareMediaFile)
+        Func<SyncJob, bool> canShareMediaFile,
+        Func<SyncJob, bool>? mayStart = null)
     {
         var slots = limit - running.Count;
         if (slots <= 0)
@@ -1698,7 +2037,8 @@ public class SubSyncService : IDisposable
                 InUseVolumes = runningVolumes,
                 InUseItemIds = runningItems,
                 IsHeavyIo = isHeavyIo,
-                CanShareMediaFile = canShareMediaFile
+                CanShareMediaFile = canShareMediaFile,
+                MayStart = mayStart
             });
     }
 
@@ -1713,16 +2053,24 @@ public class SubSyncService : IDisposable
     /// <returns>True when the candidate joins the wave.</returns>
     private static bool TryTake(SyncJob candidate, WavePolicy policy, HashSet<Guid> claimedItems)
     {
-        if (!claimedItems.Add(candidate.ItemId))
+        // The file is claimed either way, so a refusal here still stops a second job of the same file
+        // from slipping in behind it.
+        var alreadyInWave = !claimedItems.Add(candidate.ItemId);
+
+        // Asked about every candidate, first job of a file included: a job that is not ready must not
+        // start at all. Letting the first one through on the old rule ("is the file free?") opened a
+        // hole big enough for it to read the whole file for itself - measured on a real episode, four
+        // such passes of 590-870 MB each while the extraction lane was reading the same file.
+        if (policy.MayStart is not null && !policy.MayStart(candidate))
+        {
+            return false;
+        }
+
+        if (alreadyInWave && policy.CanShareMediaFile?.Invoke(candidate) != true)
         {
             // The policy decides whether a second subtitle of the same file may run alongside the
-            // first — it is the only thing that knows whether that file's analysis is stored. An
-            // extra "heavy" veto here overrode it and blocked every overlap: a file's later
-            // subtitles queued behind the first even after their reference had been extracted.
-            if (policy.CanShareMediaFile?.Invoke(candidate) != true)
-            {
-                return false;
-            }
+            // first — it is the only thing that knows whether that file's analysis is stored.
+            return false;
         }
 
         return true;
@@ -1807,6 +2155,13 @@ public class SubSyncService : IDisposable
 
     private void WakePump()
     {
+        // The lane is started first, and that order matters: the scheduler refuses to start a job whose
+        // subtitle is not extracted yet and reads "no lane at all" as "the lane is gone, so let the job
+        // extract for itself". Waking the pump before the lane existed opened that hatch on the very
+        // first plan, and three jobs of a real episode each went and read ~600 MB for themselves while
+        // the lane was reading the same file.
+        WakeExtractor();
+
         lock (_queueLock)
         {
             if (_pumpTask is null || _pumpTask.IsCompleted)
@@ -1886,9 +2241,19 @@ public class SubSyncService : IDisposable
                         limit,
                         job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
                         job => JobNeedsHeavyIo(job, headMode),
-                        job => SpeechIsCached(job)
-                            || (_jobContexts.TryGetValue(job.Id, out var shareContext)
-                                && ReferenceStore.IsReady(shareContext.Video.Path)));
+                        // Only start a job whose subtitle is already out of the file. The old gate
+                        // ("may this job share the file with a running one?") still let jobs through
+                        // once a reference existed, and each of them then ran its own pass: measured on
+                        // a real episode, the lane produced six subtitles in one pass of 448 MB and the
+                        // six jobs then ran four more passes of ~350 MB each, 2 GB of reading for
+                        // nothing. The lane runs extraction; a job that is not ready waits in the queue
+                        // instead of duplicating the work. The one exception is a lane that is not
+                        // running at all (disposed, or died), where jobs must be able to extract for
+                        // themselves rather than never start.
+                        job => ExtractionReady(job),
+                        job => ExtractionReady(job)
+                            || ((_extractTask is null || _extractTask.IsCompleted)
+                                && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)));
                 }
             }
 
@@ -1907,8 +2272,14 @@ public class SubSyncService : IDisposable
                 }
 
                 // Nothing to start: either the slots are full (a finishing job wakes the pump) or
-                // the queue is empty (a new job wakes it).
-                await _wakePump.WaitAsync().ConfigureAwait(false);
+                // the queue is empty (a new job wakes it) - or a job became startable without any
+                // event to signal it, which is what the bounded wait is for. An unbounded wait left
+                // the plugin completely idle with a full queue and free workers: measured on a real
+                // server, 46 s and then 83 s of silence with 225 jobs queued and four slots limit,
+                // while the UI showed "Extracting N subtitles in one pass" - the phase of a job that
+                // was only waiting. Re-planning every three quarters of a second costs nothing
+                // (the predicates are memoised) and turns a stall into a no-op pass.
+                await _wakePump.WaitAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
                 continue;
             }
 
@@ -2924,11 +3295,26 @@ public class SubSyncService : IDisposable
             // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
             // Phase messages: "extracting speech...", "computing alignments...", "writing output..."
             var engineWatch = System.Diagnostics.Stopwatch.StartNew();
+            // Keep the tail of stderr: "ffsubsync exited with code 1" on its own tells nobody anything,
+            // and the reason (an unreadable reference, a subtitle with no text, a demux error) is
+            // always in the last few lines ffsubsync printed.
+            var engineErrors = new List<string>();
             var exitCode = await RunProcessWithStderrCallbackAsync(
                 ffsubsyncExe, args, tempDir,
                 line =>
                 {
                     ParseFfSubSyncStderr(line, job);
+                    lock (engineErrors)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            engineErrors.Add(line.Trim());
+                            if (engineErrors.Count > 6)
+                            {
+                                engineErrors.RemoveAt(0);
+                            }
+                        }
+                    }
                 },
                 cancellationToken).ConfigureAwait(false);
             engineWatch.Stop();
@@ -2950,15 +3336,42 @@ public class SubSyncService : IDisposable
                 referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
                 serializeSpeech = true;
                 args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
+                PluginLog.Info($"[{job.Id}] retrying ffsubsync from the audio: {string.Join(' ', args)}");
+                lock (engineErrors)
+                {
+                    engineErrors.Clear();
+                }
+
                 exitCode = await RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, args, tempDir,
-                    line => ParseFfSubSyncStderr(line, job),
+                    line =>
+                    {
+                        ParseFfSubSyncStderr(line, job);
+                        lock (engineErrors)
+                        {
+                            if (!string.IsNullOrWhiteSpace(line))
+                            {
+                                engineErrors.Add(line.Trim());
+                                if (engineErrors.Count > 6)
+                                {
+                                    engineErrors.RemoveAt(0);
+                                }
+                            }
+                        }
+                    },
                     cancellationToken).ConfigureAwait(false);
+                PluginLog.Info($"[{job.Id}] ffsubsync retry exit={exitCode}");
             }
 
             if (exitCode != 0)
             {
-                throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.");
+                string why;
+                lock (engineErrors)
+                {
+                    why = engineErrors.Count == 0 ? string.Empty : " Last output: " + string.Join(" | ", engineErrors);
+                }
+
+                throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}");
             }
 
             if (speechKey is not null && serializeSpeech)
@@ -3425,6 +3838,9 @@ public class SubSyncService : IDisposable
         try { _wakePump.Release(); }
         catch { /* pump not parked or already released */ }
 
+        try { _extractWake.Release(); }
+        catch { /* lane not parked or already released */ }
+
         try { _wakePump.Dispose(); }
         catch { /* already disposed */ }
     }
@@ -3722,10 +4138,11 @@ public class SubSyncService : IDisposable
                 return "subtitle-cache";
             }
 
-            // Every queued subtitle of this file that needs the same embedded track read goes through
-            // one pass: the clusters are visited once and serve all of them, instead of once per
-            // language. This is the whole difference between a 50-language episode costing one
-            // extraction and costing fifty.
+            // The extraction lane is what reads files: it produces every queued subtitle of a file in
+            // one pass and stores each as it arrives, and the scheduler only starts a job once its
+            // subtitle is there. Reaching this point with a cache miss means the lane is not running
+            // (disposed, or it died), so the job extracts for itself - as a whole-file pass serving its
+            // siblings if they are queued too, because that is cheaper than one pass per language.
             var wanted = SiblingOrdinals(videoPath, subtitleOrdinal);
             if (wanted.Count > 1)
             {

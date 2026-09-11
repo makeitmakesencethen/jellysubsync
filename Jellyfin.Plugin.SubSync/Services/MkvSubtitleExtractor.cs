@@ -245,6 +245,10 @@ public static class MkvSubtitleExtractor
     /// </param>
     /// <param name="alsoResults">Extracted SRT text per ordinal for those further tracks.</param>
     /// <param name="cancellationToken">Cancels a long read (Kill in the UI).</param>
+    /// <param name="publish">
+    /// Called with (ordinal, SRT) for each track the moment the reading has passed its last line, so
+    /// a caller can start work on that subtitle while the rest of the file is still being read.
+    /// </param>
     /// <returns>True when a complete SRT was produced.</returns>
     public static bool TryExtract(
         string videoPath,
@@ -255,7 +259,8 @@ public static class MkvSubtitleExtractor
         out MkvExtractionStats stats,
         IReadOnlyList<int>? alsoExtract = null,
         Dictionary<int, string>? alsoResults = null,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<int, string>? publish = null)
     {
         srtText = string.Empty;
         reason = string.Empty;
@@ -278,7 +283,8 @@ public static class MkvSubtitleExtractor
                 stats,
                 alsoExtract,
                 alsoResults,
-                cancellationToken);
+                cancellationToken,
+                publish);
             stats.BytesRead = reader.BytesRead;
 
         // The summary must carry the same numbers as the live lines; "unknown" where a number
@@ -321,6 +327,9 @@ public static class MkvSubtitleExtractor
     /// <param name="reason">Why nothing could be extracted, when it returns false.</param>
     /// <param name="stats">What the pass cost (including the extra tracks).</param>
     /// <param name="cancellationToken">Cancels a long read (Kill in the UI).</param>
+    /// <param name="publish">
+    /// Called with (ordinal, SRT) for each track the moment the reading has passed its last line.
+    /// </param>
     /// <returns>True when at least one requested track was extracted.</returns>
     public static bool TryExtractMany(
         string videoPath,
@@ -328,7 +337,8 @@ public static class MkvSubtitleExtractor
         out Dictionary<int, string> results,
         out string reason,
         out MkvExtractionStats stats,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<int, string>? publish = null)
     {
         results = new Dictionary<int, string>();
         stats = new MkvExtractionStats();
@@ -349,11 +359,13 @@ public static class MkvSubtitleExtractor
             out stats,
             extras,
             results,
-            cancellationToken);
+            cancellationToken,
+            publish);
 
         if (ok && primaryText.Length > 0)
         {
             results[primary] = primaryText;
+            publish?.Invoke(primary, primaryText);
         }
 
         if (results.Count == 0)
@@ -378,7 +390,8 @@ public static class MkvSubtitleExtractor
         MkvExtractionStats stats,
         IReadOnlyList<int>? alsoExtract,
         Dictionary<int, string>? alsoResults,
-        CancellationToken cancellationToken = default)
+        CancellationToken cancellationToken = default,
+        Action<int, string>? publish = null)
     {
         srtText = string.Empty;
         reason = string.Empty;
@@ -729,6 +742,8 @@ public static class MkvSubtitleExtractor
             reader.WindowSize = Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024);
 
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
+            var clusterPositionsOf = new List<long>();
+            var published = new HashSet<int>();
 
             // Clusters to visit because a wanted block sits in them (with a known position), and
             // clusters to visit because a wanted track has a cue in them but the index does not say
@@ -737,6 +752,12 @@ public static class MkvSubtitleExtractor
             // (logged as tracks=24/30).
             var byCluster = new SortedDictionary<long, List<(int Index, CueRef Ref)>>();
             var walkInCluster = new SortedDictionary<long, List<int>>();
+
+            // Where each wanted track's last cue sits. A track is complete once the walk has passed
+            // that cluster, which is what lets its job start syncing while the pass is still reading
+            // the rest of the file for the other languages - the difference between "wait for all 30"
+            // and "start the one that is out".
+            var lastClusterOf = new SortedDictionary<long, List<int>>();
 
             foreach (var ordinal in alsoExtract)
             {
@@ -798,6 +819,33 @@ public static class MkvSubtitleExtractor
 
                     bucket.Add((index, reference));
                 }
+
+                if (clusterPositionsOf.Count == 0)
+                {
+                    clusterPositionsOf = new List<long>();
+                }
+
+                clusterPositionsOf.AddRange(extraRefs
+                    .Where(r => r.RelativePosition >= 0 || needsWalk)
+                    .Select(r => segmentDataStart + r.ClusterOffset)
+                    .Where(pos => pos >= 0 && pos < reader.Length));
+
+                if (clusterPositionsOf.Count > 0)
+                {
+                    var last = clusterPositionsOf.Max();
+                    if (!lastClusterOf.TryGetValue(last, out var finishers))
+                    {
+                        finishers = new List<int>();
+                        lastClusterOf[last] = finishers;
+                    }
+
+                    if (!finishers.Contains(index))
+                    {
+                        finishers.Add(index);
+                    }
+                }
+
+                clusterPositionsOf.Clear();
             }
 
             stats.ClustersVisited += byCluster.Count;
@@ -861,6 +909,8 @@ public static class MkvSubtitleExtractor
                         target.Track,
                         target.Cues);
                 }
+
+                PublishFinishedTracks(lastClusterOf, clusterPosition, wanted, published, publish);
             }
 
             foreach (var (ordinal, _, extraCues) in wanted)
@@ -2020,6 +2070,57 @@ public static class MkvSubtitleExtractor
         }
 
         return seen == fields ? value[index..] : value;
+    }
+
+    /// <summary>
+    /// Hands over every wanted track whose last cue this cluster held, so its job can start syncing
+    /// while the rest of the file is still being read.
+    /// </summary>
+    /// <param name="lastClusterOf">Cluster position to the tracks that finish there.</param>
+    /// <param name="clusterPosition">The cluster just processed.</param>
+    /// <param name="wanted">Wanted tracks, in the order they were collected.</param>
+    /// <param name="published">Tracks already handed over.</param>
+    /// <param name="publish">Callback into the caller, null when nobody is listening.</param>
+    private static void PublishFinishedTracks(
+        SortedDictionary<long, List<int>> lastClusterOf,
+        long clusterPosition,
+        List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)> wanted,
+        HashSet<int> published,
+        Action<int, string>? publish)
+    {
+        if (publish is null)
+        {
+            return;
+        }
+
+        foreach (var (finishAt, indices) in lastClusterOf)
+        {
+            if (finishAt > clusterPosition)
+            {
+                break;
+            }
+
+            foreach (var index in indices)
+            {
+                if (!published.Add(index))
+                {
+                    continue;
+                }
+
+                var done = wanted[index];
+                if (done.Cues.Count == 0)
+                {
+                    continue;
+                }
+
+                done.Cues.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+                var text = ToSrt(done.Cues);
+                if (text.Length > 0)
+                {
+                    publish(done.Ordinal, text);
+                }
+            }
+        }
     }
 
     private static string ToSrt(List<Cue> cues)
