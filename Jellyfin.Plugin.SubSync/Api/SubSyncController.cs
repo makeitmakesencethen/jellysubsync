@@ -15,6 +15,18 @@ namespace Jellyfin.Plugin.SubSync.Api;
 [Route("SubSync")]
 public class SubSyncController : ControllerBase
 {
+    /// <summary>
+    /// Jellyfin's own policy for administrator-only endpoints.
+    ///
+    /// The name is the one Jellyfin registers and uses itself (Jellyfin.Api's ApiKeyController), so
+    /// the plugin inherits the server's idea of "administrator" rather than inventing a check. It
+    /// gates the four endpoints that have no per-user meaning: installing packages, wiping the
+    /// caches, stopping every run on the server, and reading the plugin log with the server's own
+    /// paths in it. The item-scoped endpoints stay open to any authenticated user on purpose, so
+    /// the "Sync Subtitles" button on a detail page keeps working for a non-admin.
+    /// </summary>
+    private const string RequiresElevationPolicy = "RequiresElevation";
+
     private readonly SubSyncService _syncService;
 
     /// <summary>
@@ -317,6 +329,7 @@ public class SubSyncController : ControllerBase
     /// Installs ffsubsync into the managed virtualenv.
     /// </summary>
     /// <returns>Installation result.</returns>
+        [Authorize(Policy = RequiresElevationPolicy)]
     [HttpPost("Install")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
@@ -344,6 +357,7 @@ public class SubSyncController : ControllerBase
     /// each entry is rebuilt the next time it is needed, so clearing only costs time.
     /// </summary>
     /// <returns>What was removed, and what is left.</returns>
+        [Authorize(Policy = RequiresElevationPolicy)]
     [HttpPost("SpeechCache/Clear")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> ClearSpeechCache()
@@ -398,6 +412,7 @@ public class SubSyncController : ControllerBase
     /// processes are terminated. This is the destructive action behind the UI's Kill button.
     /// </summary>
     /// <returns>What was stopped, plus what is still running afterwards.</returns>
+        [Authorize(Policy = RequiresElevationPolicy)]
     [HttpPost("Kill")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> KillAll()
@@ -445,6 +460,7 @@ public class SubSyncController : ControllerBase
     /// </summary>
     /// <param name="kilobytes">How much of the end of the file to return (4-4096 kB).</param>
     /// <returns>The tail of the log as text.</returns>
+        [Authorize(Policy = RequiresElevationPolicy)]
     [HttpGet("Log")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult GetLog([FromQuery] int kilobytes = 256)

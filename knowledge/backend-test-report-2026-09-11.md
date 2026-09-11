@@ -315,8 +315,34 @@ Slow-storage baseline is otherwise unmeasured for workers 1/2/8 (D30 blocked).
 
 | One pass per file while the extraction lane is working: `ExtractionReady` now answers "no" for a track that is not out yet while the lane has a pass in flight for that file, so a job waits instead of reading the file a second time. The "lane is gone / lane has gone quiet" escape hatch is unchanged | S6 | see the measurement below |
 
-Not started: S3, S4, S5, D15/F1/F2 authorisation (the brief makes that conditional on the user agreeing
-who may do what), and the whole of the "honest status" batch (D5/D6/D7/F27).
+| `[Authorize(Policy = "RequiresElevation")]` — Jellyfin's own administrator policy — on `Install`, `Kill`, `SpeechCache/Clear` and `Log`, and on nothing else, so the detail-page button keeps working for a non-admin | D15/F1/F2 (the user agreed to this split) | the table below |
+
+### D15, verified with a real non-admin account
+
+A plain user was created (`POST /Users/New`, Jellyfin's default non-administrator policy), logged in,
+and every endpoint called with its own token next to the admin's:
+
+| Endpoint | admin | ordinary user |
+|---|---|---|
+| `POST /SubSync/Install` | 200 | **403** |
+| `POST /SubSync/Kill` | 200 | **403** |
+| `POST /SubSync/SpeechCache/Clear` | 200 | **403** |
+| `GET /SubSync/Log` | 200 | **403** |
+| `GET /SubSync/Subtitles/{episode}` | 200 | 200 |
+| `GET /SubSync/Active` | 200 | 200 |
+| `GET /SubSync/Batches` | 200 | 200 |
+| `GET /SubSync/Jobs` | 200 | 200 |
+| `GET /SubSync/InstallationStatus` | 200 | 200 |
+| `GET /SubSync/ClientScript` | 200 | 200 (still `[AllowAnonymous]`, F23) |
+
+The probe account was deleted afterwards. `Jobs`/`Batches`/`InstallationStatus` are deliberately left
+open for now: the item-page dialog calls them, so gating them would 403 a non-admin who presses "Sync
+Subtitles". Closing the residual cross-user history leak (F4) means filtering those to the caller's own
+jobs and verifying that by driving the dialog as a non-admin — a separate change, listed below.
+A regression check pins the four elevated routes and asserts the item-scoped ones are not elevated
+(`tests/run_checks.py`, now **334 checks**).
+
+Not started: S3, S4, S5, F4/F27 per-user scoping, and the whole of the "honest status" batch (D5/D6/D7/F27).
 
 ### S6, measured before and after
 
@@ -378,5 +404,8 @@ finish, and the blocker is now the reference path, not the subtitle path.
 5. **D15/F1/F2** — `[Authorize(Policy = "RequiresElevation")]` on `Install`, `Kill`,
    `SpeechCache/Clear`, `Log`, `Jobs`, `Batches` (the policy name is confirmed present in
    `Jellyfin.Api.dll` and used by Jellyfin's own `ApiKeyController`). Needs the user's decision.
-6. D8/D9/D10 (batch validation, dedupe, one error shape), then D5/D6/D7/F27 (honest status), then
-   D4/F15 (one settings surface), then the junk in §6.
+6. **S11b** — a cancelled batch left an ffmpeg demux alive; cancellation has to reach the engine's
+   children (also D1, and static finding 7).
+7. F4 per-user scoping of `Jobs`/`Batches`/`InstallationStatus`, then D8/D9/D10 (batch validation,
+   dedupe, one error shape), then D5/D6/D7/F27 (honest status), then D4/F15 (one settings surface),
+   then the junk in §6.

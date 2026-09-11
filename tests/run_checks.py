@@ -1321,6 +1321,20 @@ def run_page_checks():
            'SpeechCache.Clear()' in controller
            and 'ReferenceStore.Clear()' in controller
            and 'ClearStaleJobDirectories()' in controller)
+    # Any authenticated user used to be able to install packages, wipe the caches, stop every run on
+    # the server and read the plugin log with the server's own paths in it. Those four carry
+    # Jellyfin's own administrator policy now; the item-scoped endpoints deliberately do not, so the
+    # "Sync Subtitles" button on a detail page keeps working for a non-admin.
+    elevated = re.findall(
+        r'\[Authorize\(Policy = RequiresElevationPolicy\)\]\s*\n\s*\[Http(?:Post|Get)\("([^"]+)"\)\]',
+        controller)
+    item_scoped = ['Sync', 'Batch', 'Subtitles/Batch', 'Active', 'ClientScript']
+    report('the destructive and server-wide endpoints are administrator-only, the item ones are not',
+           sorted(elevated) == ['Install', 'Kill', 'Log', 'SpeechCache/Clear']
+           and 'RequiresElevation' in controller
+           and all('\n    [HttpPost("%s")]' % r in controller or '\n    [HttpGet("%s")]' % r in controller
+                   for r in item_scoped[:3])
+           and not any(r in elevated for r in item_scoped))
     # A stray </div> left behind by a removed field closes the page's container early: the rest of the
     # form lands outside it, the layout comes apart, controls stop responding, and Jellyfin renders a
     # Save button on a page that is not a configuration page. Nothing in this suite noticed, so it
