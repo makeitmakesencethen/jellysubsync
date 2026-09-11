@@ -1,0 +1,124 @@
+{
+ "probes": [
+  {
+   "route": "/web/configurationpage?name=subsync-main",
+   "finalUrl": "http://127.0.0.1:8096/web/configurationpage?name=subsync-main",
+   "ssIds": [
+    "ss-diag",
+    "ss-runbox",
+    "ss-run-label",
+    "ss-cancel",
+    "ss-progress",
+    "ss-phase",
+    "ss-workers",
+    "ss-log"
+   ],
+   "bodyStart": "SubSync | playlist_playSync | historyHistory | tuneSettings | Sync from your library | checking bundled ffsubsync… |  | Click any movi",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/configurationpage?name=SubSync",
+   "finalUrl": "http://127.0.0.1:8096/web/configurationpage?name=SubSync#/configurationpage?name=subsync-main",
+   "ssIds": [],
+   "bodyStart": "SubSync |  | SubSync's settings now live on the plugin's own page, so there is one place that reads and writes them instead ",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/#/configurationpage?name=subsync-main",
+   "finalUrl": "http://127.0.0.1:8096/web/#/home",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | My Media | Movies | Shows | Slow Storage | SubSync Fixtures | Re",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/#/configurationpage?name=SubSync",
+   "finalUrl": "http://127.0.0.1:8096/web/#/home",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | My Media | Movies | Shows | Slow Storage | SubSync Fixtures | Re",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/index.html#/configurationpage?name=subsync-main",
+   "finalUrl": "http://127.0.0.1:8096/web/index.html#/home",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | My Media | Movies | Shows | Slow Storage | SubSync Fixtures | Re",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/#/plugins/subsync-main",
+   "finalUrl": "http://127.0.0.1:8096/web/#/plugins/subsync-main",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | Page not found |  | This is not the page you are looking f",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/#/dashboard/plugins/subsync-main",
+   "finalUrl": "http://127.0.0.1:8096/web/#/home",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | My Media | Movies | Shows | Slow Storage | SubSync Fixtures | Re",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/web/#/dashboard/plugins/c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2",
+   "finalUrl": "http://127.0.0.1:8096/web/#/home",
+   "ssIds": [],
+   "bodyStart": "151e4ee8fdb6 | Favorites | Movies | Shows | Slow Storage | SubSync Fixtures | My Media | Movies | Shows | Slow Storage | SubSync Fixtures | Re",
+   "hasSubSyncText": true
+  },
+  {
+   "route": "/SubSync/ClientScript",
+   "finalUrl": "http://127.0.0.1:8096/SubSync/ClientScript",
+   "ssIds": [],
+   "bodyStart": "/** |  * SubSync â€” Jellyfin client injection script. |  * |  * Adds \"Sync Subtitles\" to the item menu of a movie/episode, an",
+   "hasSubSyncText": true
+  }
+ ],
+ "mainMenu": {
+  "count": 69,
+  "subsyncEntries": [
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "Recently Added in SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies&tab=1"
+   }
+  ]
+ },
+ "dashboard": {
+  "url": "http://127.0.0.1:8096/web/#/home",
+  "text": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRecently Added in Movies\nHelikopterrånet S01E01\n \nFishmas Season 1\n2023\nWide Open in the Shape of an Enormous Fan\n2026\nSigns Test\n2026\nEmbedded Test\n2026\nTest Movie\n2026\nRecently Added in Shows\n2\nThe Helicopter Heist\n2024\nRecently Added in Slow Storage\nSlow Single Track\n2026\nHeliko",
+  "links": [
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies"
+   },
+   {
+    "text": "Recently Added in SubSync Fixtures",
+    "href": "#/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectionType=movies&tab=1"
+   }
+  ]
+ },
+ "loggedIn": true
+}

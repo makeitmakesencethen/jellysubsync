@@ -1250,8 +1250,13 @@ def run_page_checks():
     for name in ('subsync.js', 'subsyncMain.html'):
         report(f'{name} authenticates with the Authorization header',
                'MediaBrowser Token=' in pages[name])
-    report('the settings page authenticates with the Authorization header',
-           "options.headers['Authorization']" in pages['configPage.html'])
+    # Merged 2026-09-11 (D4/F15, settled with the user): the dashboard page is a pointer to the plugin's
+    # own settings page and calls nothing, so the requirement that applies to it is that it stays that
+    # way — a second page that read or wrote the configuration is exactly what was removed.
+    report('the dashboard page is a pointer, not a second settings surface',
+           'configurationpage?name=subsync-main' in pages['configPage.html']
+           and 'SubSyncConfigForm' not in pages['configPage.html']
+           and '/SubSync/' not in pages['configPage.html'])
 
     # The injected client script is an IIFE, so nothing it defines reaches the pages: a page that
     # calls one of its helpers throws a ReferenceError and the rest of that render never runs
