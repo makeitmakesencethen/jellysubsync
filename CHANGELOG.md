@@ -191,7 +191,25 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.35]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.36]
+
+### Added
+- **The worker setting is now observable.** A run reported `4/4 workers` with 8 configured, and
+  every path that reads the setting looked correct — so the value in force is now stated instead
+  of inferred:
+  - the log gets `SubSync worker limit is N (configured: M, ceiling: 64)` whenever the limit
+    changes;
+  - the run line shows `... · setting is M` whenever the configured value disagrees with the limit
+    actually being used.
+
+  If the two ever disagree again, one line says so.
+
+### Changed
+- **The language box keeps its options while the lists are read.** It used to replace its contents
+  with a `LOADING` entry, which made the control look like something else. Now the box stays as it
+  is (disabled) and the word and the real count appear *inside* it — `LOADING 45/280`.
+
+## [1.1.0.35]
 
 ### Fixed
 - **A batch can now use its full width on files that carry many subtitles.** Two causes, both

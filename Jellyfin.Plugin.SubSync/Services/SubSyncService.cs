@@ -1405,6 +1405,37 @@ public class SubSyncService : IDisposable
     public int EffectiveWorkerLimit =>
         NormalizeWorkers(Plugin.Instance?.Configuration?.ParallelWorkers ?? DefaultParallelWorkers);
 
+    /// <summary>
+    /// The worker count exactly as configured, without falling back to the default.
+    ///
+    /// Exposed so the interface can show it beside the limit actually in force: a report of
+    /// "4/4 workers" with 8 configured means one of the two is not what the other thinks, and
+    /// that is only visible when both are stated.
+    /// </summary>
+    public int ConfiguredWorkerLimit => Plugin.Instance?.Configuration?.ParallelWorkers ?? -1;
+
+    private static int _lastLoggedWorkerLimit = -1;
+
+    /// <summary>
+    /// Logs the worker limit whenever it changes, so the value in force can be read from the log
+    /// instead of being inferred from behaviour.
+    /// </summary>
+    private void LogWorkerLimit()
+    {
+        var limit = EffectiveWorkerLimit;
+        if (limit == _lastLoggedWorkerLimit)
+        {
+            return;
+        }
+
+        _lastLoggedWorkerLimit = limit;
+        _logger.LogInformation(
+            "SubSync worker limit is {Limit} (configured: {Configured}, ceiling: {Ceiling})",
+            limit,
+            ConfiguredWorkerLimit,
+            MaxParallelWorkers);
+    }
+
     /// <summary>Default worker count for parallel mode.</summary>
     public const int DefaultParallelWorkers = 4;
 
@@ -1438,6 +1469,8 @@ public class SubSyncService : IDisposable
             List<SyncJob> toStart;
             var limit = 1;
             var running = 0;
+
+            LogWorkerLimit();
 
             lock (_queueLock)
             {

@@ -1,0 +1,13 @@
+State the worker setting in force, and keep the language box while it loads
+
+A run reported "4/4 workers" with 8 configured. Every code path that reads the setting looked
+correct, so rather than guess, the value in force is now stated: the log gets
+"SubSync worker limit is N (configured: M, ceiling: 64)" whenever it changes, and the run line
+adds "setting is M" whenever the configured value disagrees with the limit being used. One line
+then settles it.
+
+The language box also keeps its own options while the subtitle lists are read - it is disabled and
+the word plus the real count appear inside it ("LOADING 45/280") instead of replacing its contents
+with a placeholder, which made the control look like something else.
+
+Version 1.1.0.36.

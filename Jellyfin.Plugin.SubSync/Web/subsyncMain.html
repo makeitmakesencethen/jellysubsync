@@ -65,6 +65,14 @@
             .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
             .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; max-height: 420px; overflow-y: auto; }
+            .ss-langwrap { position: relative; display: inline-flex; align-items: center; max-width: 260px; }
+            .ss-langwrap .ss-langload {
+                position: absolute; right: 10px; pointer-events: none;
+                font-size: .72rem; letter-spacing: .04em;
+                background: rgba(0,0,0,.45); color: #fff; padding: 1px 7px; border-radius: 10px;
+                animation: ss-pulse 1.4s ease-in-out infinite;
+            }
+            @keyframes ss-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
             .ss-worker {
                 display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
                 background: rgba(255,255,255,.04); border-radius: 6px; padding: 6px 9px;
@@ -148,9 +156,12 @@
 
                             <div class="ss-selactions" id="ss-selactions" style="display:none;">
                                 <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised button-submit"><span>Sync</span></button>
-                                <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
-                                    <option value="">All languages</option>
-                                </select>
+                                <span class="ss-langwrap">
+                                    <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
+                                        <option value="">All languages</option>
+                                    </select>
+                                    <span class="ss-langload ss-hidden" id="ss-langload">LOADING</span>
+                                </span>
                                 <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
@@ -796,6 +807,20 @@
                 var scanSpin = $('ss-selscan');
                 if (scanSpin) scanSpin.style.display = langScan.running ? 'inline-block' : 'none';
 
+                // The loading state lives *inside* the language box: its own options stay put, and
+                // the word and the real count appear over them while the lists are read.
+                var inlineLoad = $('ss-langload');
+                if (inlineLoad) {
+                    if (langScan.running) {
+                        inlineLoad.textContent = langScan.total
+                            ? 'LOADING ' + langScan.done + '/' + langScan.total
+                            : 'LOADING';
+                        inlineLoad.classList.remove('ss-hidden');
+                    } else {
+                        inlineLoad.classList.add('ss-hidden');
+                    }
+                }
+
                 var btn = $('ss-syncsel-btn');
                 var span = btn ? btn.querySelector('span') : null;
                 if (span) {
@@ -814,15 +839,8 @@
                 var langSel = $('ss-sellang');
                 if (langSel) {
                     if (langScan.running) {
-                        // The lists are still being read: an option list that says "All languages"
-                        // before anything has been read claims a completeness it does not have.
-                        var progress = langScan.total
-                            ? 'LOADING ' + langScan.done + '/' + langScan.total
-                            : 'LOADING';
-                        if (langScan.signature !== progress) {
-                            langScan.signature = progress;
-                            langSel.innerHTML = '<option value="">' + esc(progress) + '</option>';
-                        }
+                        // The lists are still being read. The box keeps its own options rather
+                        // than turning into a placeholder; the indicator sits inside it.
                         langSel.disabled = true;
                         langSel.value = '';
                     } else {
@@ -1653,10 +1671,16 @@
                         var badge = modeBadge(view.Mode || view.mode);
                         if (badge) bits.push(badge);
                         var workerLimit = view.WorkerLimit || view.workerLimit || 0;
+                        var workerSetting = view.WorkerSetting || view.workerSetting;
                         var runningVersion = view.PluginVersion || view.pluginVersion;
                         if (runningVersion) bits.push('v' + runningVersion);
                         if (workersNow > 1 || (workerLimit > 1 && total > workersNow)) {
                             bits.push(workerLimit > 0 ? workersNow + '/' + workerLimit + ' workers' : workersNow + ' workers');
+                            // If the saved setting disagrees with the limit in force, say so: that
+                            // disagreement is the one thing this line cannot show otherwise.
+                            if (workerSetting && workerSetting > 0 && workerSetting !== workerLimit) {
+                                bits.push('setting is ' + workerSetting);
+                            }
                         }
                         if (current) {
                             var cTitle = current.Title || current.title || '';

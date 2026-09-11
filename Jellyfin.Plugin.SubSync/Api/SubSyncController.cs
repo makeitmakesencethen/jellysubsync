@@ -247,6 +247,7 @@ public class SubSyncController : ControllerBase
             Mode = Services.SyncJobMode.Normalize(jobs[0].Mode),
             PluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
                 .GetName().Version?.ToString() ?? string.Empty,
+            WorkerSetting = _syncService.ConfiguredWorkerLimit,
             WorkerLimit = Services.SyncJobMode.IsParallel(Services.SyncJobMode.Normalize(jobs[0].Mode))
                 ? Math.Clamp(_syncService.EffectiveWorkerLimit, 1, Services.SubSyncService.MaxParallelWorkers)
                 : 1,
@@ -573,6 +574,12 @@ public class BatchView
     /// same number the server uses instead of carrying their own copy.
     /// </summary>
     public int WorkerCeiling { get; set; } = Services.SubSyncService.MaxParallelWorkers;
+
+    /// <summary>
+    /// Gets or sets the worker count as configured, so the page can show it beside the limit in
+    /// force and reveal any disagreement between the two.
+    /// </summary>
+    public int WorkerSetting { get; set; }
 
     /// <summary>
     /// Gets or sets the running plugin version, so the page can show which build it is talking
