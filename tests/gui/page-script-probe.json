@@ -1,0 +1,53 @@
+{
+  "what": "Does the plugin page's client script run in Jellyfin 12?",
+  "method": "Chromium (playwright) against the live test server, throwaway admin account created and deleted by the probe; the page is opened the way the web client opens it, then the page's own state, the /SubSync/* traffic and the console are read.",
+  "runs": [
+    {
+      "build": "inline <script> in subsyncMain.html",
+      "result": {
+        "window.__ssMainScriptRan": null,
+        "SubSync requests from the page": [],
+        "ss-status": "Checking status...",
+        "ss-maxoffset": "",
+        "console errors": [
+          "404 for one resource, no pageerror"
+        ]
+      },
+      "reading": "the markup is there and the script is served inside it, but nothing in it executes: no request of any kind is made, so the page is a static shell."
+    },
+    {
+      "build": "same script served from /SubSync/MainScript and referenced with <script src>",
+      "result": {
+        "request for /SubSync/MainScript": "200",
+        "probe body executed": true,
+        "console": "SUBSYNC-PROBE: external script executed",
+        "window.__ssMainScriptRan": true
+      },
+      "reading": "a script the page loads with a src is fetched and executed normally."
+    },
+    {
+      "build": "the real page script at /SubSync/MainScript",
+      "result": {
+        "pageerror": "Uncaught ReferenceError: ApiClient is not defined @/SubSync/MainScript:94",
+        "typeof window.ApiClient": "undefined at 3, 8, 15 and 22 s after the page opened",
+        "ss-status": "Checking status...",
+        "ss-maxoffset": ""
+      },
+      "reading": "the script now runs and dies on the web client's API object at its first setting read. In this instance window.ApiClient is never defined, so the page cannot read or write configuration through it."
+    },
+    {
+      "build": "after the page starts only once the client is there (whenApiReady) and build its own urls (apiUrl)",
+      "result": {
+        "pageerror": "none",
+        "SubSync requests": [
+          "GET /SubSync/ClientScript",
+          "GET /SubSync/MainScript"
+        ],
+        "typeof window.ApiClient": "undefined at 22 s",
+        "ss-status": "Checking status..."
+      },
+      "reading": "the script no longer throws, but with no ApiClient there is still no token and no plugin API to call: the page needs its own REST calls (open item)."
+    }
+  ],
+  "open": "Until the page reaches the plugin through its own endpoints (and takes its token from the web client's stored credentials when window.ApiClient is absent), its settings and history stay empty. Everything else on the page is now reachable in a browser, which is what made the F29 and mirror checks possible."
+}

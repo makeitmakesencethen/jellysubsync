@@ -1083,15 +1083,23 @@ def run_page_checks():
         dupes = {k: v for k, v in collections.Counter(ids).items() if v > 1}
         report(f'{entry} has no duplicate element ids', not dupes, str(dupes))
 
-    main_html = open(os.path.join(web, 'subsyncMain.html'), encoding='utf-8').read()
-    markup = re.sub(r'<script\b.*?</script>', '', main_html, flags=re.S)
+    raw_html = open(os.path.join(web, 'subsyncMain.html'), encoding='utf-8').read()
+    markup = re.sub(r'<script\b.*?</script>', '', raw_html, flags=re.S)
     static_ids = collections.Counter(re.findall(r'\bid="([^"]*)"', markup))
-    settings_js = main_html[main_html.find('function loadConfig'):][:4000]
+    # The page's behaviour lives in the script file it loads (see the note where `pages` is built), so
+    # every check that asks what the page does reads both; the checks that are about the markup read
+    # `raw_html`/`markup`, which the script cannot pollute.
+    main_script = open(os.path.join(web, 'subsyncMain.js'), encoding='utf-8').read()
+    main_html = raw_html + '\n' + main_script
+    settings_js = main_script[main_script.find('function loadConfig'):][:4000]
     for element_id in sorted(set(re.findall(r"\$\('([^']+)'\)", settings_js))):
         count = static_ids.get(element_id, 0)
         report(f"settings field '{element_id}' exists exactly once", count == 1, f'found {count}')
 
     report('the scope dropdown carries no fake item id', 'value="series"' not in main_html)
+    report('no page behaviour hides in the markup again',
+           not re.search(r'<script(?![^>]*\bsrc=)',
+                         open(os.path.join(web, 'subsyncMain.html'), encoding='utf-8').read()))
 
     # A checkbox in the new settings page was wired to "FastMkvExtraction", which the config model
     # never had: it rendered, remembered nothing, and controlled nothing (the engine always used the
@@ -1252,6 +1260,30 @@ def run_page_checks():
     # and are accepted by 10.11 as well, so the legacy ones must not come back.
     pages = {name: open(os.path.join(web, name), encoding='utf-8').read()
              for name in ('subsync.js', 'subsyncMain.html', 'configPage.html')}
+    # The plugin page's client script lives in its own file from 2026-09-12: Jellyfin 12 injects the
+    # plugin page as markup, and an inline <script> never executes there (measured in a real browser:
+    # the page rendered and made no request of any kind, the status line stuck on "Checking status...",
+    # while the same script loaded with a src ran and set window.__ssMainScriptRan). Every check below
+    # is about what the page *does*, so it reads the page together with the script the page loads —
+    # the raw markup is kept for the checks that are about the markup itself.
+    raw_main_html = pages['subsyncMain.html']
+    pages['subsyncMain.html'] = raw_main_html + '\n' + open(
+        os.path.join(web, 'subsyncMain.js'), encoding='utf-8').read()
+    report('the page loads its script instead of carrying it inline',
+           '/SubSync/MainScript' in raw_main_html
+           and '<script type="text/javascript">' not in raw_main_html)
+    controller_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api',
+                                          'SubSyncController.cs'), encoding='utf-8').read()
+    report('the page starts only once the web client is there',
+           'whenApiReady' in pages['subsyncMain.html']
+           and 'document.readyState === \'complete\' || document.readyState === \'interactive\') whenApiReady();'
+           in pages['subsyncMain.html']
+           and 'did not finish loading, so this page cannot read or change settings' in pages['subsyncMain.html'])
+    report('the page builds its own urls instead of needing the web client for them',
+           'fetch(apiUrl(path)' in pages['subsyncMain.html'])
+    report('the plugin serves the page script it advertises',
+           '[HttpGet("MainScript")]' in controller_source
+           and 'Web.subsyncMain.js' in controller_source)
     legacy_header = [name for name, text in pages.items()
                      if re.search(r'''\[\s*['"]X-Emby-Token['"]\s*\]\s*=''', text)]
     report('no page sends the legacy X-Emby-Token header', not legacy_header,

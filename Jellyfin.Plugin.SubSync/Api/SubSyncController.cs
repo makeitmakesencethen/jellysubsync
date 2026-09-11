@@ -487,6 +487,29 @@ public class SubSyncController : ControllerBase
         return Content(js, "application/javascript");
     }
 
+    /// <summary>
+    /// Serves the plugin page's client script.
+    /// </summary>
+    /// <remarks>
+    /// The page used to carry this script inline and a real browser showed the page rendered but inert
+    /// (no request of any kind, status line unfilled), so the script is served the same way the
+    /// item-page client is — one file the plugin owns, referenced by the page it belongs to.
+    /// </remarks>
+    /// <returns>The script, or 404 when the build did not embed it.</returns>
+    [HttpGet("MainScript")]
+    [Produces("application/javascript")]
+    [AllowAnonymous]
+    public IActionResult GetMainScript()
+    {
+        var js = GetEmbeddedResource("Jellyfin.Plugin.SubSync.Web.subsyncMain.js");
+        if (js is null)
+        {
+            return NotFound();
+        }
+
+        return Content(js, "application/javascript");
+    }
+
     private string? GetEmbeddedResource(string resourceName)
     {
         var assembly = typeof(SubSyncController).Assembly;
