@@ -1385,7 +1385,18 @@ def run_page_checks():
     report('a job is only started once its subtitle is already extracted',
            'job => ExtractionReady(job)' in service)
     report('the lane is a safety valve, not a single point of failure',
-           '_extractTask is null || _extractTask.IsCompleted' in service)
+           '!LaneAlive' in service and 'private bool LaneAlive' in service)
+    extractor_text = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                       'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
+    report('the walk fetches its route up front instead of a round trip per cluster',
+           'PrefetchWantedClusters' in extractor_text
+           and 'reader.Prefetch(ranges, PrefetchParallelism' in extractor_text
+           and 'TryReadAhead' in extractor_text
+           and 'RandomAccess.Read' in extractor_text)
+    report('several files are extracted at once, not one after another',
+           'MaxExtractionLanes' in service and '_laneTasks.Add(Task.Run(ExtractLaneAsync))' in service)
+    report('a track with no text does not leave its job queued for ever',
+           '_extractTried.ContainsKey(key)' in service)
     report('the planner asks whether a job may start, not only whether it may share',
            'policy.MayStart is not null && !policy.MayStart(candidate)' in service)
     report('the lane produces the reference track as well as the languages',

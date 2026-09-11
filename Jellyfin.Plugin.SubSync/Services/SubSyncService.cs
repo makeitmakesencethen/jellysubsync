@@ -282,6 +282,14 @@ public class SubSyncService : IDisposable
     private readonly SemaphoreSlim _extractWake = new(0);
     private readonly ConcurrentDictionary<string, byte> _passInFlight = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _extractedReady = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Extraction lanes in flight. One file per lane: a batch of episodes is otherwise eight passes
+    /// one after another (measured: S01E06 31 s, S01E07 20 s, S01E08 18 s), while the whole point of
+    /// the lane is to keep the sync workers fed. Derived from the worker limit so it scales with the
+    /// machine instead of with one particular NAS.
+    /// </summary>
+    private readonly List<Task> _laneTasks = new();
     private readonly ConcurrentDictionary<string, List<int>> _referenceOrdinals = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -292,7 +300,6 @@ public class SubSyncService : IDisposable
 
     /// <summary>When the lane last finished a pass, used to tell a lane that is gone from one that is busy.</summary>
     private DateTime _lastPassFinishedUtc = DateTime.UtcNow;
-    private Task? _extractTask;
 
     // Subtitle text extracted from a file while it was being read for another subtitle of the same
     // file. Each entry is a few kilobytes of text; the queue keeps the oldest ones out.
@@ -1430,6 +1437,15 @@ public class SubSyncService : IDisposable
             return true;
         }
 
+        // The lane ran a pass over this file and came back without this track: a picture track with no
+        // text, or an empty one. Holding the job back forever is what made the run look stuck (32
+        // queued, one running, limit 4, because only one job per file was ever ready); letting it start
+        // means it reports its own reason instead of sitting in the queue for ever.
+        if (_extractTried.ContainsKey(key))
+        {
+            return true;
+        }
+
         if (SubtitleCache.TryGet(path, context.Ordinal.ToString(CultureInfo.InvariantCulture), out var text)
             && text.Length > 0)
         {
@@ -1449,16 +1465,37 @@ public class SubSyncService : IDisposable
     /// <summary>Wakes the extraction lane, starting it if it is not running.</summary>
     private void WakeExtractor()
     {
+        var wanted = Math.Clamp(
+            (Plugin.Instance?.Configuration?.ParallelWorkers ?? DefaultParallelWorkers) / 2,
+            1,
+            MaxExtractionLanes);
+
         lock (_queueLock)
         {
-            if (_extractTask is null || _extractTask.IsCompleted)
+            _laneTasks.RemoveAll(task => task.IsCompleted);
+            while (_laneTasks.Count < wanted)
             {
-                _extractTask = Task.Run(ExtractLaneAsync);
+                _laneTasks.Add(Task.Run(ExtractLaneAsync));
             }
         }
 
         try { _extractWake.Release(); }
         catch (SemaphoreFullException) { /* already signalled */ }
+    }
+
+    /// <summary>Most extraction lanes to run at once.</summary>
+    private const int MaxExtractionLanes = 3;
+
+    /// <summary>True while at least one extraction lane is running.</summary>
+    private bool LaneAlive
+    {
+        get
+        {
+            lock (_queueLock)
+            {
+                return _laneTasks.Exists(task => !task.IsCompleted);
+            }
+        }
     }
 
     /// <summary>
@@ -1546,7 +1583,8 @@ public class SubSyncService : IDisposable
                 SubtitleCache.Prune();
                 PluginLog.Info(
                     $"extract lane: {Path.GetFileName(videoPath)} -> {results.Count}/{ordinals.Count} subtitle(s), "
-                    + $"{stats.BytesRead / 1e6:0.0} MB, {stats.ReadCalls} reads, {stats.TotalMs:0} ms, ok={ok} "
+                    + $"{stats.BytesRead / 1e6:0.0} MB, {stats.ReadCalls} reads, {stats.TotalMs:0} ms, ok={ok}, "
+                    + $"prefetched={stats.PrefetchedRanges} ranges/{stats.PrefetchedBytes / 1e6:0.0} MB "
                     + $"({DescribeExtraction(stats.Method)})");
 
                 foreach (var ordinal in ordinals)
@@ -2250,9 +2288,11 @@ public class SubSyncService : IDisposable
                         // instead of duplicating the work. The one exception is a lane that is not
                         // running at all (disposed, or died), where jobs must be able to extract for
                         // themselves rather than never start.
+                        // canShareMediaFile: a second job may join a file whose subtitle is already out.
                         job => ExtractionReady(job),
+                        // MayStart: the same, plus the escape hatch for a lane that is gone.
                         job => ExtractionReady(job)
-                            || ((_extractTask is null || _extractTask.IsCompleted)
+                            || (!LaneAlive
                                 && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)));
                 }
             }

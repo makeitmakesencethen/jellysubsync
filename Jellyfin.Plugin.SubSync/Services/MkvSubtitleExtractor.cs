@@ -18,6 +18,12 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how the subtitles were located.</summary>
     public string Method { get; set; } = "unknown";
 
+    /// <summary>Gets or sets how many byte ranges the pass fetched up front.</summary>
+    public int PrefetchedRanges { get; set; }
+
+    /// <summary>Gets or sets how many bytes those ranges held.</summary>
+    public long PrefetchedBytes { get; set; }
+
     /// <summary>Gets or sets how many bytes this extraction asked the file system for.</summary>
     public long BytesRead { get; set; }
 
@@ -615,6 +621,12 @@ public static class MkvSubtitleExtractor
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
 
+            // The cue index names every block and they are in file order, so their reads can go out
+            // together rather than one after another: measured on the user's NAS a read costs 12,8 ms
+            // whatever its size, and this loop used to issue one per cue - ~1 500 of them for an episode,
+            // about 19 s of waiting for a few hundred KB of text.
+            PrefetchCueBlocks(reader, segmentDataStart, cueRefs, cancellationToken);
+
             var seen = new HashSet<long>();
             var index = 0;
             foreach (var cueRef in cueRefs)
@@ -849,6 +861,15 @@ public static class MkvSubtitleExtractor
             }
 
             stats.ClustersVisited += byCluster.Count;
+
+            // Fetch what the walk is about to need, all at once. One round trip per cluster is what
+            // makes this slow on network storage - 12,8 ms per read on the user's NAS, ~2 000 clusters
+            // per episode, ~26 s of the 61 s pass spent waiting between reads - and the walk knows its
+            // whole route before it starts. A cluster's wanted blocks sit where the cue index says they
+            // do, a few bytes in from the cluster start, so these ranges cover them and the walk that
+            // follows costs parsing instead of waiting.
+            PrefetchWantedClusters(reader, byCluster, walkInCluster, stats, cancellationToken);
+
             foreach (var (clusterPosition, bucket) in byCluster)
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -887,6 +908,11 @@ public static class MkvSubtitleExtractor
                     // A track here can only be found by reading the cluster, so the window has to cover
                     // it; the walk below then costs parsing, not further reads.
                     reader.WindowSize = (int)Math.Clamp(extraDataEnd - extraDataStart, 4 * 1024, BlobReader.MaxWindowSize);
+
+                    // And the walk runs forward through the file, so bring in a whole chunk at once: the
+                    // clusters after this one are inside it, which turns a round trip per cluster into a
+                    // round trip per chunk.
+                    reader.SetSequentialChunk(clusterPosition, WalkChunkBytes);
                     foreach (var index in walkers)
                     {
                         var walked = wanted[index];
@@ -2072,6 +2098,211 @@ public static class MkvSubtitleExtractor
         return seen == fields ? value[index..] : value;
     }
 
+    /// <summary>How many reads the walk keeps in flight when it fetches its route up front.</summary>
+    // Deep enough to hide a network round trip per read, shallow enough that a NAS is not flooded:
+    // measured on the user's storage, a read costs 12,8 ms whatever its size, so what matters is how
+    // many can be outstanding at once.
+    private const int PrefetchParallelism = 16;
+
+    /// <summary>How much a forward walk brings in at a time.</summary>
+    // 16 MB: big enough that a walk of a 2,4 GB episode costs ~150 round trips instead of ~1 500, small
+    // enough to stay an unremarkable allocation even with several lanes running.
+    private const int WalkChunkBytes = 16 * 1024 * 1024;
+
+    /// <summary>
+    /// Fetches the bytes around every indexed block in parallel, so the per-cue loop that follows reads
+    /// from memory. The slop either side covers the cluster header between the cluster position and the
+    /// block (the offsets are relative to the cluster's data start) and the block's own payload; a range
+    /// that misses simply falls back to a read, so this can only make things faster.
+    /// </summary>
+    /// <param name="reader">Reader over the media file.</param>
+    /// <param name="segmentDataStart">Where the segment's data begins.</param>
+    /// <param name="cueRefs">Cue references from the index.</param>
+    /// <param name="cancellationToken">Cancels the prefetch.</param>
+    private static void PrefetchCueBlocks(
+        BlobReader reader,
+        long segmentDataStart,
+        List<CueRef> cueRefs,
+        CancellationToken cancellationToken)
+    {
+        const long MergeGap = 32L * 1024;
+        const long MaxRange = 4L * 1024 * 1024;
+        const long MaxTotalBytes = 192L * 1024 * 1024;
+
+        // A subtitle block is a few hundred bytes once its header is counted in; 8 KB each side is
+        // generous without turning a few hundred KB of text into tens of megabytes of reading.
+        const long CueBlockSlop = 8L * 1024;
+
+        // Below this many cues the round trips are not what costs, and the extra bytes would be a step
+        // backwards (a ten-cue file read 0,71 MB up front against 0,10 MB for walking it).
+        const int MinCuesForPrefetch = 64;
+
+        if (cueRefs.Count < MinCuesForPrefetch)
+        {
+            return;
+        }
+
+        var ranges = new List<(long Start, int Length)>();
+        var total = 0L;
+        foreach (var cueRef in cueRefs)
+        {
+            if (cueRef.RelativePosition < 0)
+            {
+                continue;
+            }
+
+            var position = segmentDataStart + cueRef.ClusterOffset;
+            if (position < 0 || position >= reader.Length)
+            {
+                continue;
+            }
+
+            var blockAt = position + cueRef.RelativePosition;
+            AddRange(
+                ranges,
+                ref total,
+                Math.Max(0, blockAt - 32),
+                Math.Min(reader.Length, blockAt + CueBlockSlop),
+                MergeGap,
+                MaxRange,
+                MaxTotalBytes);
+        }
+
+        if (ranges.Count > 0)
+        {
+            reader.Prefetch(ranges, PrefetchParallelism, cancellationToken);
+        }
+    }
+
+    /// <summary>Adds a range, merging it into the previous one when they are close enough.</summary>
+    /// <param name="ranges">Ranges collected so far.</param>
+    /// <param name="total">Running total of bytes, updated in place.</param>
+    /// <param name="start">Range start.</param>
+    /// <param name="end">Range end, exclusive.</param>
+    /// <param name="mergeGap">Gap under which two ranges become one read.</param>
+    /// <param name="maxRange">Largest range to produce.</param>
+    /// <param name="maxTotalBytes">Budget for the whole prefetch.</param>
+    private static void AddRange(
+        List<(long Start, int Length)> ranges,
+        ref long total,
+        long start,
+        long end,
+        long mergeGap,
+        long maxRange,
+        long maxTotalBytes)
+    {
+        var length = end - start;
+        if (length <= 0 || start < 0)
+        {
+            return;
+        }
+
+        if (ranges.Count > 0)
+        {
+            var (lastStart, lastLength) = ranges[^1];
+            var lastEnd = lastStart + lastLength;
+            var gap = start - lastEnd;
+            var mergedEnd = Math.Max(lastEnd, end);
+            if (gap <= mergeGap && mergedEnd - lastStart <= maxRange)
+            {
+                ranges[^1] = (lastStart, (int)(mergedEnd - lastStart));
+                total += length;
+                return;
+            }
+        }
+
+        if (total + length > maxTotalBytes)
+        {
+            return;
+        }
+
+        total += length;
+        ranges.Add((start, (int)length));
+    }
+
+    /// <summary>
+    /// Turns the walk's route into byte ranges and fetches them in parallel.
+    /// </summary>
+    /// <param name="reader">Reader over the media file.</param>
+    /// <param name="byCluster">Clusters to visit with the indexed blocks they hold.</param>
+    /// <param name="walkInCluster">Clusters needing a real walk (no usable offsets).</param>
+    /// <param name="stats">Counters for the pass.</param>
+    /// <param name="cancellationToken">Cancels the prefetch.</param>
+    private static void PrefetchWantedClusters(
+        BlobReader reader,
+        SortedDictionary<long, List<(int Index, CueRef Ref)>> byCluster,
+        SortedDictionary<long, List<int>> walkInCluster,
+        MkvExtractionStats stats,
+        CancellationToken cancellationToken)
+    {
+        const long MergeGap = 64L * 1024;
+        const long MaxRange = 8L * 1024 * 1024;
+        const long MaxTotalBytes = 384L * 1024 * 1024;
+        const long ClusterWindow = 64L * 1024;
+        const long ClusterHeaderWindow = 16L * 1024;
+
+        var ranges = new List<(long Start, int Length)>();
+        var total = 0L;
+
+        foreach (var (clusterPosition, bucket) in byCluster)
+        {
+            if (bucket.Count == 0)
+            {
+                continue;
+            }
+
+            long lowest = long.MaxValue;
+            var highest = 0L;
+            var trusted = true;
+            foreach (var (_, reference) in bucket)
+            {
+                if (reference.RelativePosition < 0)
+                {
+                    trusted = false;
+                    break;
+                }
+
+                lowest = Math.Min(lowest, reference.RelativePosition);
+                highest = Math.Max(highest, reference.RelativePosition);
+            }
+
+            long start;
+            long end;
+            if (!trusted || walkInCluster.ContainsKey(clusterPosition))
+            {
+                start = clusterPosition;
+                end = clusterPosition + ClusterWindow;
+            }
+            else
+            {
+                // Offsets are relative to the cluster's data start, a few bytes into the cluster: 128
+                // bytes of slack covers the header, and 16 KB covers the last block's own payload.
+                start = clusterPosition + lowest - 128;
+                end = clusterPosition + highest + (16 * 1024);
+            }
+
+            start = Math.Max(0, start);
+            end = Math.Min(reader.Length, end);
+
+            // The cluster's own head travels too, always. The walk parses the cluster element and its
+            // timecode before it can use any offset, and when the wanted blocks sit far enough into the
+            // cluster that the range above starts past the head, that parse was the one read per cluster
+            // still going out serially - measured: 3 318 reads against 898 prefetched ranges. A few KB
+            // at the cluster start closes it.
+            AddRange(ranges, ref total, clusterPosition, Math.Min(reader.Length, clusterPosition + ClusterHeaderWindow), MergeGap, MaxRange, MaxTotalBytes);
+            AddRange(ranges, ref total, start, end, MergeGap, MaxRange, MaxTotalBytes);
+        }
+
+        if (ranges.Count == 0)
+        {
+            return;
+        }
+
+        stats.PrefetchedRanges += ranges.Count;
+        stats.PrefetchedBytes += total;
+        reader.Prefetch(ranges, PrefetchParallelism, cancellationToken);
+    }
+
     /// <summary>
     /// Hands over every wanted track whose last cue this cluster held, so its job can start syncing
     /// while the rest of the file is still being read.
@@ -2333,11 +2564,189 @@ public static class MkvSubtitleExtractor
 
         public long Length { get; }
 
+        // Ranges fetched up front, kept sorted by start. The walk knows every cluster it needs before
+        // it begins, and one read at a time is what makes extraction slow on network storage: measured
+        // on the user's NAS, one read costs 12,8 ms no matter how big it is, and a pass needs ~2 000 of
+        // them, so ~26 s of the 61 s pass was pure waiting between reads. Issuing them together turns
+        // that into a few seconds of overlapped waiting, and the bytes are the same handful of megabytes.
+        private readonly List<(long Start, byte[] Bytes)> _ahead = new();
+
+        // A rolling window for walks, which visit clusters in file order. Reading one small window per
+        // cluster is a round trip per cluster - measured on a real episode: 1 533 reads of 4,7 KB each
+        // for a single pass, ~19 s of pure waiting on the user's NAS, because a walk that steps through
+        // the file gets no benefit at all from a bigger window per read. One big read per chunk covers
+        // every cluster inside it and the walk then costs parsing.
+        private long _seqStart = -1;
+        private byte[]? _seqBytes;
+
         /// <summary>Bytes requested from the file so far.</summary>
         public long BytesRead { get; private set; }
 
         /// <summary>Number of read calls so far.</summary>
         public int ReadCalls { get; private set; }
+
+        /// <summary>
+        /// Fetches whole ranges in parallel, so the walk that follows reads from memory instead of
+        /// waiting a round trip per cluster.
+        /// </summary>
+        /// <param name="ranges">Byte ranges to fetch, in file order; overlaps are harmless.</param>
+        /// <param name="parallelism">How many reads to keep in flight.</param>
+        /// <param name="cancellationToken">Cancels the prefetch.</param>
+        public void Prefetch(IReadOnlyList<(long Start, int Length)> ranges, int parallelism, CancellationToken cancellationToken)
+        {
+            _ahead.Clear();
+            if (ranges.Count == 0)
+            {
+                return;
+            }
+
+            var workers = Math.Clamp(parallelism, 1, 32);
+            var buckets = new List<(long Start, byte[] Bytes)>[workers];
+            for (var i = 0; i < workers; i++)
+            {
+                buckets[i] = new List<(long Start, byte[] Bytes)>();
+            }
+
+            var handle = _stream.SafeFileHandle;
+            var fetched = 0L;
+            var calls = 0;
+
+            // RandomAccess.Read is position based and safe from several threads, which is what lets
+            // these run together on one file handle.
+            Parallel.For(0, workers, new ParallelOptions { CancellationToken = cancellationToken }, worker =>
+            {
+                var mine = buckets[worker];
+                for (var i = worker; i < ranges.Count; i += workers)
+                {
+                    var (start, length) = ranges[i];
+                    if (length <= 0 || start < 0 || start >= Length)
+                    {
+                        continue;
+                    }
+
+                    var count = (int)Math.Min(length, Length - start);
+                    var buffer = new byte[count];
+                    var read = RandomAccess.Read(handle, buffer, start);
+                    if (read <= 0)
+                    {
+                        continue;
+                    }
+
+                    if (read < count)
+                    {
+                        Array.Resize(ref buffer, read);
+                    }
+
+                    mine.Add((start, buffer));
+                    Interlocked.Add(ref fetched, read);
+                    Interlocked.Increment(ref calls);
+                }
+            });
+
+            foreach (var bucket in buckets)
+            {
+                _ahead.AddRange(bucket);
+            }
+
+            _ahead.Sort((a, b) => a.Start.CompareTo(b.Start));
+            BytesRead += fetched;
+            ReadCalls += calls;
+        }
+
+        /// <summary>
+        /// Makes sure a whole chunk starting here is in memory, replacing the previous chunk. Meant for
+        /// walks, which move forward through the file and never come back.
+        /// </summary>
+        /// <param name="start">Chunk start.</param>
+        /// <param name="length">How much to bring in.</param>
+        public void SetSequentialChunk(long start, int length)
+        {
+            if (_seqBytes is not null && start >= _seqStart && start + length <= _seqStart + _seqBytes.Length)
+            {
+                return;
+            }
+
+            var count = (int)Math.Min(Math.Max(length, 1), Length - start);
+            if (count <= 0 || start < 0)
+            {
+                return;
+            }
+
+            var buffer = new byte[count];
+            var read = RandomAccess.Read(_stream.SafeFileHandle, buffer, start);
+            if (read <= 0)
+            {
+                _seqStart = -1;
+                _seqBytes = null;
+                return;
+            }
+
+            if (read < count)
+            {
+                Array.Resize(ref buffer, read);
+            }
+
+            _seqStart = start;
+            _seqBytes = buffer;
+            BytesRead += read;
+            ReadCalls++;
+        }
+
+        /// <summary>Serves a range from the bytes fetched up front, when they cover it.</summary>
+        /// <param name="position">Where to start.</param>
+        /// <param name="destination">Where the bytes go.</param>
+        /// <returns>True when the bytes were already in memory.</returns>
+        private bool TryReadAhead(long position, Span<byte> destination)
+        {
+            if (destination.Length == 0)
+            {
+                return false;
+            }
+
+            if (_seqBytes is not null
+                && position >= _seqStart
+                && position + destination.Length <= _seqStart + _seqBytes.Length)
+            {
+                _seqBytes.AsSpan((int)(position - _seqStart), destination.Length).CopyTo(destination);
+                return true;
+            }
+
+            if (_ahead.Count == 0)
+            {
+                return false;
+            }
+
+            var low = 0;
+            var high = _ahead.Count - 1;
+            var found = -1;
+            while (low <= high)
+            {
+                var mid = (low + high) / 2;
+                if (_ahead[mid].Start <= position)
+                {
+                    found = mid;
+                    low = mid + 1;
+                }
+                else
+                {
+                    high = mid - 1;
+                }
+            }
+
+            if (found < 0)
+            {
+                return false;
+            }
+
+            var (start, bytes) = _ahead[found];
+            if (position + destination.Length > start + bytes.Length)
+            {
+                return false;
+            }
+
+            bytes.AsSpan((int)(position - start), destination.Length).CopyTo(destination);
+            return true;
+        }
 
         /// <summary>
         /// Reads as much as the file has at that position. A short result means the file ends
@@ -2357,6 +2766,11 @@ public static class MkvSubtitleExtractor
             if (position < 0 || position >= Length)
             {
                 return 0;
+            }
+
+            if (TryReadAhead(position, destination))
+            {
+                return destination.Length;
             }
 
             _stream.Position = position;
@@ -2390,6 +2804,11 @@ public static class MkvSubtitleExtractor
             if (destination.Length == 0)
             {
                 return 0;
+            }
+
+            if (TryReadAhead(position, destination))
+            {
+                return destination.Length;
             }
 
             var windowSize = Math.Clamp(WindowSize, 512, MaxWindowSize);
