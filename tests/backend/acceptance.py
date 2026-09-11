@@ -107,9 +107,24 @@ def main():
         items = [args.item or drive.ITEM["series"]]
 
     tasks = []
-    for item_id in items:
-        for t in drive.tracks(item_id):
-            tasks.append({"ItemId": item_id, "SubtitleIndex": t["Index"]})
+    expansion = []
+    if args.scope in ("series", "season"):
+        # Expand server-side exactly the way the pages do (`Subtitles/Batch` with ExpandSeries), so the
+        # batch carries the tasks a person would have queued from the series page. `/SubSync/Subtitles/{id}`
+        # answers [] for a series id, and a batch built from it would silently contain nothing.
+        st, body, ms = ss.post("/SubSync/Subtitles/Batch",
+                               {"ItemIds": items, "ExpandSeries": True}, timeout=600)
+        for entry in (body or {}).get("items", []):
+            entry_tracks = entry.get("Tracks") or entry.get("tracks") or []
+            expansion.append({"item": entry.get("Name") or entry.get("Id"),
+                              "tracks": len(entry_tracks)})
+            for t in entry_tracks:
+                tasks.append({"ItemId": entry.get("Id"), "SubtitleIndex": t.get("Index")})
+        print("expansion (%s ms): %s" % (round(ms), expansion), flush=True)
+    else:
+        for item_id in items:
+            for t in drive.tracks(item_id):
+                tasks.append({"ItemId": item_id, "SubtitleIndex": t["Index"]})
 
     print("scope=%s items=%s tasks=%d workers=%s cache=%s"
           % (args.scope, items, len(tasks), args.workers, "kept" if args.no_clear else "cleared"),
@@ -167,6 +182,7 @@ def main():
         "cache": "kept" if args.no_clear else "cleared",
         "batch_id": bid,
         "tasks": len(tasks),
+        "expansion": expansion,
         "statuses": by_status,
         "completed": by_status.get("Completed", 0),
         "failed": by_status.get("Failed", 0),

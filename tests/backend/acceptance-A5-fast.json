@@ -1,0 +1,113 @@
+{
+  "label": "A5-fast",
+  "scope": "series",
+  "workers": 4,
+  "cache": "cleared",
+  "batch_id": "3624583120574c509c8e9eac8f5481bf",
+  "tasks": 100,
+  "expansion": [
+    {
+      "item": "Best Friends",
+      "tracks": 50
+    },
+    {
+      "item": "The White Whale",
+      "tracks": 50
+    }
+  ],
+  "statuses": {
+    "Failed": 2,
+    "Completed": 98
+  },
+  "completed": 98,
+  "failed": 2,
+  "wall_s": 34.9,
+  "wall_per_task_s": 0.35,
+  "failures": [
+    {
+      "index": null,
+      "status": "Failed",
+      "error": "refused: the alignment came from the reference subtitle s:1 and moved this subtitle by -59080 ms, more than the 30 s a subtitle reference is trusted for \u2014 a shift this size usually means that track is from a different cut. Nothing was written. Raise \"Maximum shift from a subtitle reference\" if the t",
+      "outcome": ""
+    },
+    {
+      "index": null,
+      "status": "Failed",
+      "error": "refused: the alignment came from the reference subtitle s:1 and moved this subtitle by -59080 ms, more than the 30 s a subtitle reference is trusted for \u2014 a shift this size usually means that track is from a different cut. Nothing was written. Raise \"Maximum shift from a subtitle reference\" if the t",
+      "outcome": ""
+    }
+  ],
+  "outputs_reported": 8,
+  "empty_or_missing_outputs": [],
+  "empty_or_missing_count": 0,
+  "source_cue_counts": [
+    582,
+    610,
+    625,
+    650,
+    684,
+    694,
+    696,
+    699,
+    709,
+    734,
+    735,
+    737,
+    742,
+    743,
+    744,
+    748,
+    757,
+    760,
+    761,
+    762,
+    763,
+    767,
+    768,
+    770,
+    772,
+    774,
+    776,
+    778,
+    779,
+    780,
+    782,
+    790,
+    792,
+    800,
+    803,
+    805,
+    810,
+    812,
+    815,
+    824,
+    846,
+    848,
+    898,
+    920
+  ],
+  "output_cue_counts": [
+    625,
+    774,
+    790,
+    812
+  ],
+  "output_cues_not_from_source": [],
+  "verification_failures": [],
+  "parity_refusals": [],
+  "cache_after": {
+    "job_dirs": 0,
+    "ref_files": 0,
+    "part_files": 0,
+    "extracted": 0,
+    "speech": 0,
+    "total_bytes": 0,
+    "other": 0
+  },
+  "cache_leftovers": [],
+  "engine_processes_alive": [],
+  "active_after": {
+    "running": [],
+    "queued": 0
+  }
+}
