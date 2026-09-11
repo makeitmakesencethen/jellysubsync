@@ -17,8 +17,16 @@ The audit this works from is `knowledge/audit-2026-09-11.md` (19 live + 60 stati
 | Media | real episode `Helikopterrånet S01E01.mkv`, 2 382 577 507 B, 2 994 s, 50 subtitle tracks; `The Helicopter Heist` series, 2 episodes × 50 tracks; 12 purpose-built fixtures (~87 MB each, from a 120 s cut with real audio and real subtitle text) |
 | Fixtures | `External Copy` (+5 s sidecar), `External Replace` (+7 s sidecar), `Single Track`, `No Index` (Cues element rewritten to Void), `Truncated` (garbage tail), `Mp4 Test` (mov_text), `Bitmap Subs` (hand-built VobSub), `Empty Track`, `Ass Track`, `MixedPatched` (every 2nd `CueRelativePosition` of the subtitle track rewritten to Void: 13 of 27 block offsets left) |
 | Fixture builder | `/opt/data/tmp/backendtest/make_fixtures.py`, `make_vobsub.py`, `ebml.py`; the mixed-index fixture uses the repo's own `tests/fixtures/patch_cues.py` |
-| Test harness | `/opt/data/tmp/backendtest/{ss,drive,rows_a,rows_c,rows_d,slow_baseline}.py`; every row appends its raw record to `evidence.jsonl` |
+| Test harness | **`tests/backend/`** (`ss.py`, `drive.py`, `rows_a/c/d.py`, `slow_baseline.py`, the fixture builders, `slowread.c`, `browser-item.js`, plus `README.md`) — moved into the repo so it is not lost with a tmp directory, as the audit's own harness was |
+| Evidence | every measurement row this report cites is committed as `tests/backend/evidence-2026-09-11.jsonl` (34 records, one JSON object per line, keyed by row name) |
 | Check suite | `python3 tests/run_checks.py` → **333 checks, 0 failures** (baseline and after the phase-2 edits) |
+
+**State of the server right now, so a later session is not misled:** the test server is running the
+**phase-2 build**, not the released artifact — the built DLL was copied over
+`/opt/data/jf12test/data/plugins/SubSync_2.0.9.0/Jellyfin.Plugin.SubSync.dll`. The §3 baseline numbers
+were taken before that copy. To re-measure the released behaviour, put the `2.0.9.0` zip's DLL back
+(or `git stash` the branch and rebuild) before running any row, and treat any number taken after this
+point as post-fix unless the DLL was restored.
 
 ### The slow-storage profile, and how it was built
 
@@ -132,8 +140,11 @@ by `AGENTS.md` as a refusal threshold but **does not exist in the codebase** (st
 `Empty Track (2026).mkv`: extraction produced no text, the job failed with the honest message
 "Subtitle verification failed — synced output is missing or empty", and the **0-byte
 `Empty Track (2026).SYNCED.eng.srt` stayed next to the video**. Jellyfin then sees a sidecar.
-*Severity:* medium. *Direction:* write to a temp name and rename only after verification, or delete
-the output on the verification failure path.
+*Severity:* medium — and it does not stay quiet: on the next library refresh Jellyfin logged
+`Error getting external streams from …/Empty Track (2026).SYNCED.eng.srt` /
+`MediaBrowser.Common.FfmpegException: ffprobe failed - streams and format are both null`, so every
+scan after a failed job re-reports it. *Direction:* write to a temp name and rename only after
+verification, or delete the output on the verification failure path.
 
 **S5 — bitmap tracks are invisible rather than refused in the UI (new).**
 `GET /SubSync/Subtitles/{bitmap item}` → `200 []`, while `/Sync` with the stream index fails with the
@@ -256,6 +267,10 @@ Slow-storage baseline is otherwise unmeasured for workers 1/2/8 (D30 blocked).
   save plus a sync; E43 is a restart with a queue; E45 needs a second user created through `/Users/New`.
   E40 (disk full) needs a small separate filesystem, which this container cannot create without root —
   it is the one row that needs the user's help.
+- **The user's own server log.** `/subsync-logs/subsync.log` (the brief's read-only evidence mount)
+  was **never read** in this session, so nothing here is corroborated against the server the product
+  actually runs on. Smallest step: compare its `extract lane:` and `job … completed` lines for a
+  bulk run against §3 and §S6.
 - **Audio-vs-sibling alignment attribution (§S8)**: run the plugin's exact argv by hand against the
   same reference file and compare the offset.
 - **The full 50-track / whole-series run to zero failures** (definition of done). The batch needed for
@@ -270,9 +285,48 @@ Slow-storage baseline is otherwise unmeasured for workers 1/2/8 (D30 blocked).
 | Replace mode keeps every backup (`NextBackupPath`, never overwrites an earlier one), the path is known before the original is touched, and the result says where the original went | D16/S1 | `.bak.subsync` present after a real replace; result text quoted above |
 | `python3 tests/run_checks.py` | — | **333 PASS, 0 FAIL** before and after |
 
-Not started: **S6** (the duplicate-pass fix — the highest-value speed change, and the one the brief's
-item (b) is about), S3, S4, S5, D15/F1/F2 authorisation (the brief makes that conditional on the
-user agreeing who may do what), and the whole of the "honest status" batch (D5/D6/D7/F27).
+| One pass per file while the extraction lane is working: `ExtractionReady` now answers "no" for a track that is not out yet while the lane has a pass in flight for that file, so a job waits instead of reading the file a second time. The "lane is gone / lane has gone quiet" escape hatch is unchanged | S6 | see the measurement below |
+
+Not started: S3, S4, S5, D15/F1/F2 authorisation (the brief makes that conditional on the user agreeing
+who may do what), and the whole of the "honest status" batch (D5/D6/D7/F27).
+
+### S6, measured before and after
+
+Same file (2.38 GB, 50 subtitle tracks), same profile (~12.9 ms per 16 KB, the plugin's own line),
+`ParallelWorkers = 4`, one batch of all 50 tracks, cache cleared first.
+
+| | Before | After |
+|---|---|---|
+| Jobs done after ~22 min | **1 Completed / 4 Running / 46 Queued** (never finished in the session) | **48 Completed / 2 Running / 0 Queued** after ~17 min, all 50 accounted for |
+| Extraction-lane work | one pass, `45/46, 970.4 MB, 3 991 reads, 473 472 ms` | two passes: `6/6, 270.7 MB, 3 596 reads, 22 651 ms` and `42/45, 972.5 MB, 3 965 reads, 472 810 ms` |
+| Job-side extraction | four jobs concurrently in `Extracting 46/47 subtitles from the Matroska index in one pass`, each reading the whole file | **one** job-side pass, sequential: `extract: method=shared-pass ms=600303 tracks=44/47 bytesRead=1125628328 readCalls=4096 clusters=2074 blocks=726 alsoBlocks=32682` |
+
+So the 4-way concurrent duplication is gone and the batch went from 1 track in 22 minutes to 48–50 in
+about the same time. What is **not** fixed, stated plainly:
+
+* one job still ran its own 600 s / 1.13 GB shared pass, i.e. the escape hatch still fires at least
+  once per batch on this profile. The total is therefore still **1.24 GB (lane) + 1.13 GB (one job)
+  ≈ 2.4 GB read for 50 tracks** where one pass (970 MB) would do;
+* the lane's cost is per **file**, not per track — `270.7 MB` for 6 tracks and `972.5 MB` for 45 of the
+  same file — so making the lane run more, smaller passes (6 tracks, then 42) is worse in bytes than a
+  single pass, which is why eliminating the job-side pass matters more than shortening the lane's;
+* the last two tracks were still in `Syncing (using another subtitle track)` — the per-job reference
+  extraction — when the measurement window closed, so "the whole series finishes with zero failures"
+  is **not yet demonstrated**.
+
+## 8b. Open questions for the user (the brief conditions two of these on agreement)
+
+1. **Authorisation (D15/F1/F2).** May the server-wide and destructive endpoints
+   (`Install`, `Kill`, `SpeechCache/Clear`, `Log`, `Jobs`, `Batches`) be restricted to administrators
+   with `[Authorize(Policy = "RequiresElevation")]` — the policy name is confirmed present in
+   `Jellyfin.Api.dll` and used by Jellyfin's own `ApiKeyController` — leaving the item-scoped
+   endpoints open to any authenticated user so the detail-page button keeps working for non-admins?
+   A household that relies on non-admin users pressing those buttons changes the answer.
+2. **Replace mode now keeps every backup** (`*.bak.subsync` next to the subtitle). Confirm that is
+   the wanted trade (a few KB per replace, never overwritten) rather than a single timestamped copy.
+3. **The +1 780 ms audio-reference result (§S8).** Should a job whose only evidence is the audio be
+   allowed to write at all, or must it be reported as unverified? This one is a product decision, not
+   a bug fix.
 
 ## 9. Suggested patching order, highest user impact first
 

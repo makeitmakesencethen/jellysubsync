@@ -1437,19 +1437,33 @@ public class SubSyncService : IDisposable
             return true;
         }
 
-        // The lane ran a pass over this file and came back without this track: a picture track with no
-        // text, or an empty one. Holding the job back forever is what made the run look stuck (32
-        // queued, one running, limit 4, because only one job per file was ever ready); letting it start
-        // means it reports its own reason instead of sitting in the queue for ever.
-        if (_extractTried.ContainsKey(key))
+        // The lane is reading this file right now, so the tracks it has not handed over yet are on
+        // their way. Starting the job anyway is what made one file be read once per worker: measured
+        // on the slow-storage profile, the lane read a 50-track episode (970.4 MB, 3 991 reads,
+        // 473 472 ms) and four jobs then each started their own "Extracting N subtitles from the
+        // Matroska index in one pass" over the same file, so the episode cost gigabytes of reads
+        // instead of one pass. Waiting costs the job nothing - it could not have started syncing
+        // before its subtitle existed - and the lane picks up the remaining ordinals the moment its
+        // current pass ends. The escape hatch below still lets jobs extract for themselves when no
+        // lane is running or the lane has gone quiet.
+        if (_passInFlight.ContainsKey(path))
         {
-            return true;
+            return false;
         }
 
         if (SubtitleCache.TryGet(path, context.Ordinal.ToString(CultureInfo.InvariantCulture), out var text)
             && text.Length > 0)
         {
             _extractedReady[key] = 0;
+            return true;
+        }
+
+        // The lane ran a pass over this file and came back without this track: a picture track with no
+        // text, or an empty one. Holding the job back forever is what made the run look stuck (32
+        // queued, one running, limit 4, because only one job per file was ever ready); letting it start
+        // means it reports its own reason instead of sitting in the queue for ever.
+        if (_extractTried.ContainsKey(key))
+        {
             return true;
         }
 
