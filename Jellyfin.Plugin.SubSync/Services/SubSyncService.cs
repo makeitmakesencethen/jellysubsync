@@ -3659,6 +3659,19 @@ public class SubSyncService : IDisposable
                 return;
             }
 
+            // Step 2b: the result is checked *before* anything is written next to the media. The engine
+            // writes an output file even when it holds nothing — an embedded track with no text is the
+            // usual case — and copying it first left a 0-byte ".SYNCED.eng.srt" in the library for a job
+            // that then failed: the next library scan logs `FfmpegException: ffprobe failed - streams and
+            // format are both null` for it, and nothing ever removes it. Nothing is copied until the
+            // engine's own output is known to hold subtitles.
+            if (!File.Exists(tempOutput) || new FileInfo(tempOutput).Length == 0)
+            {
+                throw new InvalidOperationException(
+                    "Subtitle verification failed — synced output is missing or empty. Nothing was written next to "
+                    + "the media: the engine produced no subtitles for this track.");
+            }
+
             // Step 3: Save the synced subtitle (copy mode by default — original untouched)
             if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
             {
@@ -3744,6 +3757,16 @@ public class SubSyncService : IDisposable
                 !File.Exists(job.OutputPath) ||
                 new FileInfo(job.OutputPath).Length == 0)
             {
+                // Whatever this job wrote is removed again if it does not hold subtitles: an empty sidecar
+                // left in the library is reported by every later scan ("offline ... streams and format are
+                // both null") and the user has no way to tell where it came from. The user's own file is
+                // never touched here — replace mode has its own backup and rollback.
+                if (!string.IsNullOrEmpty(job.OutputPath)
+                    && !string.Equals(job.OutputPath, subtitleStream.Path, StringComparison.Ordinal))
+                {
+                    SafeDelete(job.OutputPath);
+                }
+
                 throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
             }
 
