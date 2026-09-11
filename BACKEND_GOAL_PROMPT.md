@@ -1,3 +1,8 @@
+> **the backend-only brief — scope-limited.** For anything that touches both the backend and the GUI, work
+> from [`GOAL_PROMPT.md`](GOAL_PROMPT.md) instead: it carries both surfaces, the state of
+> play after the 2026-09-11 sessions, and one patching order. Where the two disagree,
+> `GOAL_PROMPT.md` wins.
+
 # SubSync backend — exhaustive test, speed and reliability brief
 
 You are working on the **backend of the Jellyfin plugin `Jellyfin.Plugin.SubSync`** at
