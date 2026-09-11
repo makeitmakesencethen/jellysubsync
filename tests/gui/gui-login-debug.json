@@ -1,0 +1,34 @@
+{
+ "steps": [],
+ "afterLoad": {
+  "url": "http://127.0.0.1:8096/web/#/login?serverid=e2024a61fd204d5685140e719699f5c5&url=%2Fhome",
+  "fields": [
+   "text",
+   "password",
+   "checkbox"
+  ]
+ },
+ "signInButton": true,
+ "afterSubmit": {
+  "url": "http://127.0.0.1:8096/web/#/login?serverid=e2024a61fd204d5685140e719699f5c5&url=%2Fhome",
+  "text": "Please sign in\nUser\nPassword\nRemember Me\nSign In\nUse Quick Connect\nForgot Password"
+ },
+ "authenticateResponse": {
+  "status": 401,
+  "url": "http://127.0.0.1:8096/Users/AuthenticateByName"
+ },
+ "api": {
+  "status": 401,
+  "body": "Error processing request."
+ },
+ "console": [
+  "debug: Loading plugin (via dynamic import): experimentalWarnings/plugin",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+ ]
+}

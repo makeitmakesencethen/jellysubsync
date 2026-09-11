@@ -1155,8 +1155,19 @@ def run_page_checks():
     # The panel used to update only while this page streamed a batch it started itself, so a run
     # started from the detail view left it on "Queued…" until the page was reloaded. The heartbeat
     # mirrors the server's run, and the line carries how many subtitles are done out of how many.
+    # A real browser showed what three source checks could not: the heartbeat ran, `/SubSync/Batches`
+    # reported `Running`, `document.hidden` was false — and `#ss-runbox` stayed `display: none` for a
+    # 50-task run the page had not started, because `renderMirroredBatch` filled rows into a box nobody
+    # had shown. The mirror is only real if the box that carries it, and the Cancel/Kill control inside
+    # it, actually appear.
     report('the panel mirrors a run it did not start',
            'startHeartbeat' in main_html and 'renderMirroredBatch' in main_html and 'showIdlePanel' in main_html)
+    report('the mirrored run shows the box that carries it',
+           re.search(r'function renderMirroredBatch\(view\) \{\s*\n(?:\s*//.*\n)*\s*showRunBox\(true\);',
+                     main_html) is not None)
+    report('a finished mirrored run hides that box again',
+           "if (!watchedBatchTimer && !busy && mirroredBatchId)" in main_html
+           and 'showRunBox(false);' in main_html)
     report('the run line counts finished subtitles',
            "bits.push((pos || 0) + '/' + total)" in main_html and "mirroredSummary" in main_html)
     report('the stale queued wording is gone',

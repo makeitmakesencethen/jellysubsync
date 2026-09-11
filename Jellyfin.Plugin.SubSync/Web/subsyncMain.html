@@ -1838,6 +1838,13 @@
             var mirroredSummary = '';
 
             function renderMirroredBatch(view) {
+                // A run this page did not start still needs the box that shows it: the mirrored rows,
+                // progress and the Cancel/Kill control all live inside `#ss-runbox`, and without this
+                // line the page rendered the whole run into a hidden box. Measured in a real browser:
+                // 40 s of a 50-task batch with `/SubSync/Batches` reporting `Running`, `document.hidden`
+                // false, and the run box `display: none` the whole time — no progress, and no way to
+                // cancel or kill from the page.
+                showRunBox(true);
                 var total = (view.Total != null) ? view.Total : (view.total || 0);
                 var pos = (view.Completed != null) ? view.Completed : (view.completed || 0);
                 var ok = (view.Ok != null) ? view.Ok : (view.ok || 0);
@@ -1886,6 +1893,12 @@
                     ? 'Last run finished at ' + mirroredSummary + '.'
                     : 'Nothing queued.';
                 $('ss-progress').style.width = '0%';
+                // A mirrored run that has finished takes its box with it: a state that is no longer true
+                // must stop being shown. A run this page started keeps its box (watchedBatchTimer/busy).
+                if (!watchedBatchTimer && !busy && mirroredBatchId) {
+                    showRunBox(false);
+                    mirroredBatchId = null;
+                }
             }
 
             function startHeartbeat() {
