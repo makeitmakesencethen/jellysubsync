@@ -1,0 +1,409 @@
+{
+ "label": "admin3",
+ "viewport": [
+  1600,
+  1000
+ ],
+ "steps": [
+  {
+   "name": "login-form",
+   "ok": true,
+   "value": {
+    "user": "guitest-mtxjlzho-a",
+    "url": "http://127.0.0.1:8096/web/#/home",
+    "title": "151e4ee8fdb6",
+    "loggedIn": true,
+    "body": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRe"
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "D18-main-menu",
+   "ok": true,
+   "value": {
+    "mainMenuEntries": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay",
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "Recently Added in SubSync Fixtures"
+    ],
+    "dashboardListsPlugin": true
+   },
+   "api": []
+  },
+  {
+   "name": "own-page",
+   "ok": true,
+   "value": {
+    "hasPage": true,
+    "ids": [
+     "ss-diag",
+     "ss-runbox",
+     "ss-run-label",
+     "ss-cancel",
+     "ss-progress",
+     "ss-phase",
+     "ss-workers",
+     "ss-log",
+     "ss-badge",
+     "ss-library",
+     "ss-search",
+     "ss-dataline",
+     "ss-selactions",
+     "ss-syncsel-btn",
+     "ss-sellang",
+     "ss-selscan",
+     "ss-selchips",
+     "ss-selnote",
+     "ss-list",
+     "ss-empty",
+     "ss-status",
+     "ss-identity",
+     "ss-logfile",
+     "ss-vad",
+     "ss-maxoffset",
+     "ss-maxrefoffset",
+     "ss-maxsub",
+     "ss-encoding",
+     "ss-multimode",
+     "ss-workers-input",
+     "ss-speechcache",
+     "ss-clearcache",
+     "ss-langadd",
+     "ss-langsugg",
+     "ss-langaddbtn",
+     "ss-langchips",
+     "ss-langhint",
+     "ss-fixfps",
+     "ss-gss",
+     "ss-mode"
+    ],
+    "text": "SubSync\nplaylist_playSync\nhistoryHistory\ntuneSettings\nSettings\n\nSync engine options. ffmpeg and the bundled ffsubsync are detected automatically — only change these if you know what you are doing.\n\nChecking status...\nSynchronization Settings\nsubs_then_webrtc (default)\nwebrtc\nsubs_then_auditok\naudito"
+   },
+   "api": []
+  },
+  {
+   "name": "D19-gss-checkbox",
+   "ok": true,
+   "value": {
+    "found": true,
+    "width": 13,
+    "height": 13,
+    "visible": true,
+    "display": "inline-block",
+    "opacity": "1",
+    "labelWidth": 620,
+    "clickable": true
+   },
+   "api": []
+  },
+  {
+   "name": "settings-roundtrip",
+   "ok": false,
+   "error": "Error: page.evaluate: TypeError: Cannot read properties of undefined (reading 'accessToken')\n    at eval (eval at evaluate (:311:30), <anonymous>:3:77)\n    at UtilityScript.evaluate (<anonymous>:313:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)",
+   "api": []
+  },
+  {
+   "name": "D14-film-page",
+   "ok": true,
+   "value": {
+    "buttons": [
+     {
+      "text": "SubSync Fixtures",
+      "cls": "lnkMediaFolder navMenuOption emby-button"
+     },
+     {
+      "text": "SubSync Fixtures",
+      "cls": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-t"
+     }
+    ],
+    "moreButton": true,
+    "menuItems": [
+     "Add to playlist",
+     "Download",
+     "Copy Stream URL",
+     "Media Info",
+     "Sync Subtitles"
+    ]
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "D14-click-item-action",
+   "ok": true,
+   "value": {
+    "clicked": "Sync Subtitles",
+    "dialogText": "Sync Subtitles\nPick the subtitle to synchronize. The original is never modified.\nSwedish - SUBRIP - External\nexternal file · Swedish\nSync\nForced - English - SUBRIP\nembedded · forced · English\nSync\nEnglish - SUBRIP\nembedded · English\nSync\nEnglish - SUBRIP\nembedded · English\nSync\nSDH - English - SUBRIP\nembedded · English\nSync\nArabic - SUBRIP\nembedded · Arabic\nSync\nCzech - SUBRIP\nembedded · Czech\nSync\nCzech - SUBRIP\nembedded · Czech\nSync\nDanish - SUBRIP\nembedded · Danish\nSync\nGerman - SUBRIP\nembedded · German\nSync\nGerman - SUBRIP\nembedded · German\nSync\nSDH - German - SUBRIP\nembedded · German\nSync\nGreek - SUBRIP\nembedded · Greek\nSync\nLatin American - Spanish - SUBRIP\nembedded · Spanish\nSync\nLatin American - Spanish - SUBRIP\nembedded · Spanish\nSync\nLatin American (SDH) - Spanish - SUBRIP\nembedd",
+    "api": [
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200"
+    ]
+   },
+   "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200"
+   ]
+  },
+  {
+   "name": "D14-start-from-dialog",
+   "ok": true,
+   "value": {
+    "buttons": [
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Close"
+    ],
+    "overlayText": "Sync Subtitles\nPick the subtitle to synchronize. The original is never modified.\nSwedish - SUBRIP - External\nexternal file · Swedish\nSync\nForced - English - SUBRIP\nembedded · forced · English\nSync\nEnglish - SUBRIP\nembedded · English\nSync\nEnglish - SUBRIP\nembedded · English\nSync\nSDH - English - SUBRIP\nembedded · English\nSync\nArabic - SUBRIP\nembedded · Arabic\nSync\nCzech - SUBRIP\nembedded · Czech\nSync\nCzech - SUBRIP\nembedded · Czech\nSync\nDanish - SUBRIP\nembedded · Danish\nSync\nGerman - SUBRIP\nembedd",
+    "pressed": "Sync",
+    "api": [
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200",
+     "POST /SubSync/Sync -> 200",
+     "GET /SubSync/Jobs/3902c887ab214b568b7e4297993d61e4 -> 200"
+    ]
+   },
+   "api": [
+    "POST /SubSync/Sync -> 200",
+    "GET /SubSync/Jobs/3902c887ab214b568b7e4297993d61e4 -> 200"
+   ]
+  },
+  {
+   "name": "D13-series-page",
+   "ok": true,
+   "value": {
+    "syncish": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay",
+     "Synced",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync"
+    ],
+    "url": "http://127.0.0.1:8096/web/#/details?id=cc1c47b175db6e7c4dce31ba124828cc"
+   },
+   "api": []
+  },
+  {
+   "name": "D13-click-series-sync",
+   "ok": false,
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable",
+   "api": []
+  },
+  {
+   "name": "D7-idle-polling",
+   "ok": true,
+   "value": {
+    "requestsInOneMinute": 0,
+    "byEndpoint": {}
+   },
+   "api": []
+  },
+  {
+   "name": "D4-merged-settings-page",
+   "ok": true,
+   "value": {
+    "dashboardBefore": "http://127.0.0.1:8096/web/#/home",
+    "after": "http://127.0.0.1:8096/web/configurationpage?name=subsync-main",
+    "pointerText": "SubSync\nplaylist_playSync\nhistoryHistory\ntuneSettings\nSync from your library\nchecking bundled ffsubsync…\n\nClick any movie or series to select it — the Sync options appear on that row. Movies can sync one picked subtitle or all tracks; series sync every episode of the series or of a chosen season. For a single movie or episode you can also sync straight from its detail page: ⋮ More → Sync Subtitles",
+    "pointers": []
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "F29-kill-needs-confirmation",
+   "ok": false,
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable",
+   "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200",
+    "POST /SubSync/Batch -> 200"
+   ]
+  },
+  {
+   "name": "delete-throwaway-user",
+   "ok": true,
+   "value": {
+    "deleted": true,
+    "status": 204,
+    "name": "guitest-mtxjlzho-a"
+   },
+   "api": []
+  }
+ ],
+ "api": [
+  {
+   "t": 1789166620562,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166659260,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166671184,
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "t": 1789166676310,
+   "call": "POST /SubSync/Sync",
+   "status": 200
+  },
+  {
+   "t": 1789166677887,
+   "call": "GET /SubSync/Jobs/3902c887ab214b568b7e4297993d61e4",
+   "status": 200
+  },
+  {
+   "t": 1789166788215,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166798425,
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "t": 1789166798458,
+   "call": "POST /SubSync/Batch",
+   "status": 200
+  }
+ ],
+ "console": [
+  "log: [SubSync] Client script loaded",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+  "log: [SubSync] Client script loaded",
+  "log: [SubSync] Injected \"Sync Subtitles\" for Movie Helikopterrånet S01E01",
+  "log: [SubSync] Client script loaded",
+  "warning: [ConnectionRequired] normal user attempted to access admin route"
+ ],
+ "errors": [
+  "ReferenceError: ApiClient is not defined"
+ ],
+ "shots": [
+  "admin3-01-login.png",
+  "admin3-02-d18.png",
+  "admin3-03-own-page.png",
+  "admin3-04-film-menu.png",
+  "admin3-05-item-dialog.png",
+  "admin3-05b-item-after-press.png",
+  "admin3-06-series.png"
+ ],
+ "throwaway_user": {
+  "name": "guitest-mtxjlzho-a",
+  "mode": "admin",
+  "id": "b141f271cd3d4662af33505edf91d4cf"
+ }
+}

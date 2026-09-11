@@ -1,0 +1,222 @@
+{
+ "label": "admin",
+ "viewport": [
+  1600,
+  1000
+ ],
+ "steps": [
+  {
+   "name": "login-form",
+   "ok": true,
+   "value": {
+    "user": "guitest-mtxjac3e-a",
+    "url": "http://127.0.0.1:8096/web/#/home",
+    "title": "151e4ee8fdb6",
+    "loggedIn": true,
+    "body": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRe"
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "D18-main-menu",
+   "ok": true,
+   "value": {
+    "mainMenuEntries": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay",
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "Recently Added in SubSync Fixtures"
+    ],
+    "dashboardListsPlugin": true
+   },
+   "api": []
+  },
+  {
+   "name": "own-page",
+   "ok": true,
+   "value": {
+    "hasPage": false,
+    "ids": [],
+    "text": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRecently Added in Movies\nHelikopterrånet S01E01\n \nFishmas Season 1\n2023\nWide Open in the Shape of an Enormous Fan\n2026\nSigns Test\n2026\nEmbedded Test\n2026\nTest Movie\n2026\nRecently Add"
+   },
+   "api": []
+  },
+  {
+   "name": "D19-gss-checkbox",
+   "ok": false,
+   "error": "Error: no #ss-gss in the settings markup",
+   "api": []
+  },
+  {
+   "name": "settings-roundtrip",
+   "ok": false,
+   "error": "Error: page.evaluate: SyntaxError: Failed to execute 'json' on 'Response': Unexpected end of JSON input\n    at eval (eval at evaluate (:311:30), <anonymous>:5:25)\n    at async <anonymous>:337:30",
+   "api": []
+  },
+  {
+   "name": "D14-film-page",
+   "ok": true,
+   "value": {
+    "buttons": [
+     {
+      "text": "SubSync Fixtures",
+      "cls": "lnkMediaFolder navMenuOption emby-button"
+     },
+     {
+      "text": "SubSync Fixtures",
+      "cls": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-t"
+     }
+    ],
+    "moreButton": true,
+    "menuItems": [
+     "Add to playlist",
+     "Download",
+     "Copy Stream URL",
+     "Media Info",
+     "Sync Subtitles"
+    ]
+   },
+   "api": []
+  },
+  {
+   "name": "D14-click-item-action",
+   "ok": true,
+   "value": {
+    "clicked": "SubSync Fixtures",
+    "dialogText": null,
+    "api": [
+     "GET /SubSync/ClientScript -> 200"
+    ]
+   },
+   "api": []
+  },
+  {
+   "name": "D13-series-page",
+   "ok": true,
+   "value": {
+    "syncish": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay"
+    ],
+    "url": "http://127.0.0.1:8096/web/#/details?id=cc1c47b175db6e7c4dce31ba124828cc"
+   },
+   "api": []
+  },
+  {
+   "name": "D13-click-series-sync",
+   "ok": true,
+   "value": {
+    "clicked": null,
+    "dialogText": null,
+    "api": [
+     "GET /SubSync/ClientScript -> 200"
+    ]
+   },
+   "api": []
+  },
+  {
+   "name": "D7-idle-polling",
+   "ok": true,
+   "value": {
+    "requestsInOneMinute": 0,
+    "byEndpoint": {}
+   },
+   "api": []
+  },
+  {
+   "name": "D4-merged-settings-page",
+   "ok": true,
+   "value": {
+    "dashboardBefore": "http://127.0.0.1:8096/web/#/home",
+    "after": "http://127.0.0.1:8096/web/#/home",
+    "pointerText": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRecently Added in Movies\nHelikopterrånet S01E01\n \nFishmas Season 1\n2023\nWide Open in the Shape of an Enormous Fan\n2026\nSigns Test\n2026\nEmbedded Test\n2026\nTest Movie\n2026\nRecently Added in Shows\n2\nThe Helicopter Heist\n2024\nRecently Added in Slow Storage\nSlow Single Track\n2026\nHeliko",
+    "pointers": [
+     "SubSync Fixtures\n                                   #/movies?topParentId=6e12d88",
+     "SubSync Fixtures #/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectio",
+     "SubSync Fixtures #/movies?topParentId=6e12d888b24506af0978b97da66979b1&collectio",
+     "Recently Added in SubSync Fixtures #/movies?topParentId=6e12d888b24506af0978b97d"
+    ]
+   },
+   "api": []
+  },
+  {
+   "name": "F29-kill-needs-confirmation",
+   "ok": true,
+   "value": {
+    "queued": {
+     "status": 200,
+     "tasks": 50,
+     "batch": "01fe40a1024c4003a6de5a2cb994f1b3"
+    },
+    "reachedKillMode": false,
+    "armed": null,
+    "killed": null
+   },
+   "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200",
+    "POST /SubSync/Batch -> 200"
+   ]
+  },
+  {
+   "name": "delete-throwaway-user",
+   "ok": true,
+   "value": {
+    "deleted": true,
+    "status": 204,
+    "name": "guitest-mtxjac3e-a"
+   },
+   "api": []
+  }
+ ],
+ "api": [
+  {
+   "t": 1789166077244,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166217768,
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "t": 1789166217802,
+   "call": "POST /SubSync/Batch",
+   "status": 200
+  }
+ ],
+ "console": [
+  "log: [SubSync] Client script loaded",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "error: Failed to load resource: the server responded with a status of 403 (Forbidden)",
+  "log: [SubSync] Injected \"Sync Subtitles\" for Movie Helikopterrånet S01E01",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "warning: [ConnectionRequired] normal user attempted to access admin route"
+ ],
+ "errors": [],
+ "shots": [
+  "admin-01-login.png",
+  "admin-02-d18.png",
+  "admin-03-own-page.png",
+  "admin-04-film-menu.png",
+  "admin-05-item-dialog.png",
+  "admin-06-series.png",
+  "admin-07-series-after-click.png"
+ ],
+ "throwaway_user": {
+  "name": "guitest-mtxjac3e-a",
+  "mode": "admin",
+  "id": "f2042b11a4c042e0b6dcc922dc39c2b2"
+ }
+}

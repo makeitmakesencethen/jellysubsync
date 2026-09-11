@@ -1,0 +1,51 @@
+{
+ "label": "warm",
+ "api": [
+  {
+   "call": "GET /SubSync/ClientScript",
+   "t": 1789167256590,
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "t": 1789167275168,
+   "status": 200
+  },
+  {
+   "call": "POST /SubSync/Batch",
+   "t": 1789167275202,
+   "status": 200
+  }
+ ],
+ "presses": [],
+ "cacheClearedStatus": "kept (WARM=1)",
+ "queued": {
+  "status": 200,
+  "tasks": 50,
+  "batch": "bd2025692d6c4490b4d40404ce49b587"
+ },
+ "observations": 171,
+ "firstObservation": {
+  "t": 1789167275426,
+  "visible": false,
+  "label": "Cancel",
+  "runBox": {
+   "hiddenClass": true,
+   "display": "none",
+   "visibility": "visible",
+   "height": 0
+  }
+ },
+ "lastObservation": {
+  "t": 1789167395280,
+  "visible": false,
+  "label": "Cancel",
+  "runBox": {
+   "hiddenClass": true,
+   "display": "none",
+   "visibility": "visible",
+   "height": 0
+  }
+ },
+ "whileRunning": null
+}

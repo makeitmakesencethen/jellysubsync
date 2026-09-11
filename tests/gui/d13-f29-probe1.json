@@ -1,0 +1,169 @@
+{
+ "label": "probe1",
+ "series": {
+  "controls": {
+   "total": 88,
+   "byText": {
+    "2": 1,
+    "Home": 1,
+    "Movies": 2,
+    "Shows": 2,
+    "Slow Storage": 2,
+    "SubSync Fixtures": 2,
+    "Settings": 1,
+    "Sign Out": 1,
+    "151e4ee8fdb6": 1,
+    "Favorites": 1,
+    "SyncPlay": 1,
+    "Cast to Device": 1,
+    "Search": 1,
+    "User Menu": 1,
+    "Sign In": 1,
+    "Cancel": 1,
+    "Manual Login": 1,
+    "Use Quick Connect": 1,
+    "Forgot Password": 1,
+    "Change Server": 1,
+    "Show more": 1,
+    "based on novel or book": 1,
+    "stockholm, sweden": 1,
+    "based on true story": 1,
+    "heist": 1,
+    "miniseries": 1,
+    "2000s": 1,
+    "IMDb": 1,
+    "TMDB": 1,
+    "Ronnie Sandahl": 6,
+    "Daniel Espinosa": 3,
+    "Jonas Alexander Arnby": 3,
+    "Anna Zackrisson": 3,
+    "Netflix": 1,
+    "B-Reel Films": 1,
+    "Action & Adventure": 1,
+    "Drama": 1,
+    "Crime": 1,
+    "Best Friends": 1,
+    "S1:E1 - Best Friends": 1,
+    "Season 1": 1,
+    "Mahmut Suvakci": 2,
+    "Ardalan Esmaili": 2,
+    "Iskra Kostic": 2,
+    "Erik Svedberg-Zelman": 2,
+    "Vic Carmen Sonne": 2,
+    "Johanna Hedberg": 2,
+    "Elmira Arikan": 2,
+    "Dejan Milacic": 2,
+    "Samantha Tell": 2,
+    "Martha Hernandez Esteban": 2,
+    "Alba Tonini": 2,
+    "Adrian Zarabozo Santos": 2,
+    "Weronica Lium": 2,
+    "Veronica Tiren": 2,
+    "Noomi Bonelli": 2,
+    "Johannes Åhlund": 2
+   },
+   "syncish": [
+    {
+     "text": "SubSync Fixtures",
+     "cls": "lnkMediaFolder navMenuOption emby-button",
+     "visible": false
+    },
+    {
+     "text": "SubSync Fixtures",
+     "cls": "MuiButtonBase-root MuiButton-root MuiBut",
+     "visible": true
+    },
+    {
+     "text": "SyncPlay",
+     "cls": "MuiButtonBase-root MuiIconButton-root Mu",
+     "visible": true
+    }
+   ]
+  },
+  "menuAttempts": [
+   {
+    "selector": ".btnMoreCommands",
+    "before": 9,
+    "items": [
+     "Add to playlist",
+     "Download All",
+     "Sync all episodes"
+    ]
+   }
+  ],
+  "bulkClicked": "Sync all episodes",
+  "bulkDialogText": "Sync all episodes\nThe Helicopter Heist — 2 episodes, 1 season\nSCOPE\nWhole series — 2 episodes\nSeason 1 — 2 episodes\nSUBTITLES TO SYNC\nAll languages — 100 tracks\nArabic — 2 episodes, 2 tracks\nCzech — 2 episodes, 4 tracks\nDanish — 2 episodes, 2 tracks\nGerman — 2 episodes, 6 tracks\nGreek — 2 episodes, 2 tracks\nEnglish — 2 episodes, 8 tracks, 2 forced\nFIL — 2 episodes, 2 tracks\nFinnish — 2 episodes, 2",
+  "apiAfterBulkOpen": [
+   "GET /SubSync/ClientScript -> 200",
+   "POST /SubSync/Subtitles/Batch -> 200"
+  ],
+  "pressed": "Sync",
+  "apiAfterBulkPress": [
+   "GET /SubSync/ClientScript -> 200",
+   "POST /SubSync/Subtitles/Batch -> 200",
+   "POST /SubSync/Batch -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200",
+   "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961 -> 200"
+  ],
+  "dialogAfterPress": "Sync all episodes\nThe Helicopter Heist — 2 episodes, 1 season\nSCOPE\nWhole series — 2 episodes\nSeason 1 — 2 episodes\nSUBTITLES TO SYNC\nAll languages — 100 tracks\nArabic — 2 episodes, 2 tracks\nCzech — 2 episodes, 4 tracks\nDanish — 2 episodes, 2 tracks\nGerman — 2 episodes, 6 tracks\nGreek — 2 episodes, "
+ },
+ "kill": {
+  "queued": {
+   "status": 200,
+   "tasks": 50,
+   "batch": "7baf22cf55b44c2eb802ce309a9a964a"
+  },
+  "buttonVisibleWhileRunning": false
+ },
+ "api": [
+  {
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "call": "POST /SubSync/Subtitles/Batch",
+   "status": 200
+  },
+  {
+   "call": "POST /SubSync/Batch",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Batch/4b87640e94fa471783b72de51d602961",
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "call": "POST /SubSync/Batch",
+   "status": 200
+  }
+ ],
+ "loggedIn": true
+}

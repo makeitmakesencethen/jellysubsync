@@ -1,0 +1,28 @@
+{
+ "label": "probe1",
+ "api": [
+  {
+   "call": "GET /SubSync/ClientScript",
+   "t": 1789167068856,
+   "status": 200
+  },
+  {
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "t": 1789167087464,
+   "status": 200
+  },
+  {
+   "call": "POST /SubSync/Batch",
+   "t": 1789167087495,
+   "status": 200
+  }
+ ],
+ "presses": [],
+ "cacheClearedStatus": 200,
+ "queued": {
+  "status": 200,
+  "tasks": 50,
+  "batch": "b20b906c076e4a15991ce7f787f82168"
+ },
+ "whileRunning": null
+}

@@ -1,0 +1,323 @@
+{
+ "label": "admin2",
+ "viewport": [
+  1600,
+  1000
+ ],
+ "steps": [
+  {
+   "name": "login-form",
+   "ok": true,
+   "value": {
+    "user": "guitest-mtxjj19a-a",
+    "url": "http://127.0.0.1:8096/web/#/home",
+    "title": "151e4ee8fdb6",
+    "loggedIn": true,
+    "body": "151e4ee8fdb6\nFavorites\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nMy Media\nMovies\nShows\nSlow Storage\nSubSync Fixtures\nRe"
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "D18-main-menu",
+   "ok": true,
+   "value": {
+    "mainMenuEntries": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay",
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "Recently Added in SubSync Fixtures"
+    ],
+    "dashboardListsPlugin": true
+   },
+   "api": []
+  },
+  {
+   "name": "own-page",
+   "ok": true,
+   "value": {
+    "hasPage": true,
+    "ids": [
+     "ss-diag",
+     "ss-runbox",
+     "ss-run-label",
+     "ss-cancel",
+     "ss-progress",
+     "ss-phase",
+     "ss-workers",
+     "ss-log",
+     "ss-badge",
+     "ss-library",
+     "ss-search",
+     "ss-dataline",
+     "ss-selactions",
+     "ss-syncsel-btn",
+     "ss-sellang",
+     "ss-selscan",
+     "ss-selchips",
+     "ss-selnote",
+     "ss-list",
+     "ss-empty",
+     "ss-status",
+     "ss-identity",
+     "ss-logfile",
+     "ss-vad",
+     "ss-maxoffset",
+     "ss-maxrefoffset",
+     "ss-maxsub",
+     "ss-encoding",
+     "ss-multimode",
+     "ss-workers-input",
+     "ss-speechcache",
+     "ss-clearcache",
+     "ss-langadd",
+     "ss-langsugg",
+     "ss-langaddbtn",
+     "ss-langchips",
+     "ss-langhint",
+     "ss-fixfps",
+     "ss-gss",
+     "ss-mode"
+    ],
+    "text": "SubSync\nplaylist_playSync\nhistoryHistory\ntuneSettings\nSync from your library\nchecking bundled ffsubsync…\n\nClick any movie or series to select it — the Sync options appear on that row. Movies can sync one picked subtitle or all tracks; series sync every episode of the series or of a chosen season. Fo"
+   },
+   "api": []
+  },
+  {
+   "name": "D19-gss-checkbox",
+   "ok": true,
+   "value": {
+    "found": true,
+    "width": 0,
+    "height": 0,
+    "visible": false,
+    "display": "inline-block",
+    "opacity": "1",
+    "labelWidth": 0,
+    "clickable": true
+   },
+   "api": []
+  },
+  {
+   "name": "settings-roundtrip",
+   "ok": false,
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable",
+   "api": []
+  },
+  {
+   "name": "D14-film-page",
+   "ok": true,
+   "value": {
+    "buttons": [
+     {
+      "text": "SubSync Fixtures",
+      "cls": "lnkMediaFolder navMenuOption emby-button"
+     },
+     {
+      "text": "SubSync Fixtures",
+      "cls": "MuiButtonBase-root MuiButton-root MuiButton-text MuiButton-t"
+     }
+    ],
+    "moreButton": true,
+    "menuItems": [
+     "Add to playlist",
+     "Download",
+     "Copy Stream URL",
+     "Media Info",
+     "Sync Subtitles"
+    ]
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "D14-click-item-action",
+   "ok": true,
+   "value": {
+    "clicked": "Sync Subtitles",
+    "dialogText": null,
+    "api": [
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/ClientScript -> 200",
+     "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200"
+    ]
+   },
+   "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200"
+   ]
+  },
+  {
+   "name": "D13-series-page",
+   "ok": true,
+   "value": {
+    "syncish": [
+     "SubSync Fixtures",
+     "SubSync Fixtures",
+     "SyncPlay",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync",
+     "Sync"
+    ],
+    "url": "http://127.0.0.1:8096/web/#/details?id=cc1c47b175db6e7c4dce31ba124828cc"
+   },
+   "api": []
+  },
+  {
+   "name": "D13-click-series-sync",
+   "ok": false,
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable",
+   "api": []
+  },
+  {
+   "name": "D7-idle-polling",
+   "ok": true,
+   "value": {
+    "requestsInOneMinute": 0,
+    "byEndpoint": {}
+   },
+   "api": []
+  },
+  {
+   "name": "D4-merged-settings-page",
+   "ok": true,
+   "value": {
+    "dashboardBefore": "http://127.0.0.1:8096/web/#/home",
+    "after": "http://127.0.0.1:8096/web/configurationpage?name=subsync-main",
+    "pointerText": "SubSync\nplaylist_playSync\nhistoryHistory\ntuneSettings\nSync from your library\nchecking bundled ffsubsync…\n\nClick any movie or series to select it — the Sync options appear on that row. Movies can sync one picked subtitle or all tracks; series sync every episode of the series or of a chosen season. For a single movie or episode you can also sync straight from its detail page: ⋮ More → Sync Subtitles",
+    "pointers": []
+   },
+   "api": [
+    "GET /SubSync/ClientScript -> 200"
+   ]
+  },
+  {
+   "name": "F29-kill-needs-confirmation",
+   "ok": false,
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable",
+   "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2 -> 200",
+    "POST /SubSync/Batch -> 200"
+   ]
+  },
+  {
+   "name": "delete-throwaway-user",
+   "ok": true,
+   "value": {
+    "deleted": true,
+    "status": 204,
+    "name": "guitest-mtxjj19a-a"
+   },
+   "api": []
+  }
+ ],
+ "api": [
+  {
+   "t": 1789166483688,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166545893,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166557773,
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "t": 1789166668253,
+   "call": "GET /SubSync/ClientScript",
+   "status": 200
+  },
+  {
+   "t": 1789166678482,
+   "call": "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "status": 200
+  },
+  {
+   "t": 1789166678519,
+   "call": "POST /SubSync/Batch",
+   "status": 200
+  }
+ ],
+ "console": [
+  "log: [SubSync] Client script loaded",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "error: WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "warning: [ConnectionRequired] normal user attempted to access admin route",
+  "error: Failed to load resource: the server responded with a status of 404 (Not Found)",
+  "log: [SubSync] Client script loaded",
+  "log: [SubSync] Injected \"Sync Subtitles\" for Movie Helikopterrånet S01E01",
+  "log: [SubSync] Client script loaded",
+  "warning: [ConnectionRequired] normal user attempted to access admin route"
+ ],
+ "errors": [],
+ "shots": [
+  "admin2-01-login.png",
+  "admin2-02-d18.png",
+  "admin2-03-own-page.png",
+  "admin2-04-film-menu.png",
+  "admin2-05-item-dialog.png",
+  "admin2-06-series.png"
+ ],
+ "throwaway_user": {
+  "name": "guitest-mtxjj19a-a",
+  "mode": "admin",
+  "id": "55e9c16040ae4737ab484dca0f3a5b17"
+ }
+}
