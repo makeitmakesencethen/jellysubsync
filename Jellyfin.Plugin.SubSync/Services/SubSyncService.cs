@@ -266,7 +266,11 @@ public class SubSyncService : IDisposable
     private readonly object _queueLock = new();
     private readonly List<SyncJob> _runOrder = new();
     private Task? _pumpTask;
-    private readonly SemaphoreSlim _wakePump = new(0, 1);
+    // Unbounded on purpose. With a bounded semaphore, several wakes collapse into one and the pump
+    // can consume the signal before the job that needed it finishes, so the next completion had to
+    // wait for something else to wake it - dispatch lines 19 seconds apart while eight slots sat
+    // idle. Extra signals only cost an empty pass or two.
+    private readonly SemaphoreSlim _wakePump = new(0);
     private readonly ConcurrentDictionary<string, (Video Video, MediaBrowser.Model.Entities.MediaStream Stream, int Ordinal, Configuration.PluginConfiguration Config)> _jobContexts = new();
 
     // Per-job cancellation. Cancelling a batch only drops queued work; killing running
@@ -3157,7 +3161,33 @@ public class SubSyncService : IDisposable
                     job.Progress = 0.05 + (0.15 * fraction); // 5% → 20% is the extraction window
                 }
             });
-            if (MkvSubtitleExtractor.TryExtract(videoPath, subtitleOrdinal, out var srt, out var why, progress, out var stats, cancellationToken))
+            // The extraction is synchronous, blocking IO on the media share, and it runs for tens of
+            // seconds. On a pool thread it starves everything else the server is doing - including
+            // the request that is still queueing the rest of the batch, which is why a 50-task batch
+            // trickled in a few tasks every few seconds and the scheduler never saw a full queue. A
+            // dedicated thread costs nothing here and leaves the pool for requests.
+            var extractedText = string.Empty;
+            var extractionReason = string.Empty;
+            var extractionStats = new MkvExtractionStats();
+            var extracted = await Task.Factory.StartNew(
+                () => MkvSubtitleExtractor.TryExtract(
+                    videoPath,
+                    subtitleOrdinal,
+                    out extractedText,
+                    out extractionReason,
+                    progress,
+                    out extractionStats,
+                    null,
+                    null,
+                    cancellationToken),
+                cancellationToken,
+                TaskCreationOptions.LongRunning,
+                TaskScheduler.Default).ConfigureAwait(false);
+
+            var srt = extractedText;
+            var why = extractionReason;
+            var stats = extractionStats;
+            if (extracted)
             {
                 await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(

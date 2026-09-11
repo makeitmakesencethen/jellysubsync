@@ -30,6 +30,15 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how many subtitle blocks were decoded.</summary>
     public int SubtitleBlocks { get; set; }
 
+    /// <summary>
+    /// Gets or sets how many further subtitle tracks this pass also produced, from the same read of
+    /// the file. Zero means the pass served a single track.
+    /// </summary>
+    public int AlsoTracks { get; set; }
+
+    /// <summary>Gets or sets how many subtitle blocks those further tracks contributed.</summary>
+    public int AlsoBlocks { get; set; }
+
     /// <summary>Gets or sets how many cue points the index held (all tracks).</summary>
     public long CuePoints { get; set; }
 
@@ -71,6 +80,13 @@ public sealed class MkvExtractionStats
             TotalMs,
             LocateMs,
             ReadMs)
+        + (AlsoTracks > 0
+            ? string.Format(
+                CultureInfo.InvariantCulture,
+                " shared with {0} more track(s), {1} blocks",
+                AlsoTracks,
+                AlsoBlocks)
+            : string.Empty)
         + string.Format(
             CultureInfo.InvariantCulture,
             " | {0:0.0} ms/read, {1:0} blocks/s, kernel {2} bytes in {3} calls",
@@ -209,6 +225,11 @@ public static class MkvSubtitleExtractor
     /// <param name="reason">Why extraction was skipped, when it returns false.</param>
     /// <param name="progress">Called with a short status line while the file is being read.</param>
     /// <param name="stats">What the extraction cost.</param>
+    /// <param name="alsoExtract">
+    /// Further subtitle tracks of the same file to produce from this same read. They land in
+    /// <paramref name="alsoResults"/>; the track above is still the one that decides success.
+    /// </param>
+    /// <param name="alsoResults">Extracted SRT text per ordinal for those further tracks.</param>
     /// <param name="cancellationToken">Cancels a long read (Kill in the UI).</param>
     /// <returns>True when a complete SRT was produced.</returns>
     public static bool TryExtract(
@@ -218,6 +239,8 @@ public static class MkvSubtitleExtractor
         out string reason,
         Action<string>? progress,
         out MkvExtractionStats stats,
+        IReadOnlyList<int>? alsoExtract = null,
+        Dictionary<int, string>? alsoResults = null,
         CancellationToken cancellationToken = default)
     {
         srtText = string.Empty;
@@ -232,7 +255,16 @@ public static class MkvSubtitleExtractor
             // buffered refill. Without this, a metadata walk of a 60 GB file reads the file.
             using var stream = new FileStream(videoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 0);
             reader = new BlobReader(stream);
-            var result = Extract(reader, subtitleOrdinal, progress, out srtText, out reason, stats, cancellationToken);
+            var result = Extract(
+                reader,
+                subtitleOrdinal,
+                progress,
+                out srtText,
+                out reason,
+                stats,
+                alsoExtract,
+                alsoResults,
+                cancellationToken);
             stats.BytesRead = reader.BytesRead;
 
         // The summary must carry the same numbers as the live lines; "unknown" where a number
@@ -258,6 +290,71 @@ public static class MkvSubtitleExtractor
         }
     }
 
+    /// <summary>
+    /// Extracts several embedded text subtitle tracks of one file in a single pass over it.
+    /// </summary>
+    /// <remarks>
+    /// Reading a file's clusters once and taking every requested track out of them is what makes a
+    /// multi-language episode affordable: the alternative visits the same clusters once per track.
+    /// Tracks this pass cannot serve (no index entries, no block offsets, not text) are left out of
+    /// <paramref name="results"/> so the caller can extract those on their own.
+    /// </remarks>
+    /// <param name="videoPath">Path of the media file (must be Matroska).</param>
+    /// <param name="subtitleOrdinals">
+    /// 0-based ordinals among the file's subtitle tracks, as ffmpeg's <c>0:s:N</c>.
+    /// </param>
+    /// <param name="results">Extracted SRT text per ordinal, for the tracks that were produced.</param>
+    /// <param name="reason">Why nothing could be extracted, when it returns false.</param>
+    /// <param name="stats">What the pass cost (including the extra tracks).</param>
+    /// <param name="cancellationToken">Cancels a long read (Kill in the UI).</param>
+    /// <returns>True when at least one requested track was extracted.</returns>
+    public static bool TryExtractMany(
+        string videoPath,
+        IReadOnlyList<int> subtitleOrdinals,
+        out Dictionary<int, string> results,
+        out string reason,
+        out MkvExtractionStats stats,
+        CancellationToken cancellationToken = default)
+    {
+        results = new Dictionary<int, string>();
+        stats = new MkvExtractionStats();
+        if (subtitleOrdinals.Count == 0)
+        {
+            reason = "no subtitle tracks requested";
+            return false;
+        }
+
+        var primary = subtitleOrdinals[0];
+        var extras = subtitleOrdinals.Where(o => o != primary).ToList();
+        var ok = TryExtract(
+            videoPath,
+            primary,
+            out var primaryText,
+            out reason,
+            null,
+            out stats,
+            extras,
+            results,
+            cancellationToken);
+
+        if (ok && primaryText.Length > 0)
+        {
+            results[primary] = primaryText;
+        }
+
+        if (results.Count == 0)
+        {
+            return false;
+        }
+
+        if (!ok)
+        {
+            reason = $"track {primary} failed ({reason}); {results.Count} other track(s) extracted";
+        }
+
+        return true;
+    }
+
     private static bool Extract(
         BlobReader reader,
         int subtitleOrdinal,
@@ -265,6 +362,8 @@ public static class MkvSubtitleExtractor
         out string srtText,
         out string reason,
         MkvExtractionStats stats,
+        IReadOnlyList<int>? alsoExtract,
+        Dictionary<int, string>? alsoResults,
         CancellationToken cancellationToken = default)
     {
         srtText = string.Empty;
@@ -450,10 +549,11 @@ public static class MkvSubtitleExtractor
         // --- 4. Where does that track live? Cue index first, scan otherwise ---
         var cues = new List<Cue>();
         List<CueRef> cueRefs = new();
+        byte[]? cueBuffer = null;
 
         if (cuesDataStart > 0 && cuesSize > 0 && cuesSize <= MaxIndexBytes)
         {
-            var cueBuffer = reader.ReadRegion(cuesDataStart, cuesSize);
+            cueBuffer = reader.ReadRegion(cuesDataStart, cuesSize);
             cueRefs = ParseCueRefs(cueBuffer, track.TrackNumber, out var cuePoints);
             stats.CuePoints = cuePoints;
         }
@@ -574,6 +674,112 @@ public static class MkvSubtitleExtractor
             }
         }
 
+        // --- 4b. Other subtitle tracks of the same file, in the same pass -----------------
+        // A file with fifty languages would otherwise pay the cluster reads fifty times. The cue
+        // index is already in memory, so every requested track's cue points come out of it for
+        // free; the clusters are then visited once in file order, with one header read per cluster
+        // and the blocks of every requested track read from the same window. The primary track
+        // above is extracted exactly as before: this only adds tracks that were asked for, and a
+        // track that cannot be served here is simply left out so the caller can do it alone.
+        if (alsoExtract is { Count: > 0 } && alsoResults is not null && cueBuffer is not null)
+        {
+            // Neighbouring subtitle blocks of different tracks sit next to each other in a cluster,
+            // so one wider read serves several of them where 4 KB served one.
+            reader.WindowSize = 64 * 1024;
+
+            var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
+            var byCluster = new SortedDictionary<long, List<(int Index, CueRef Ref)>>();
+
+            foreach (var ordinal in alsoExtract)
+            {
+                if (ordinal == subtitleOrdinal || ordinal < 0 || ordinal >= subtitleTracks.Count)
+                {
+                    continue;
+                }
+
+                var extra = subtitleTracks[ordinal];
+                if (!extra.IsText || extra.Compressed || extra.TrackNumber == track.TrackNumber)
+                {
+                    continue;
+                }
+
+                var extraRefs = ParseCueRefs(cueBuffer, extra.TrackNumber, out _);
+                if (extraRefs.Count == 0)
+                {
+                    continue; // no index entries for it: the caller extracts that one on its own
+                }
+
+                var index = wanted.Count;
+                wanted.Add((ordinal, extra, new List<Cue>()));
+                foreach (var reference in extraRefs)
+                {
+                    if (reference.RelativePosition < 0)
+                    {
+                        continue; // index without block offsets: not usable in a shared pass
+                    }
+
+                    var clusterPosition = segmentDataStart + reference.ClusterOffset;
+                    if (clusterPosition < 0 || clusterPosition >= reader.Length)
+                    {
+                        continue;
+                    }
+
+                    if (!byCluster.TryGetValue(clusterPosition, out var bucket))
+                    {
+                        bucket = new List<(int Index, CueRef Ref)>();
+                        byCluster[clusterPosition] = bucket;
+                    }
+
+                    bucket.Add((index, reference));
+                }
+            }
+
+            stats.ClustersVisited += byCluster.Count;
+            foreach (var (clusterPosition, bucket) in byCluster)
+            {
+                if (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+
+                if (!TryReadClusterHeader(reader, clusterPosition, out var extraDataStart, out var extraDataEnd)
+                    || !TryReadClusterTimecode(reader, extraDataStart, extraDataEnd, out var extraTimecode))
+                {
+                    continue;
+                }
+
+                foreach (var (index, reference) in bucket)
+                {
+                    var target = wanted[index];
+                    ReadBlockAtRelative(
+                        reader,
+                        extraDataStart,
+                        extraDataEnd,
+                        reference.RelativePosition,
+                        extraTimecode,
+                        target.Track,
+                        target.Cues);
+                }
+            }
+
+            foreach (var (ordinal, _, extraCues) in wanted)
+            {
+                if (extraCues.Count == 0)
+                {
+                    continue;
+                }
+
+                extraCues.Sort((a, b) => a.StartMs.CompareTo(b.StartMs));
+                var extraText = ToSrt(extraCues);
+                if (extraText.Length > 0)
+                {
+                    alsoResults[ordinal] = extraText;
+                    stats.AlsoTracks++;
+                    stats.AlsoBlocks += extraCues.Count;
+                }
+            }
+        }
+
         readWatch.Stop();
         stats.ReadMs = readWatch.Elapsed.TotalMilliseconds;
 
@@ -678,17 +884,8 @@ public static class MkvSubtitleExtractor
         List<Cue> cues,
         MkvExtractionStats stats)
     {
-        if (!reader.TryReadElementHeaderAt(clusterPosition, out var clusterId, out var clusterSize, out var clusterHeader)
-            || clusterId != IdCluster
-            || clusterSize == ulong.MaxValue)
-        {
-            return false;
-        }
-
-        var clusterDataStart = clusterPosition + clusterHeader;
-        var clusterEnd = clusterDataStart + (long)clusterSize;
-        var blockPosition = clusterDataStart + cueRef.RelativePosition;
-        if (cueRef.RelativePosition < 0 || blockPosition >= clusterEnd || blockPosition >= reader.Length)
+        if (cueRef.RelativePosition < 0
+            || !TryReadClusterHeader(reader, clusterPosition, out var clusterDataStart, out var clusterEnd))
         {
             return false;
         }
@@ -698,6 +895,65 @@ public static class MkvSubtitleExtractor
         // referenced block is already its own time, so adding the relative value on top
         // double-counts it (measured against ffmpeg: +51 ms, +459 ms).
         if (!TryReadClusterTimecode(reader, clusterDataStart, clusterEnd, out var clusterTimecode))
+        {
+            return false;
+        }
+
+        return ReadBlockAtRelative(reader, clusterDataStart, clusterEnd, cueRef.RelativePosition, clusterTimecode, track, cues);
+    }
+
+    /// <summary>
+    /// Reads a cluster's header: where its body starts and where it ends.
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="clusterPosition">Position of the Cluster element's id.</param>
+    /// <param name="clusterDataStart">First byte of the cluster's body.</param>
+    /// <param name="clusterEnd">One past the cluster's last byte.</param>
+    /// <returns>True when a sized Cluster element is at that position.</returns>
+    private static bool TryReadClusterHeader(
+        BlobReader reader,
+        long clusterPosition,
+        out long clusterDataStart,
+        out long clusterEnd)
+    {
+        clusterDataStart = 0;
+        clusterEnd = 0;
+        if (!reader.TryReadElementHeaderAt(clusterPosition, out var id, out var size, out var headerLength)
+            || id != IdCluster
+            || size == ulong.MaxValue)
+        {
+            return false;
+        }
+
+        clusterDataStart = clusterPosition + headerLength;
+        clusterEnd = clusterDataStart + (long)size;
+        return true;
+    }
+
+    /// <summary>
+    /// Reads the block at a position relative to the start of a cluster's body, following the
+    /// SimpleBlock/BlockGroup shapes. Used both by the per-cue path and by the multi-track pass,
+    /// which reads one cluster header and then every wanted track's block inside it.
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="clusterDataStart">First byte of the cluster's body.</param>
+    /// <param name="clusterEnd">One past the cluster's last byte.</param>
+    /// <param name="relativePosition">Block position relative to the cluster's body.</param>
+    /// <param name="clusterTimecode">The cluster's timecode.</param>
+    /// <param name="track">Track being extracted.</param>
+    /// <param name="cues">Collected subtitles.</param>
+    /// <returns>True when the block was read.</returns>
+    private static bool ReadBlockAtRelative(
+        BlobReader reader,
+        long clusterDataStart,
+        long clusterEnd,
+        long relativePosition,
+        long clusterTimecode,
+        SubtitleTrack track,
+        List<Cue> cues)
+    {
+        var blockPosition = clusterDataStart + relativePosition;
+        if (blockPosition >= clusterEnd || blockPosition >= reader.Length)
         {
             return false;
         }

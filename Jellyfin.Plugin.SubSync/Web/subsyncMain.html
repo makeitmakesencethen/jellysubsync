@@ -1725,16 +1725,8 @@
 
                         // Header + progress
                         var pos = (view.Completed != null) ? view.Completed : ((view.completed != null) ? view.completed : 0);
-                        // Episode numbering: tasks share the same itemId per episode.
-                        var episodeIds = [];
-                        tasks.forEach(function (t) {
-                            var iid = t.ItemId || t.itemId;
-                            if (iid && episodeIds.indexOf(iid) < 0) episodeIds.push(iid);
-                        });
-                        var totalEp = episodeIds.length;
-                        // Keep this line short: one strategy note when there is something to
-                        // say, the worker count only when more than one is running, and a single
-                        // position counter (episodes when the batch covers several).
+                        // How many subtitles are done out of how many the run will do: the counter
+                        // answers "how much is left" directly, where episode numbers did not.
                         var workersNow = (view.RunningTasks || view.runningTasks || []).length;
                         var bits = [];
                         var badge = modeBadge(view.Mode || view.mode);
@@ -1749,31 +1741,30 @@
                                 bits.push('setting is ' + workerSetting);
                             }
                         }
+                        bits.push((pos || 0) + '/' + total);
+                        if (failed > 0) {
+                            bits.push(failed + ' failed');
+                        }
+                        $('ss-run-label').textContent = bits.join(' \u00b7 ');
+
                         if (current) {
                             var phase = current.Phase || current.phase || '';
-                            var curIid = current.ItemId || current.itemId;
-                            var epPos = episodeIds.indexOf(curIid) + 1;
-                            bits.push(totalEp > 1
-                                ? 'episode ' + epPos + '/' + totalEp
-                                : 'task ' + Math.min(pos + 1, total) + '/' + total);
-                            $('ss-run-label').textContent = bits.join(' \u00b7 ');
                             // The phase gets its own line only when no worker rows carry it; showing
                             // both duplicated the same sentence twice on screen.
                             $('ss-phase').textContent = workersNow > 0 ? '' : phase;
                             var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);
                             var overall = total ? ((pos + prog) / total) : 0;
                             $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';
+                        } else if (status === 'Queued') {
+                            var elsewhereBusy = (lastActive.running || []).length;
+                            $('ss-phase').textContent = elsewhereBusy
+                                ? elsewhereBusy + ' subtitle' + (elsewhereBusy === 1 ? '' : 's') + ' running from an earlier run'
+                                : 'waiting to start';
+                            $('ss-progress').style.width = Math.round((total ? pos / total : 0) * 100) + '%';
                         } else {
-                            if (status === 'Queued') {
-                                var elsewhereBusy = (lastActive.running || []).length;
-                                $('ss-run-label').textContent = elsewhereBusy
-                                    ? 'Queued \u2014 ' + elsewhereBusy + ' task' + (elsewhereBusy === 1 ? '' : 's') + ' still running from an earlier run'
-                                    : 'Queued \u2014 waiting for earlier runs to finish\u2026';
-                            } else {
-                                $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
-                                $('ss-phase').textContent = '';
-                                $('ss-progress').style.width = '100%';
-                            }
+                            $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
+                            $('ss-phase').textContent = '';
+                            $('ss-progress').style.width = '100%';
                         }
 
                         var terminal = status === 'Completed' || status === 'Failed' || status === 'Partial' || status === 'Cancelled';
@@ -1790,6 +1781,96 @@
                     });
                 }, 1000);
                 watchedBatchTimer = timer;
+            }
+
+            // The panel used to update only while *this* page was streaming a batch it had started
+            // itself, so a run started from the detail view left it showing "Queued — waiting for
+            // earlier runs to finish…" until the page was reloaded. This mirrors whatever the server
+            // is doing, whoever started it, so the numbers on screen are never stale.
+            var heartbeatTimer = null;
+            var mirroredBatchId = null;
+            var mirroredLines = {};
+            var mirroredSummary = '';
+
+            function renderMirroredBatch(view) {
+                var total = (view.Total != null) ? view.Total : (view.total || 0);
+                var pos = (view.Completed != null) ? view.Completed : (view.completed || 0);
+                var ok = (view.Ok != null) ? view.Ok : (view.ok || 0);
+                var failed = (view.Failed != null) ? view.Failed : (view.failed || 0);
+                var runningTasks = (view.RunningTasks || view.runningTasks || []).map(normalizeRunning);
+                var limit = (view.WorkerLimit || view.workerLimit) || 0;
+                var bits = [];
+                var badge = modeBadge(view.Mode || view.mode);
+                if (badge) bits.push(badge);
+                if (runningTasks.length > 0) {
+                    bits.push(runningTasks.length + '/' + (limit || runningTasks.length) + ' workers');
+                }
+                bits.push(pos + '/' + total);
+                if (failed > 0) bits.push(failed + ' failed');
+                $('ss-run-label').textContent = bits.join(' \u00b7 ');
+                $('ss-phase').textContent = runningTasks.length === 0
+                    ? ((view.Status || view.status) === 'Queued' ? 'waiting to start' : 'starting\u2026')
+                    : '';
+                $('ss-progress').style.width = Math.round((total ? pos / total : 0) * 100) + '%';
+                renderWorkerRows(view);
+
+                // Finished tasks are logged once each, exactly as a streamed batch does.
+                var tasks = (view.Tasks || view.tasks || []);
+                var id = (view.Id || view.id) || '';
+                if (id !== mirroredBatchId) {
+                    mirroredBatchId = id;
+                    mirroredLines = {};
+                }
+                logTerminal(mirroredLines, view);
+
+                // A run that is done should not stay on screen as if it were still going.
+                if (runningTasks.length === 0 && pos >= total && total > 0) {
+                    $('ss-phase').textContent = 'Done \u2014 ' + ok + '/' + total + ' succeeded.';
+                }
+                mirroredSummary = pos + '/' + total;
+            }
+
+            function showIdlePanel() {
+                var active = (lastActive.running || []);
+                if (active.length > 0) {
+                    return; // workers are busy elsewhere: keep showing them
+                }
+                renderWorkerRows(null);
+                $('ss-run-label').textContent = 'Idle';
+                $('ss-phase').textContent = mirroredSummary
+                    ? 'Last run finished at ' + mirroredSummary + '.'
+                    : 'Nothing queued.';
+                $('ss-progress').style.width = '0%';
+            }
+
+            function startHeartbeat() {
+                if (heartbeatTimer) return;
+                var tick = function () {
+                    // A batch started from this page already streams itself every second.
+                    if (watchedBatchTimer || document.hidden) return;
+                    refreshActive().then(function () {
+                        return api('SubSync/Batches');
+                    }).then(function (list) {
+                        var batches = (list && list.length !== undefined ? list : ((list && (list.Batches || list.batches)) || []));
+                        var running = null;
+                        batches.forEach(function (b) {
+                            var st = b.Status || b.status;
+                            var id = b.Id || b.id;
+                            if (!id) return;
+                            if (st === 'Running') { running = id; return; }
+                            if (st === 'Queued' && !running) { running = id; }
+                        });
+                        if (!running) { showIdlePanel(); return null; }
+                        return api('SubSync/Batch/' + running).then(function (view) {
+                            if (view) renderMirroredBatch(view);
+                        });
+                    }).catch(function () { /* transient: the next tick tries again */ });
+                };
+                heartbeatTimer = setInterval(tick, 2000);
+                tick();
+                document.addEventListener('visibilitychange', function () {
+                    if (!document.hidden) tick(); // catch up immediately after a tab switch
+                });
             }
 
             function attachBatch(batchId) {
@@ -2259,6 +2340,7 @@
                 refreshStatus();
                 loadConfig();
                 attachActiveJobs();
+                startHeartbeat();
                 loadLibraries().then(function () {
                     return loadItems();
                 }).then(function () {

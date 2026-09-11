@@ -1051,6 +1051,24 @@ def run_page_checks():
     report('the worker panel draws only working workers', 'ss-worker-idle' not in main_html)
     report('the worker panel shows each worker phase and percentage',
            'ss-worker-phase' in main_html and "ss-worker-pct" in main_html and "pct + '%" in main_html)
+
+    # The panel used to update only while this page streamed a batch it started itself, so a run
+    # started from the detail view left it on "Queued…" until the page was reloaded. The heartbeat
+    # mirrors the server's run, and the line carries how many subtitles are done out of how many.
+    report('the panel mirrors a run it did not start',
+           'startHeartbeat' in main_html and 'renderMirroredBatch' in main_html and 'showIdlePanel' in main_html)
+    report('the run line counts finished subtitles',
+           "bits.push((pos || 0) + '/' + total)" in main_html and "mirroredSummary" in main_html)
+    report('the stale queued wording is gone',
+           'waiting for earlier runs to finish' not in main_html)
+    report('the detail dialog tolerates a failed poll', 'pollFailures' in client)
+
+    # A synchronous extraction on a pool thread starves everything else the server does, including
+    # the request still queueing the batch: that is what made a 50-task batch trickle in a few tasks
+    # every few seconds. It gets its own thread.
+    report('the blocking extraction runs off the thread pool',
+           'TaskCreationOptions.LongRunning' in '\n'.join(plugin_sources))
+    report('the pump wake signal cannot be swallowed', '_wakePump = new(0)' in '\n'.join(plugin_sources))
     report('the worker panel falls back to what the server is running',
            'SubSync/Active' in main_html and 'lastActive' in main_html)
     report('the extraction note reaches the log line',

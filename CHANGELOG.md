@@ -191,7 +191,45 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.49]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.50]
+
+### Fixed
+- **Batches queue in milliseconds instead of minutes, so the workers are actually used.** The
+  blocking subtitle extraction ran on a thread-pool thread, and it blocks for tens of seconds at a
+  time reading the media file. Eight of those consumed the pool, and the request still queueing the
+  rest of the batch was starved behind them - which is why the plugin log from a real run shows a
+  59-task batch taking 253 s to enter the queue, in groups of one to eight tasks a few seconds apart:
+
+  ```
+  03:27:33.940  queued: ... stream=38 language=heb      ← burst of 10 tasks in 21 ms
+  03:27:37.833  dispatch: starting 1, running 0, limit 8, queued 10, batch 0948500d...
+  03:27:37.834  queued: ... stream=8  language=hrv      ← 3.9 s later, one task
+  ```
+
+  The scheduler can only schedule what is in the queue, so `starting 1 of 8` was the honest answer to
+  a queue that held one task. The extraction now runs on its own thread (`TaskCreationOptions.LongRunning`),
+  which costs nothing and leaves the pool for request handling. The earlier `File.Exists` removal on
+  the enqueue path was not the cause and is kept only because queueing should not touch a busy share.
+
+- **The pump wake signal can no longer be swallowed.** The wake semaphore was bounded to one signal,
+  so several wakes collapsed into one and a consumption could leave a completion unnoticed: dispatch
+  lines sat 19 seconds apart with eight slots idle. It is unbounded now.
+
+- **The progress panel no longer goes stale until the page is reloaded.** It only updated while *that
+  page* was streaming a batch it had started itself, so a run started from the detail view left it on
+  "Queued — waiting for earlier runs to finish…" indefinitely. A heartbeat now mirrors whatever the
+  server is running, whoever started it, and falls back to `Idle — last run finished at N/M` when
+  nothing is queued.
+
+### Changed
+- The run line states how many subtitles are done out of how many: `parallel · 7/8 workers · 35/323`,
+  with `· N failed` when any failed. Episode numbers said where a run was, not how much was left.
+- The "Queued — waiting for earlier runs to finish…" wording is gone; a queued run reads
+  `N/M · waiting to start` or names how many subtitles are running from an earlier run.
+- The detail dialog keeps polling through a failed request instead of giving up on the first one and
+  leaving stale numbers on screen; it reports `Reconnecting… (n)` and only stops after ten.
+
+## [1.1.0.49]
 
 ### Fixed
 - **The worker panel shows one row per worker that is actually working again.** Drawing every

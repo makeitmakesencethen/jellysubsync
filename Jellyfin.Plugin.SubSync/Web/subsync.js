@@ -622,8 +622,10 @@
         function watchBatch(batchId, tasks) {
             var titles = {};
             tasks.forEach(function (t) { titles[t.itemId] = t.episode; });
+            var pollFailures = 0;
             function poll() {
                 api(SYNC_BASE + '/Batch/' + batchId).then(function (view) {
+                    pollFailures = 0;
                     var total = (view.Total !== undefined ? view.Total : view.total) || tasks.length;
                     var ok = (view.Ok !== undefined ? view.Ok : view.ok) || 0;
                     var failed = (view.Failed !== undefined ? view.Failed : view.failed) || 0;
@@ -669,6 +671,14 @@
                             : 'Finished \u2014 the library is refreshed for the folders that changed.';
                     }
                 }).catch(function (err) {
+                    // One failed poll used to stop the watcher for good, so a single blip left the
+                    // panel on stale numbers until the page was reloaded. Tolerate a run of them
+                    // before saying contact was lost.
+                    pollFailures++;
+                    if (pollFailures < 10) {
+                        shell.sub.textContent = 'Reconnecting\u2026 (' + pollFailures + ')';
+                        return;
+                    }
                     clearInterval(shell.state.timer);
                     shell.state.timer = null;
                     shell.showError('Lost contact with the batch: ' + (err.message || err));
