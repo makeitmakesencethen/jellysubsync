@@ -191,7 +191,31 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.47]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.48]
+
+### Fixed
+- **A batch is queued without touching the media share, which is why runs behaved as if they were
+  single-threaded.** `EnqueueSync` stat'ed the video file once per task, and while a job was already
+  reading that share each stat took seconds. The plugin log from a real run shows the shape of it - a
+  50-task batch taking over a minute to enqueue, in groups of 1-13 tasks about 9 seconds apart:
+
+  ```
+  02:59:56.609  queued: job=... stream=2  language=ara   ← 12 tasks in 23 ms
+  03:00:06.472  queued: job=... stream=33 language=hun   ← 10 s later
+  03:00:15.972  dispatch: starting 1, running 0, limit 8, queued 15, ... 0 running
+  03:00:15.978  queued: job=... stream=8  language=kor
+  03:00:24.969  queued: job=... stream=9  language=msa   ← 9 s later
+  ```
+
+  The scheduler can only schedule what is in the queue, so with one or two tasks arriving at a time it
+  reported `starting 1 of 8` for a run that had 39 tasks waiting to be created. Validation now uses
+  Jellyfin's cached metadata only, and the file is checked once per job when it runs (same clear
+  message as before). The batch log line now states the enqueue duration and the slowest task, so a
+  queue that fills slowly is visible instead of looking like a scheduler that refuses to parallelise.
+
+- The wave planner carried an unused variable that read like a hidden throttle on heavy jobs; removed.
+
+## [1.1.0.47]
 
 ### Added
 - **The plugin writes its own log file**, `<jellyfin-data>/subsync/logs/subsync.log`, rotated at 4 MB

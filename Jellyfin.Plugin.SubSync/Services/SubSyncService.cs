@@ -800,11 +800,12 @@ public class SubSyncService : IDisposable
             throw new InvalidOperationException($"Item {itemId} is not a video.");
         }
 
-        if (!File.Exists(video.Path))
-        {
-            throw new FileNotFoundException($"Video file not found.");
-        }
-
+        // No filesystem access in the enqueue path. This check used to stat the media file per task,
+        // and with a job already reading that share each stat took seconds: a 50-task batch was
+        // enqueued over a minute, so the scheduler only ever saw a handful of queued jobs and could
+        // not fill its workers ("starting 1 of 8"). A missing file is caught when the job runs, with
+        // the same clear message.
+        // Validation therefore works from Jellyfin's cached metadata only.
         var mediaSources = video.GetMediaSources(true);
         if (mediaSources.Count == 0)
         {
@@ -873,10 +874,14 @@ public class SubSyncService : IDisposable
         var batchId = Guid.NewGuid().ToString("N");
         var resolvedMode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode);
         var jobs = new List<SyncJob>(tasks.Count);
+        var batchWatch = System.Diagnostics.Stopwatch.StartNew();
+        var slowestMs = 0L;
+        var slowestIndex = -1;
 
         for (var i = 0; i < tasks.Count; i++)
         {
             var task = tasks[i];
+            var taskWatch = System.Diagnostics.Stopwatch.StartNew();
             try
             {
                 jobs.Add(EnqueueSync(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode));
@@ -900,7 +905,23 @@ public class SubSyncService : IDisposable
                 _jobs[failed.Id] = failed;
                 jobs.Add(failed);
             }
+
+            taskWatch.Stop();
+            if (taskWatch.ElapsedMilliseconds > slowestMs)
+            {
+                slowestMs = taskWatch.ElapsedMilliseconds;
+                slowestIndex = i;
+            }
         }
+
+        batchWatch.Stop();
+
+        // How long it took to get the whole batch into the queue. This matters more than it looks:
+        // while a batch is still being enqueued the scheduler only sees the first few tasks, so a
+        // slow enqueue looks exactly like "the plugin refuses to run more than one at a time".
+        PluginLog.Info(
+            $"batch {batchId} queued: tasks={tasks.Count} mode={resolvedMode} label='{label}' "
+            + $"totalMs={batchWatch.ElapsedMilliseconds} slowestTaskMs={slowestMs} (index {slowestIndex})");
 
         return jobs;
     }
@@ -1477,8 +1498,6 @@ public class SubSyncService : IDisposable
     /// <returns>True when the candidate joins the wave.</returns>
     private static bool TryTake(SyncJob candidate, WavePolicy policy, HashSet<Guid> claimedItems)
     {
-        var heavy = policy.IsHeavyIo?.Invoke(candidate) ?? false;
-
         if (!claimedItems.Add(candidate.ItemId))
         {
             // The policy decides whether a second subtitle of the same file may run alongside the
@@ -2292,6 +2311,14 @@ public class SubSyncService : IDisposable
         var videoExt = Path.GetExtension(videoPath);
         var tempDir = Path.Combine(Plugin.Instance?.TempPath ?? Path.GetTempPath(), job.Id);
         Directory.CreateDirectory(tempDir);
+
+        // The file is checked here instead of when the task is queued: queueing must not touch the
+        // media share (a stat per task slowed a 50-task batch to a minute while a job was reading the
+        // same share, which starved the scheduler). One stat per job, at the point where it matters.
+        if (!File.Exists(videoPath))
+        {
+            throw new FileNotFoundException($"The video file is no longer on disk: {videoPath}");
+        }
 
         // Stream of the media file ffsubsync should take its speech signal from. Embedded
         // inputs set this so the subtitle being fixed is not used as its own reference.
