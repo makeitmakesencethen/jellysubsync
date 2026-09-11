@@ -159,8 +159,15 @@ var twoText = new List<string> { "subrip", "ass" };
 var textAndImage = new List<string> { "subrip", "hdmv_pgs_subtitle" };
 var imageOnly = new List<string> { "hdmv_pgs_subtitle", "dvd_subtitle" };
 
-Check("external sidecar keeps the default reference",
-    SubSyncService.SelectReferenceStream(false, twoText, 0) is null);
+// Settled with the user on 2026-09-11 (S8): an external sidecar is aligned against a sibling text
+// track when the file has one, because that alignment can be checked, and against the audio when it
+// does not — which is the one case where an unverifiable result is still written.
+Check("external sidecar uses a sibling text track when the file has one",
+    SubSyncService.SelectReferenceStream(false, twoText, -1) == "s:0",
+    SubSyncService.SelectReferenceStream(false, twoText, -1) ?? "null");
+Check("external sidecar falls back to the audio when the file has no text track",
+    SubSyncService.SelectReferenceStream(false, imageOnly, -1) == "a:0",
+    SubSyncService.SelectReferenceStream(false, imageOnly, -1) ?? "null");
 Check("single text track forces audio (never itself)",
     SubSyncService.SelectReferenceStream(true, textOnly, 0) == "a:0",
     SubSyncService.SelectReferenceStream(true, textOnly, 0) ?? "null");

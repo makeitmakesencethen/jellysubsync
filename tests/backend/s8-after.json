@@ -1,0 +1,45 @@
+{
+  "label": "after",
+  "measured_at": "2026-09-12T00:19:09",
+  "external_with_sibling": {
+    "fixture": {
+      "built_from": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.SYNCED.ukr.srt",
+      "size": 69602
+    },
+    "external_track": null,
+    "sidecars_before": [],
+    "sidecars_after": [],
+    "used_a_sibling_reference": false
+  },
+  "embedded_without_sibling": {
+    "sidecar_before": {
+      "size": 1947,
+      "sha256": "f9466fcf90ef6551f1c85ec22087a114c2c155a34023889cdf988bf839bf5740"
+    },
+    "track": {
+      "Index": 3,
+      "Title": "English - SUBRIP",
+      "Language": "eng",
+      "IsExternal": false,
+      "IsForced": false,
+      "HasSyncedVersion": false
+    },
+    "job_id": "139435a4bfca425ab42284b1c7e28d35",
+    "status": "Failed",
+    "phase": "Unverified \u2014 audio-only alignment",
+    "outcome": "",
+    "error": "unverified: this subtitle was aligned against the audio (+1780 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync it against a subtitle track if the file has one, or run it from an e",
+    "output": null,
+    "reference_lines": [
+      " --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --log-dir-path /opt/data/jf12test/cache/subsync/139435a4bfca425ab42284b1c7e28d35"
+    ],
+    "unverified_lines": [
+      "5 UNVERIFIED: the audio was the only ruler (+1780 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media-fixtures/Single Track (2026).mkv"
+    ],
+    "sidecar_after": {
+      "size": 1947,
+      "sha256": "f9466fcf90ef6551f1c85ec22087a114c2c155a34023889cdf988bf839bf5740"
+    },
+    "sidecar_untouched": true
+  }
+}

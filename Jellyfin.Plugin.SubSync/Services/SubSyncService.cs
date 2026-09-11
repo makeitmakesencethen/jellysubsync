@@ -2805,12 +2805,10 @@ public class SubSyncService : IDisposable
         int targetOrdinal,
         IReadOnlyList<bool>? forcedTracks = null)
     {
-        if (!isEmbedded)
-        {
-            // External sidecar: the file's embedded text track is a legitimate reference.
-            return null;
-        }
-
+        // An external sidecar passes -1: it has no track of its own inside the file, so every embedded
+        // text track is a candidate. This used to return null for an external target, which sent every
+        // external subtitle to the audio even when the file carried a track that would have made the
+        // alignment exact.
         for (var position = 0; position < subtitleCodecs.Count; position++)
         {
             if (position == targetOrdinal)
@@ -3166,6 +3164,30 @@ public class SubSyncService : IDisposable
             if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
             {
                 subtitleInputPath = subtitleStream.Path;
+
+                // An external sidecar has no track of its own inside the file, but the file it sits next
+                // to usually has one, and using it makes the alignment exact instead of an audio guess.
+                // No sibling: the audio is the ruler, which for an external file is what the user asked
+                // for and is the one case where an unverifiable result is still written (S8, settled
+                // with the user on 2026-09-11).
+                var siblings = video.GetMediaSources(true)
+                    .SelectMany(source => source.MediaStreams)
+                    .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle
+                        && !stream.IsExternal)
+                    .ToList();
+                if (siblings.Count > 0)
+                {
+                    referenceStream = SelectReferenceStream(
+                        false,
+                        siblings.Select(stream => stream.Codec ?? string.Empty).ToList(),
+                        -1,
+                        siblings.Select(stream => stream.IsForced).ToList());
+                    _logger.LogInformation(
+                        "External sync of {Subtitle}: aligning against '{Reference}' of {Video} instead of the audio",
+                        subtitleInputPath,
+                        referenceStream,
+                        videoPath);
+                }
             }
             else
             {
@@ -3700,6 +3722,36 @@ public class SubSyncService : IDisposable
                     + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
                 job.Phase = "Complete";
                 job.Status = SyncJobStatus.Completed;
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
+
+            // S8, settled with the user on 2026-09-11: a result whose only ruler was the audio cannot be
+            // checked against anything. Measured on this project's own fixture, a subtitle that was
+            // already in sync came back "+1780 ms offset" from the audio alone and was written as a
+            // plain success. For a track *inside* the file that is a guess, so nothing is written and
+            // the job says exactly that. An external sidecar has no other ruler to fall back on — the
+            // audio IS its reference — so that path still writes, as it always has.
+            if (!usedSubtitleReference && !subtitleStream.IsExternal)
+            {
+                var detail = measured is { } audioOnly ? audioOnly.Describe() : "no measurable change";
+                _logger.LogWarning(
+                    "Sync job {JobId}: refusing to write an audio-only alignment ({Detail}) — nothing written",
+                    job.Id,
+                    detail);
+                PluginLog.Info(
+                    $"job {job.Id} UNVERIFIED: the audio was the only ruler ({detail}) and this track has no "
+                    + $"reference subtitle to check it against; nothing written, source untouched, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Unverified \u2014 audio-only alignment";
+                job.Error = $"unverified: this subtitle was aligned against the audio ({detail}) and the file holds "
+                    + "no other text track to check that against, so nothing was written. An audio reference on a "
+                    + "short file can be out by a second or more. Sync it against a subtitle track if the file has "
+                    + "one, or run it from an external .srt, where the audio is the reference the plugin is meant "
+                    + "to use.";
                 job.Progress = 1.0;
                 job.FinishedAtUtc = DateTime.UtcNow;
                 job.OutputPath = null;

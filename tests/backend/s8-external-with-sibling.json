@@ -1,0 +1,18 @@
+{
+  "job": "55c9e60c2a3849db929728612c75e440",
+  "http": 200,
+  "status": "Completed",
+  "phase": "Complete",
+  "outcome": "-5000 ms offset",
+  "output": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+  "sidecars_before": [],
+  "sidecars_after": [
+    "Helikopterr\u00e5net S01E01.swe.SYNCED.srt"
+  ],
+  "reference_lines": [
+    "2026-09-11 22:30:10.056Z INFO  reference: method=seekhead-cues ms=33 cues=803 bytesRead=10787374 readCalls=1575 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=1",
+    "2026-09-11 22:30:10.058Z INFO  [55c9e60c2a3849db929728612c75e440] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+    "ubtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/55c9e60c2a3849db929728612c75e440"
+  ],
+  "unverified": []
+}
