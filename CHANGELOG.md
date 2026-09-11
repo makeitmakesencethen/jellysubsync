@@ -191,7 +191,27 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.40]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.41]
+
+### Changed
+- **Jellyfin is only asked to re-read what changed.** After a sync the plugin reports the one
+  folder that changed (never a library-wide scan) and refreshes the item **once per item** instead
+  of once per subtitle track - a ten-track episode used to re-probe the same media file ten times.
+  The folder report is never skipped: it is what makes Jellyfin discover the new file, and Jellyfin
+  coalesces repeats itself. The item refresh runs again after a minute, so syncing the same episode
+  later still shows up.
+
+### Fixed
+- **A library hiccup can no longer fail a finished job.** Reporting the change and refreshing the
+  item sat inside the job's error handler, so an exception there marked the job FAILED and rolled
+  back a subtitle that had been written correctly. Both calls are best-effort now: they log a
+  warning and leave the result alone.
+
+- **A completed job states the size of what it wrote**, and says so when the file is not on disk
+  afterwards (a share that dropped it) instead of reporting success and telling the library about a
+  file that is not there.
+
+## [1.1.0.40]
 
 ### Fixed
 - **The parallel-worker setting now saves.** The Settings field and the worker-rows container

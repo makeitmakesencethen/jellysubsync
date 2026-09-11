@@ -689,6 +689,43 @@ Check("a folder the process cannot write to is refused, with a reason",
 Check("the refusal keeps a probe file from being left behind",
     !File.Exists(Path.Combine("/proc", ".subsync-write-probe-x")));
 
+// ---------------- Jellyfin is only asked to work for what changed ----------------
+// After a sync the plugin reports the folder (that is what makes Jellyfin discover the new file) and
+// refreshes the item (which re-probes the media file). Ten subtitle tracks of one episode meant ten
+// identical re-probes of the same file; the gate lets that happen once per item.
+var fakeNow = new DateTime(2026, 9, 11, 12, 0, 0, DateTimeKind.Utc);
+var gate = new LibraryRefreshGate(TimeSpan.FromSeconds(60), () => fakeNow);
+var episodeA = Guid.NewGuid();
+var episodeB = Guid.NewGuid();
+
+Check("the first subtitle of an item refreshes it", gate.ShouldRefresh(episodeA));
+Check("the second subtitle of the same item is skipped", !gate.ShouldRefresh(episodeA));
+Check("another item still gets its own refresh", gate.ShouldRefresh(episodeB));
+
+fakeNow = fakeNow.AddSeconds(59);
+Check("inside the window the refresh is still skipped", !gate.ShouldRefresh(episodeA));
+fakeNow = fakeNow.AddSeconds(1);
+Check("at the window boundary the item is refreshed again", gate.ShouldRefresh(episodeA));
+Check("the gate counts what it skipped", gate.SuppressedCount == 2, "got " + gate.SuppressedCount);
+Check("only items inside the window are tracked", gate.TrackedItems == 2, "got " + gate.TrackedItems);
+
+fakeNow = fakeNow.AddSeconds(120);
+var prunedEntries = gate.Prune();
+Check("pruning drops entries whose window has passed", prunedEntries == 2, "got " + prunedEntries);
+Check("an item refreshes again after its entry was pruned", gate.ShouldRefresh(episodeA));
+
+// Eight workers finishing tracks of the same episode at the same moment must produce one refresh.
+var parallelGate = new LibraryRefreshGate(TimeSpan.FromSeconds(60), () => fakeNow);
+var winners = 0;
+System.Threading.Tasks.Parallel.For(0, 8, _ =>
+{
+    if (parallelGate.ShouldRefresh(episodeA))
+    {
+        Interlocked.Increment(ref winners);
+    }
+});
+Check("parallel finishes of one item produce exactly one refresh", winners == 1, "got " + winners);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 

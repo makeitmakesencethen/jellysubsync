@@ -216,6 +216,10 @@ public class SubSyncService : IDisposable
     private readonly ILogger<SubSyncService> _logger;
     private readonly ILibraryManager _libraryManager;
     private readonly ILibraryMonitor _libraryMonitor;
+
+    // Lets the item refresh run once per item instead of once per subtitle track; the folder report
+    // that makes Jellyfin discover the file is never suppressed.
+    private readonly LibraryRefreshGate _refreshGate = new();
     private readonly ConcurrentDictionary<string, SyncJob> _jobs = new();
 
     // Track whether an installation is currently in progress
@@ -2509,25 +2513,81 @@ public class SubSyncService : IDisposable
             job.Status = SyncJobStatus.Completed;
             job.Progress = 1.0;
 
-            _logger.LogInformation(
-                "Sync job {JobId} completed \u2014 wrote: {Output} ({Outcome})",
-                job.Id, job.OutputPath ?? "(no output path set)", job.Outcome ?? "unknown");
-
-            // Targeted Jellyfin rescan: tell the library monitor the folder
-            // changed. This rescans ONE folder (no full library scan) and makes
-            // a newly written sidecar appear in the player.
-            if (changedDir is not null)
+            // Check what is about to be announced. On a flaky share a write can disappear between
+            // the copy and this line, and "completed" would then point at a file that is not there.
+            long? outputSize = null;
+            if (!string.IsNullOrEmpty(job.OutputPath))
             {
-                _logger.LogInformation("Reporting file change to Jellyfin library monitor for: {Dir}", changedDir);
-                _libraryMonitor.ReportFileSystemChanged(changedDir);
+                try
+                {
+                    var written = new FileInfo(job.OutputPath);
+                    if (written.Exists)
+                    {
+                        outputSize = written.Length;
+                    }
+                }
+                catch (IOException)
+                {
+                    // Unreadable size is not a failure; the existence check below decides.
+                }
             }
 
-            // Also refresh the video item itself so its stream list is re-read.
-            await _libraryManager.UpdateItemAsync(
-                video,
-                video.GetParent(),
-                ItemUpdateType.MetadataImport,
-                CancellationToken.None).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Sync job {JobId} completed \u2014 wrote: {Output} ({Size}, {Outcome})",
+                job.Id,
+                job.OutputPath ?? "(no output path set)",
+                outputSize is null ? "size unreadable" : $"{outputSize} bytes",
+                job.Outcome ?? "unknown");
+
+            if (changedDir is not null && outputSize is null)
+            {
+                _logger.LogWarning(
+                    "The synced subtitle {Output} is not on disk, so the library was not told anything changed. Check the share and its permissions.",
+                    job.OutputPath ?? "(none)");
+                changedDir = null;
+            }
+
+            // Tell Jellyfin about the new file, then refresh the item so its stream list is re-read.
+            // Both are best-effort: the subtitle is already on disk, so a library hiccup must never
+            // turn a finished job into a failure (this block used to sit in the job's own try, where
+            // an exception marked the job FAILED and rolled the result back).
+            //
+            // The folder report is never skipped - it is what makes Jellyfin discover the file, and
+            // Jellyfin coalesces repeats itself. The item refresh re-probes the media file, so it runs
+            // once per item instead of once per subtitle track (see LibraryRefreshGate).
+            if (changedDir is not null)
+            {
+                try
+                {
+                    _libraryMonitor.ReportFileSystemChanged(changedDir);
+                    _logger.LogInformation("Reported the change to the Jellyfin library monitor: {Dir}", changedDir);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "The library monitor rejected the change report for {Dir}; the subtitle is written and will appear after the next library scan", changedDir);
+                }
+            }
+
+            if (_refreshGate.ShouldRefresh(video.Id))
+            {
+                try
+                {
+                    await _libraryManager.UpdateItemAsync(
+                        video,
+                        video.GetParent(),
+                        ItemUpdateType.MetadataImport,
+                        CancellationToken.None).ConfigureAwait(false);
+                    _logger.LogInformation("Refreshed item {ItemId} so its subtitle list is re-read", video.Id);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);
+                }
+            }
+            else
+            {
+                _logger.LogDebug("Skipped the item refresh for {ItemId}: another subtitle of the same item was synced moments ago", video.Id);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -2703,6 +2763,17 @@ public class SubSyncService : IDisposable
     {
         try
         {
+            // Bound the refresh gate as well: entries whose window has passed are useless, and the
+            // gate must not grow with the size of the library.
+            var prunedRefreshes = _refreshGate.Prune();
+            if (prunedRefreshes > 0)
+            {
+                _logger.LogDebug(
+                    "Library refresh gate: dropped {Pruned} expired entries, {Suppressed} refreshes skipped so far",
+                    prunedRefreshes,
+                    _refreshGate.SuppressedCount);
+            }
+
             var cutoff = DateTime.UtcNow.AddHours(-1);
             var toRemove = _jobs
                 .Where(kvp => kvp.Value.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled)
