@@ -191,7 +191,26 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.38]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.39]
+
+### Fixed
+- **A library the plugin cannot write to is now reported once, with the folder named.** Reported
+  from real use as `Access to the path '/media/Serier/…-SYNCED.heb.srt' is denied` for every
+  subtitle in that library. The folder is the problem (a read-only mount, or a share owned by
+  another user), not the subtitle, so the check happens before any work:
+
+  ```
+  Cannot write the synced subtitle to '/media/Serier/Black Mirror/…': the Jellyfin user has no
+  write permission there (the folder may also be mounted read-only). Nothing was changed and the
+  original subtitle is untouched. Fix the folder's permissions for the Jellyfin user (or how the
+  library is mounted) and run again.
+  ```
+
+  It applies to all three write paths (copied sidecar, embedded sidecar, replaced original), and
+  the OS message is included when there is one — `Read-only file system` and `Permission denied`
+  need different fixes. Nothing is left behind by the check.
+
+## [1.1.0.38]
 
 ### Fixed
 - **Synced sidecars are named so Jellyfin can associate them with their video.** A sidecar must

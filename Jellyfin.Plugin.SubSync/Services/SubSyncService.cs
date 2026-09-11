@@ -1282,6 +1282,64 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Checks whether a folder can be written to, so a library the Jellyfin user cannot write to
+    /// fails once with a clear reason instead of reporting an access error for every subtitle in
+    /// it.
+    ///
+    /// This happens on read-only mounts, on shares that map a different owner, and on folders the
+    /// container user cannot write. Detecting it in advance turns "Access to the path is denied"
+    /// repeated a hundred times into one sentence naming the folder.
+    /// </summary>
+    /// <param name="directory">Folder the synced subtitle would be written to.</param>
+    /// <param name="reason">Why it cannot be written, when it cannot.</param>
+    /// <returns>True when a file could be created there.</returns>
+    public static bool CanWriteTo(string directory, out string reason)
+    {
+        try
+        {
+            Directory.CreateDirectory(directory);
+            var probe = Path.Combine(directory, ".subsync-write-probe-" + Guid.NewGuid().ToString("N")[..8]);
+            File.WriteAllText(probe, "probe");
+            File.Delete(probe);
+            reason = string.Empty;
+            return true;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            reason = "the Jellyfin user has no write permission there (the folder may also be mounted read-only)";
+            return false;
+        }
+        catch (IOException ex)
+        {
+            // The exception message is the useful part here: "Read-only file system" and
+            // "Permission denied" mean different fixes.
+            reason = "the folder could not be written to: " + ex.Message;
+            return false;
+        }
+        catch (NotSupportedException)
+        {
+            reason = "the path is not a writable folder";
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Throws a message that explains a folder the plugin cannot write to, and states plainly that
+    /// nothing was changed.
+    /// </summary>
+    /// <param name="directory">Folder to check.</param>
+    private static void RequireWritable(string directory)
+    {
+        if (!CanWriteTo(directory, out var reason))
+        {
+            throw new InvalidOperationException(
+                $"Cannot write the synced subtitle to '{directory}': {reason}. "
+                + "Nothing was changed and the original subtitle is untouched. "
+                + "Fix the folder's permissions for the Jellyfin user (or how the library is mounted) and run again.");
+        }
+    }
+
+    /// <summary>
     /// Reads the "done/total" counters out of an extraction progress line.
     ///
     /// The extractor reports "reading subtitle 128/326 · 1.3 MB, 341 reads · …"; the fraction is
@@ -2377,6 +2435,7 @@ public class SubSyncService : IDisposable
                         ? Path.Combine(dir, $"{lang}.SYNCED.srt")
                         : Path.Combine(dir, stem + ".SYNCED.srt");
 
+                    RequireWritable(dir);
                     File.Copy(tempOutput, target, overwrite: true);
                     job.OutputPath = target;
                     changedDir = dir;
@@ -2387,6 +2446,7 @@ public class SubSyncService : IDisposable
                     job.Phase = "Replacing subtitle";
                     job.Progress = 0.85;
 
+                    RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
                     await ReplaceExternalSubtitle(subtitleStream.Path, tempOutput).ConfigureAwait(false);
                     backupPath = subtitleStream.Path + ".bak.subsync";
                     changedDir = Path.GetDirectoryName(subtitleStream.Path) ?? ".";
@@ -2414,6 +2474,7 @@ public class SubSyncService : IDisposable
                     ? Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.{lang}.srt")
                     : Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.srt");
 
+                RequireWritable(videoDir);
                 File.Copy(tempOutput, target, overwrite: true);
                 job.OutputPath = target;
                 changedDir = videoDir;

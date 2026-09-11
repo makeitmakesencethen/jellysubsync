@@ -675,6 +675,20 @@ File.WriteAllText(settingsPath, "this is not xml");
 Check("a malformed settings file does not throw", SettingsSource.Read(settingsPath) is null);
 File.Delete(settingsPath);
 
+// ---------------- A library the plugin cannot write to ----------------
+// Reported as "Access to the path ... is denied" once per subtitle. The folder is the problem, so
+// it is detected in advance and stated once, naming the folder and confirming nothing changed.
+Check("a writable folder is recognised",
+    SubSyncService.CanWriteTo(Path.GetTempPath(), out var writableReason) && writableReason.Length == 0,
+    writableReason);
+Check("a folder that does not exist yet is created and then writable",
+    SubSyncService.CanWriteTo(Path.Combine(Path.GetTempPath(), "subsync-probe-" + Guid.NewGuid().ToString("N")), out _));
+Check("a folder the process cannot write to is refused, with a reason",
+    !SubSyncService.CanWriteTo("/proc/subsync-cannot-write-here", out var deniedReason)
+    && deniedReason.Length > 0, deniedReason);
+Check("the refusal keeps a probe file from being left behind",
+    !File.Exists(Path.Combine("/proc", ".subsync-write-probe-x")));
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 
