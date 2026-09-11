@@ -598,7 +598,6 @@ public static class MkvSubtitleExtractor
         if (cueRefs.Count > 0)
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
-            reader.WindowSize = IndexedWindowSize;
 
             var seen = new HashSet<long>();
             var index = 0;
@@ -666,7 +665,11 @@ public static class MkvSubtitleExtractor
                 if (cueRef.RelativePosition >= 0)
                 {
                     // The muxer recorded exactly where the block sits inside the cluster, so one
-                    // small read replaces walking that cluster's ~150 blocks to find it.
+                    // small read replaces walking that cluster's ~150 blocks to find it. The window
+                    // is set per read, not once: a big window is right for walking a file and
+                    // catastrophic here. Measured on a real server after it leaked: every cue read a
+                    // 4 MB window, so 779 cues moved 3.2 GB to collect ~50 KB of text.
+                    reader.WindowSize = IndexedWindowSize;
                     if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats))
                     {
                         continue;
@@ -716,10 +719,11 @@ public static class MkvSubtitleExtractor
         // track that cannot be served here is simply left out so the caller can do it alone.
         if (alsoExtract is { Count: > 0 } && alsoResults is not null && cueBuffer is not null)
         {
-            // Neighbouring subtitle blocks of different tracks sit next to each other in a cluster,
-            // so one wider read serves several of them. Sized like the scan: the whole point of this
-            // pass is that the clusters are visited once for every language.
-            reader.WindowSize = reader.GetWalkWindow();
+            // Every block this pass reads has a known position, so the window only has to cover how
+            // far apart the blocks of one cluster are - a few hundred kilobytes in practice. Reading
+            // the whole cluster instead (what a walk-sized window does) costs the file's bytes for the
+            // same blocks: 3.2 GB instead of 611 MB on a measured 611 MB-per-4-minutes share.
+            reader.WindowSize = Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024);
 
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
             var byCluster = new SortedDictionary<long, List<(int Index, CueRef Ref)>>();
@@ -921,7 +925,11 @@ public static class MkvSubtitleExtractor
         Span<byte> probe = stackalloc byte[16 * 1024];
         var fastest = double.MaxValue;
         var got = 0;
-        foreach (var fraction in new[] { 0.5, 0.25, 0.75 })
+        // Three reads in a row from one place, not three random jabs: a walk reads forward, and a
+        // share answers a sequential read far faster than a scattered one. Probing at random spots
+        // measured 11 ms per 16 KB on a share whose own walk was running at ~4 ms per read, which
+        // talked the walker into the wrong choice.
+        foreach (var fraction in new[] { 0.5, 0.5, 0.5 })
         {
             var watch = Stopwatch.StartNew();
             var read = reader.ReadAt((long)(reader.Length * fraction), probe);

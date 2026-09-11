@@ -563,7 +563,8 @@ public class SubSyncService : IDisposable
 
         status.ResolvedBinaryPath = ResolveFfSubSyncPath();
         status.SpeechCacheSummary = SpeechCache.Describe()
-            + " \u00b7 references: " + ReferenceStore.Describe();
+            + " \u00b7 references: " + ReferenceStore.Describe()
+            + " \u00b7 extracted subtitles: " + SubtitleCache.Describe();
         return status;
     }
 
@@ -3708,6 +3709,19 @@ public class SubSyncService : IDisposable
                 return "matroska-cached";
             }
 
+            // ...or while the file was read on a previous run. This is the whole answer to extraction
+            // being slow: it is paid once per file, not once per run. The cache holds the subtitle as
+            // it came out of the container, so the sync itself still runs (it depends on settings and
+            // the engine), but the file is not read again.
+            if (SubtitleCache.TryGet(videoPath, subtitleOrdinal.ToString(CultureInfo.InvariantCulture), out var diskText))
+            {
+                PluginLog.Info(
+                    $"extract: method=cache cues={SrtWriter.CountCues(diskText)} file={videoPath} stream={subtitleOrdinal} "
+                    + $"(no read: this file's subtitle was extracted on an earlier run)");
+                await File.WriteAllTextAsync(outputPath, diskText, utf8, cancellationToken).ConfigureAwait(false);
+                return "subtitle-cache";
+            }
+
             // Every queued subtitle of this file that needs the same embedded track read goes through
             // one pass: the clusters are visited once and serve all of them, instead of once per
             // language. This is the whole difference between a 50-language episode costing one
@@ -3734,7 +3748,10 @@ public class SubSyncService : IDisposable
                 foreach (var pair in many)
                 {
                     CacheExtracted(videoPath, pair.Key, pair.Value);
+                    SubtitleCache.Store(videoPath, pair.Key.ToString(CultureInfo.InvariantCulture), pair.Value);
                 }
+
+                SubtitleCache.Prune();
 
                 PluginLog.Info(
                     $"extract: method=shared-pass ms={watch.ElapsedMilliseconds} tracks={many.Count}/{wanted.Count} "
@@ -3780,6 +3797,7 @@ public class SubSyncService : IDisposable
             var stats = extractionStats;
             if (extracted)
             {
+                SubtitleCache.Store(videoPath, subtitleOrdinal.ToString(CultureInfo.InvariantCulture), srt);
                 await File.WriteAllTextAsync(outputPath, srt, utf8, cancellationToken).ConfigureAwait(false);
                 _logger.LogInformation(
                     "Extracted embedded subtitle in {Ms} ms ({Cues} cues, {Stats}) from {Video}",

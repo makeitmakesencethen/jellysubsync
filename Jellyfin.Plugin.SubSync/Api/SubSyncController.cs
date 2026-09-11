@@ -349,6 +349,7 @@ public class SubSyncController : ControllerBase
     public ActionResult<object> ClearSpeechCache()
     {
         var removedAudio = Services.SpeechCache.Clear();
+        var removedSubtitles = Services.SubtitleCache.Clear();
         Services.ReferenceStore.Clear();
         var removedScratch = _syncService.ClearStaleJobDirectories();
 
@@ -357,7 +358,9 @@ public class SubSyncController : ControllerBase
             removed = removedAudio,
             removedAudio,
             removedScratch,
+            removedSubtitles,
             message = $"Cleared {removedAudio} cached audio analysis file{(removedAudio == 1 ? "" : "s")}, "
+                + $"{removedSubtitles} extracted subtitle{(removedSubtitles == 1 ? "" : "s")}, "
                 + "the reference subtitles of this run, and "
                 + $"{removedScratch} job scratch folder{(removedScratch == 1 ? "" : "s")}.",
             cache = Services.SpeechCache.Describe()

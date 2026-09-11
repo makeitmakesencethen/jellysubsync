@@ -1355,6 +1355,31 @@ def run_page_checks():
                not problems,
                problems[:3] if problems else '')
 
+    # The window fix that made 2.0.5 slower than 2.0.4 on a real server: a walk-sized window leaked
+    # into reads at positions the cue index had named exactly, so 779 cues each pulled a 4 MB window
+    # (3.2 GB moved to collect ~50 KB of text). A read at a known position must always set its own
+    # small window, and the shared pass must never use the whole-file window.
+    extractor_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                         'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
+    report('a read at a known position sets its own small window',
+           extractor_source.count('WindowSize = IndexedWindowSize') == 1
+           and 'catastrophic here' in extractor_source,
+           extractor_source.count('WindowSize = IndexedWindowSize'))
+    report('the shared pass reads a cluster-sized region, never the whole file',
+           'Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024)' in extractor_source
+           and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
+    report('the storage probe reads sequentially, like the walk it is sizing',
+           'foreach (var fraction in new[] { 0.5, 0.5, 0.5 })' in extractor_source)
+
+    report('clear cache empties the extracted-subtitle cache too',
+           'SubtitleCache.Clear()' in controller and 'removedSubtitles' in controller)
+    report('extraction serves a previously extracted subtitle without reading the file',
+           'SubtitleCache.TryGet(videoPath, subtitleOrdinal' in service
+           and 'method=cache' in service)
+    report('a pass stores what it extracted for later runs',
+           'SubtitleCache.Store(videoPath, pair.Key' in service
+           and 'SubtitleCache.Store(videoPath, subtitleOrdinal' in service)
+
     report('clearing never deletes a running job\'s scratch folder',
            '_jobs.ContainsKey(name)' in service and 'ref" continue' not in service)
     report('the button says what it clears',

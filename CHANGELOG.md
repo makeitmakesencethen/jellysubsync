@@ -4,6 +4,32 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.6 (beta)
+
+2.0.5 made extraction slower on a real server, and this puts that right and adds the thing that
+actually makes a library fast: extraction is paid once per file, not once per run.
+
+- **Fixed (regression from 2.0.5): a read at a known position pulled a whole-file window.** Files whose
+  cue index names the position of each subtitle block should be read a block at a time - a few
+  kilobytes each. 2.0.5 gave the walker a 4 MB window and let that window leak into those reads, so
+  every cue read 4 MB: 779 cues moved **3.2 GB** to collect ~50 KB of text, at 68 s per episode, where
+  2.0.4 had read 611 MB in 42 s. Known-position reads now set their own small window, the shared pass
+  reads a cluster-sized region instead of the file, and the storage probe reads sequentially rather
+  than jabbing at three random offsets (which measured 11 ms per 16 KB on a share whose own walk was
+  running at ~4 ms per read, and so talked the walker into the wrong choice).
+
+- **Extracted subtitles are now cached per file, so later runs extract nothing.** This is the answer
+  the ecosystem settled on, because no extractor avoids reading the file: Jellyfin's own issue #17667
+  ("FFmpeg generally needs to read the complete file to extract embedded subtitles") measured its own
+  extraction holding a 1 GbE link for three minutes, and mkvextract is documented as having to churn
+  through the whole file. What you can do is pay it once. Measured locally on a 2.5 GB file with eight
+  subtitle tracks: the first run reads the file and takes 6.07 s end to end, the second run logs
+  `extract: method=cache ... (no read: this file's subtitle was extracted on an earlier run)` and takes
+  2.04 s, with extraction contributing nothing. Entries are keyed by the media file's path, size and
+  modification time, so a re-encoded file cannot be served a stale subtitle; they expire after 120 days
+  or when the cache passes 512 MB, and the Settings tab's "Clear cache" button removes them along with
+  everything else.
+
 ## 2.0.5 (beta)
 
 Extraction read the whole file and did it several times per episode. This removes both, and it does
