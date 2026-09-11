@@ -190,6 +190,12 @@ public class FfSubSyncInstallationStatus
     /// </summary>
     public string PluginVersion { get; set; } = string.Empty;
 
+    /// <summary>
+    /// Gets or sets where the plugin's own log file lives (path, size, rotated count), so it can be
+    /// found from the interface instead of guessed at from inside a container.
+    /// </summary>
+    public string LogFile { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the runtime identifier the bundled binary was built for, if present.</summary>
     public string? BundledRid { get; set; }
 
@@ -499,7 +505,10 @@ public class SubSyncService : IDisposable
             // Which build is answering, shown beside the ffsubsync badge instead of inside the
             // progress line.
             PluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
-                .GetName().Version?.ToString() ?? string.Empty
+                .GetName().Version?.ToString() ?? string.Empty,
+
+            // Where the plugin's own log is, so it can be opened from the interface.
+            LogFile = PluginLog.Describe()
         };
 
         // Check system python3
@@ -836,6 +845,11 @@ public class SubSyncService : IDisposable
 
         _jobs[job.Id] = job;
         _jobContexts[job.Id] = (video, subtitleStream, subtitleOrdinal, config);
+        PluginLog.Info(
+            $"queued: job={job.Id} item={itemId} stream={subtitleIndex} mode={job.Mode} "
+            + $"batch={batchId ?? "(standalone)"} language={subtitleStream.Language ?? "und"} "
+            + $"external={subtitleStream.IsExternal} forced={subtitleStream.IsForced} "
+            + $"codec={subtitleStream.Codec} video={video.Path}");
 
         lock (_queueLock)
         {
@@ -1646,6 +1660,31 @@ public class SubSyncService : IDisposable
                 limit,
                 CountQueued(),
                 toStart[0].BatchId ?? "(standalone)");
+
+            // The plugin log records the dispatch decision, including the reason a parallel run can
+            // start fewer jobs than the limit: a job waits for another subtitle of the same media file
+            // (they share one audio analysis), so a batch of ten tracks over two episodes runs two,
+            // not ten. Without this line that looks like parallelism being ignored.
+            var queuedNow = CountQueued();
+            var headReason = string.Empty;
+            if (limit > 1 && running + toStart.Count < limit && queuedNow > toStart.Count)
+            {
+                var queuedMediaFiles = _runOrder
+                    .Where(j => j.Status == SyncJobStatus.Queued)
+                    .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+                var runningMediaFiles = inFlight.Values
+                    .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
+                    .Where(p => !string.IsNullOrEmpty(p))
+                    .Distinct(StringComparer.Ordinal)
+                    .Count();
+                headReason = $" — starting {toStart.Count} of {limit}: {queuedNow} queued across {queuedMediaFiles} media file(s), {running} running from {runningMediaFiles} file(s) (a second subtitle of a running file waits for its audio analysis)";
+            }
+
+            PluginLog.Info(
+                $"dispatch: starting {toStart.Count}, running {running}, limit {limit}, queued {queuedNow}, batch {toStart[0].BatchId ?? "(standalone)"}{headReason}");
 
             for (var i = 0; i < toStart.Count; i++)
             {
@@ -2488,10 +2527,12 @@ public class SubSyncService : IDisposable
             var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
 
             _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
+            PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={args}");
 
             // Parse ffsubsync stderr in real-time for progress updates.
             // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
             // Phase messages: "extracting speech...", "computing alignments...", "writing output..."
+            var engineWatch = System.Diagnostics.Stopwatch.StartNew();
             var exitCode = await RunProcessWithStderrCallbackAsync(
                 ffsubsyncExe, args, tempDir,
                 line =>
@@ -2499,6 +2540,8 @@ public class SubSyncService : IDisposable
                     ParseFfSubSyncStderr(line, job);
                 },
                 cancellationToken).ConfigureAwait(false);
+            engineWatch.Stop();
+            PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
 
             if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
             {
@@ -2704,6 +2747,9 @@ public class SubSyncService : IDisposable
                 outputSize is null ? "size unreadable" : $"{outputSize} bytes",
                 job.Outcome ?? "unknown");
 
+            PluginLog.Info(
+                $"job {job.Id} completed: mode={job.Mode} output={job.OutputPath ?? "(none)"} bytes={outputSize?.ToString() ?? "unknown"} change={job.Outcome ?? "unknown"} extraction={job.ExtractionNote ?? "n/a"}");
+
             if (changedDir is not null && outputSize is null)
             {
                 _logger.LogWarning(
@@ -2765,6 +2811,7 @@ public class SubSyncService : IDisposable
         catch (Exception ex)
         {
             _logger.LogError(ex, "Subtitle sync failed for job {JobId}", job.Id);
+            PluginLog.Error($"job {job.Id} failed: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}", ex);
 
             // ROLLBACK: if we created a backup but didn't complete successfully,
             // restore the original file from backup
@@ -3089,6 +3136,7 @@ public class SubSyncService : IDisposable
                 _logger.LogInformation(
                     "Extracted embedded subtitle in {Ms} ms ({Cues} cues, {Stats}) from {Video}",
                     watch.ElapsedMilliseconds, SrtWriter.CountCues(srt), stats, videoPath);
+                PluginLog.Info($"extract: method={stats.Method} ms={watch.ElapsedMilliseconds} cues={SrtWriter.CountCues(srt)} bytesRead={stats.BytesRead} readCalls={stats.ReadCalls} clusters={stats.ClustersVisited} blocks={stats.SubtitleBlocks} file={videoPath}");
                 return stats.Method;
             }
 
@@ -3145,6 +3193,10 @@ public class SubSyncService : IDisposable
             videoPath, sizeMb, timeout.TotalMinutes,
             skipped.Count == 0 ? "no index reader matched this container" : string.Join("; ", skipped));
 
+        // The single most useful line for a slow extraction: which reader refused the track and why.
+        PluginLog.Warn(
+            $"extract fallback to ffmpeg: file={videoPath} sizeMb={sizeMb:0.0} timeoutMinutes={timeout.TotalMinutes:0} reasons={string.Join("; ", skipped)}");
+
         // Say what is happening *before* the slow path starts: a whole-file ffmpeg read can
         // take minutes, and a frozen "Extracting subtitle" at 5% tells the user nothing.
         var durationSeconds = runTimeTicks.HasValue && runTimeTicks.Value > 0
@@ -3163,6 +3215,7 @@ public class SubSyncService : IDisposable
                 videoPath, containerIndex, outputPath, durationSeconds, job, timeoutCts.Token).ConfigureAwait(false);
             _logger.LogInformation(
                 "ffmpeg extraction finished in {Ms} ms for {Video}", fallbackWatch.ElapsedMilliseconds, videoPath);
+            PluginLog.Info($"extract: method=ffmpeg ms={fallbackWatch.ElapsedMilliseconds} file={videoPath}");
             return "ffmpeg";
         }
         catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)

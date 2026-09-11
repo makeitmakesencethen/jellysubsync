@@ -843,6 +843,52 @@ Check("a cue that is only a timing line becomes empty",
 Check("line breaks inside a VTT cue are kept",
     MkvSubtitleExtractor.CleanWebVttText("linje en\nlinje to") == "linje en\nlinje to");
 
+// ---------------- The plugin's own log file ----------------
+// Jellyfin's server log is shared, rotates on the server's schedule and needs shell access; a run
+// that behaves badly needs its own numbers in one file that can be opened from the interface.
+var logDir = Path.Combine(Path.GetTempPath(), "subsync-log-" + Guid.NewGuid().ToString("N")[..8]);
+PluginLog.Append(logDir, "INFO", "first line", 4096);
+var logFile = Path.Combine(logDir, "subsync.log");
+Check("the plugin log is written", File.Exists(logFile) && File.ReadAllText(logFile).Contains("first line"));
+Check("a log line carries a UTC timestamp and a level",
+    System.Text.RegularExpressions.Regex.IsMatch(File.ReadAllText(logFile),
+        @"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}\.\d{3}Z INFO  first line"));
+
+// Error() writes through the resolved path (the temp fallback in this harness, since no plugin
+// instance exists), which also proves the exception detail reaches the file.
+PluginLog.Error("boom", new InvalidOperationException("the detail"));
+var errorLog = PluginLog.FilePath;
+Check("an error entry includes the exception detail",
+    File.Exists(errorLog) && File.ReadAllText(errorLog).Contains("the detail"), errorLog);
+Check("the log path is described for the interface", PluginLog.Describe().Length > 0);
+if (File.Exists(errorLog))
+{
+    File.Delete(errorLog);
+}
+
+File.WriteAllText(logFile, new string('x', 5000));
+PluginLog.Append(logDir, "WARN", "after rotation", 4096);
+Check("reaching the size limit rotates the file",
+    File.Exists(logFile + ".1") && new FileInfo(logFile + ".1").Length == 5000);
+Check("the new entry lands in the fresh file", File.ReadAllText(logFile).Contains("after rotation"));
+
+for (var roll = 0; roll < PluginLog.KeptFiles + 3; roll++)
+{
+    File.WriteAllText(logFile, new string('y', 5000));
+    PluginLog.Append(logDir, "INFO", "roll " + roll, 4096);
+}
+Check("rotation keeps a bounded number of files",
+    !File.Exists(logFile + "." + (PluginLog.KeptFiles + 1))
+    && File.Exists(logFile + "." + PluginLog.KeptFiles));
+
+var described = PluginLog.Tail(64);
+Check("the log can be read back for the interface", described.Length > 0 && !described.Contains("could not read"));
+
+// A log write must never be the reason a sync fails.
+PluginLog.Append("/proc/subsync-cannot-write-here", "INFO", "unwritable", 4096);
+Check("a log write into an unwritable folder is swallowed", true);
+Directory.Delete(logDir, recursive: true);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 

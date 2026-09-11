@@ -191,7 +191,28 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.46]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.47]
+
+### Added
+- **The plugin writes its own log file**, `<jellyfin-data>/subsync/logs/subsync.log`, rotated at 4 MB
+  with three older files kept. Jellyfin's server log is shared with everything else, rotates on the
+  server's schedule and needs shell access to read; a run that behaves badly - a subtitle that took
+  two minutes to extract, a batch that never used the configured parallelism, a track that was quietly
+  swapped - needs its own numbers, in one file, from one run.
+
+  What it records: the startup facts (build, settings file, worker setting), every queued task with its
+  language/external/forced flags, the **dispatch decision** including *why* fewer jobs started than the
+  limit allows, each extraction with method, milliseconds, **bytes read, read calls, cues, clusters**
+  and the reason when the index reader refused a track, each ffsubsync invocation with its arguments,
+  cached-speech state and exit code, the measured change, the file written and its size, and failures
+  with their stack traces. Entries carry a UTC timestamp and a level (INFO/WARN/ERROR), and a log write
+  can never fail a sync.
+
+- **The log is readable from the interface**: the Settings tab shows the path and size with an `open`
+  link (`GET /SubSync/Log` returns the tail as plain text), so handing a log over for debugging does not
+  require shell access to the server.
+
+## [1.1.0.46]
 
 ### Fixed
 - **WebVTT tracks no longer go through ffmpeg.** The container reader's text-codec list was missing

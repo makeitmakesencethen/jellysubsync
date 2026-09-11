@@ -426,6 +426,22 @@ public class SubSyncController : ControllerBase
     }
 
     /// <summary>
+    /// Returns the tail of the plugin's own log file as plain text.
+    ///
+    /// Exists so the log can be read or downloaded from the interface: handing over a log for
+    /// debugging should not require shell access to the server the plugin runs on.
+    /// </summary>
+    /// <param name="kilobytes">How much of the end of the file to return (4-4096 kB).</param>
+    /// <returns>The tail of the log as text.</returns>
+    [HttpGet("Log")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult GetLog([FromQuery] int kilobytes = 256)
+    {
+        var take = Math.Clamp(kilobytes, 4, 4096) * 1024;
+        return Content(Services.PluginLog.Tail(take), "text/plain; charset=utf-8");
+    }
+
+    /// <summary>
     /// Serves the client-side injection script that adds "Sync Subtitles" to video pages.
     /// </summary>
     /// <returns>The JavaScript content.</returns>

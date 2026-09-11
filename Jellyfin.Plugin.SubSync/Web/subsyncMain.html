@@ -168,7 +168,8 @@
                             <p class="sectionDescription ss-muted" style="margin-top:4px;">Sync engine options. ffmpeg and the bundled ffsubsync are detected automatically — only change these if you know what you are doing.</p>
 
                             <div id="ss-status" style="padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.06);color:var(--text-color,#ddd);white-space:pre-wrap;word-break:break-word;font-size:.85rem;line-height:1.55;margin:10px 0 4px;">Checking status...</div>
-                            <div id="ss-identity" class="ss-muted" style="font-size:.74rem;opacity:.6;margin:0 0 16px;word-break:break-all;"></div>
+                            <div id="ss-identity" class="ss-muted" style="font-size:.74rem;opacity:.6;margin:0 0 4px;word-break:break-all;"></div>
+                            <div id="ss-logfile" class="ss-muted" style="font-size:.74rem;opacity:.6;margin:0 0 16px;word-break:break-all;"></div>
 
                             <div class="ss-settings-grid">
                                 <h3 class="ss-subhead">Synchronization Settings</h3>
@@ -721,6 +722,23 @@
                     if (identityEl) {
                         var identity = s.PluginIdentity || s.pluginIdentity || '';
                         identityEl.textContent = identity ? 'Loaded from ' + identity : '';
+                    }
+
+                    // The plugin's own log, openable straight from here: a log that needs a shell on
+                    // the server to read is a log nobody reads.
+                    var logEl = $('ss-logfile');
+                    if (logEl) {
+                        logEl.textContent = '';
+                        var logPath = s.LogFile || s.logFile || '';
+                        if (logPath) {
+                            logEl.appendChild(document.createTextNode('Debug log: ' + logPath + ' '));
+                            var logLink = document.createElement('a');
+                            logLink.href = apiUrl('SubSync/Log') + '?api_key=' + encodeURIComponent(token());
+                            logLink.target = '_blank';
+                            logLink.rel = 'noopener';
+                            logLink.textContent = 'open';
+                            logEl.appendChild(logLink);
+                        }
                     }
 
                     var cacheEl = $('ss-speechcache');

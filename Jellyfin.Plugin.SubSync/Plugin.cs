@@ -1,4 +1,5 @@
 using Jellyfin.Plugin.SubSync.Configuration;
+using Jellyfin.Plugin.SubSync.Services;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Plugins;
 using MediaBrowser.Model.Plugins;
@@ -39,6 +40,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 AssemblyLocation,
                 SettingsFilePath,
                 Configuration?.ParallelWorkers);
+
+            // The plugin log starts with the same facts, so a log file handed over for debugging says
+            // which build wrote it and where its settings live.
+            PluginLog.Info(
+                $"startup: version={GetType().Assembly.GetName().Version?.ToString() ?? "unknown"} "
+                + $"assembly={AssemblyLocation} settings={SettingsFilePath} "
+                + $"workers={Configuration?.ParallelWorkers} mode={Configuration?.MultiSyncMode} "
+                + $"vad={Configuration?.VadMethod} log={PluginLog.FilePath}");
         }
         catch (Exception ex)
         {
@@ -127,6 +136,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the persistent state directory for sweep caches.
     /// </summary>
     public string StatePath => Path.Join(ApplicationPaths.DataPath, "subsync", "state");
+
+    /// <summary>
+    /// Gets the directory holding this plugin's own log file.
+    ///
+    /// Deliberately under the plugin's data folder rather than its installation folder: Jellyfin
+    /// removes the old version's folder when a plugin is updated, so a log written there would
+    /// disappear exactly when it is wanted.
+    /// </summary>
+    public string LogPath => Path.Join(ApplicationPaths.DataPath, "subsync", "logs");
 
     /// <summary>
     /// Gets where this plugin's own assembly was loaded from.
