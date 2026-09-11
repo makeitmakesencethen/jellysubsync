@@ -1,0 +1,128 @@
+{
+  "mode": "engine-cancel",
+  "file": "/opt/data/jf12test/media-slow/Slow Single Track (2026).mkv",
+  "item": "Slow Single Track",
+  "batch_id": "93f9471cd0ef4fb9b8a718601453454f",
+  "engine_children_before_cancel": [
+    {
+      "pid": 101537,
+      "ppid": 101000,
+      "cmd": "/opt/data/jf12test/data/data/subsync/venv/bin/python3 /opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync /opt/data/jf12test/data/data/subsync/state/speech-cache/e3be23d0b82b5022bcb8e4c46435ab46.mkv -i /opt/data/jf12test/cache/subsync/5992206a6a6149a392d2701396b89a26/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5992206a6a6149a392d2701396b89a26/synced.srt --max-offset-seconds 60 --max-sub"
+    },
+    {
+      "pid": 101541,
+      "ppid": 101537,
+      "cmd": "ffprobe -show_format -show_streams -of json /opt/data/jf12test/data/data/subsync/state/speech-cache/e3be23d0b82b5022bcb8e4c46435ab46.mkv"
+    }
+  ],
+  "cancel_http": 200,
+  "samples": [
+    {
+      "t": 1.0,
+      "alive": []
+    },
+    {
+      "t": 2.0,
+      "alive": []
+    },
+    {
+      "t": 3.0,
+      "alive": []
+    },
+    {
+      "t": 4.0,
+      "alive": []
+    },
+    {
+      "t": 5.0,
+      "alive": []
+    },
+    {
+      "t": 6.0,
+      "alive": []
+    },
+    {
+      "t": 7.0,
+      "alive": []
+    },
+    {
+      "t": 8.0,
+      "alive": []
+    },
+    {
+      "t": 9.0,
+      "alive": []
+    },
+    {
+      "t": 10.0,
+      "alive": []
+    },
+    {
+      "t": 11.0,
+      "alive": []
+    },
+    {
+      "t": 12.0,
+      "alive": []
+    },
+    {
+      "t": 13.0,
+      "alive": []
+    },
+    {
+      "t": 14.0,
+      "alive": []
+    },
+    {
+      "t": 15.0,
+      "alive": []
+    },
+    {
+      "t": 16.0,
+      "alive": []
+    },
+    {
+      "t": 17.0,
+      "alive": []
+    },
+    {
+      "t": 18.1,
+      "alive": []
+    },
+    {
+      "t": 19.1,
+      "alive": []
+    },
+    {
+      "t": 20.1,
+      "alive": []
+    },
+    {
+      "t": 21.1,
+      "alive": []
+    },
+    {
+      "t": 22.1,
+      "alive": []
+    },
+    {
+      "t": 23.1,
+      "alive": []
+    },
+    {
+      "t": 24.1,
+      "alive": []
+    },
+    {
+      "t": 25.1,
+      "alive": []
+    }
+  ],
+  "survivors_after_25s": [],
+  "wall_s": 28.9,
+  "log_lines": [
+    "2026-09-11 21:51:14.383Z INFO  extract: method=seekhead-cues ms=203 cues=27 bytesRead=234747 readCalls=61 clusters=27 blocks=27 file=/opt/data/jf12test/media-slow/Slow Single Track (2026).mkv",
+    "brtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5992206a6a6149a392d2701396b89a26",
+    "2026-09-11 21:51:17.756Z INFO  cancel batch 93f9471cd0ef4fb9b8a718601453454f: 0 queued cancelled, 1 running stopped (phases: 5992206a=Syncing (analysing the audio))"
+  ]
+}

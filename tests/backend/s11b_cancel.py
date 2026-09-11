@@ -31,8 +31,8 @@ SLOW_SINGLE = MEDIA_SLOW / "Slow Single Track (2026).mkv"
 SLOW_EPISODE = MEDIA_SLOW / "Helikopterrånet S01E01.mkv"
 
 
-def procs_with(fragment):
-    """[(pid, ppid, cmdline)] for every process whose argv mentions `fragment`."""
+def all_procs():
+    """[(pid, ppid, cmdline)] for every readable process."""
     out = []
     for entry in os.listdir("/proc"):
         if not entry.isdigit():
@@ -47,29 +47,43 @@ def procs_with(fragment):
         except (OSError, ValueError, IndexError):
             continue
         line = " ".join(a for a in argv if a)
-        if fragment in line:
-            out.append({"pid": pid, "ppid": ppid, "cmd": line[:400]})
+        out.append({"pid": pid, "ppid": ppid, "cmd": line[:400]})
+    return out
+
+
+def procs_with(fragment):
+    """[(pid, ppid, cmdline)] for every process whose argv mentions `fragment`."""
+    return [p for p in all_procs() if fragment in p["cmd"]]
+
+
+def engine_procs():
+    """The engine itself: `ffsubsync` (the venv script or `python …/ffsubsync`), not us."""
+    out = []
+    for p in all_procs():
+        argv = p["cmd"].split()
+        if not argv or "s11b_cancel" in p["cmd"]:
+            continue
+        first = os.path.basename(argv[0])
+        if first == "ffsubsync" or (first.startswith("python") and any("ffsubsync" in a for a in argv)):
+            out.append(p)
     return out
 
 
 def engine_children(root_fragment):
-    """Processes the *engine* started for this file, not the harness's own helpers.
+    """The engine process plus everything whose parent is it.
 
-    A live engine child is `ffmpeg …` / `ffprobe …`, or `python …/ffsubsync …`. Anything else whose
-    command line merely mentions the path is this harness or a shell around it: the first version of
-    this function matched its own `grep`/`ps`/calibration shell and reported them as survivors.
+    Deliberately *only* the engine: Jellyfin runs its own `ffmpeg -i <file>` media probe while a
+    library refresh is in flight, and the first two versions of this function counted that probe (and
+    the harness's own shell) as an engine child, then cancelled the batch before the engine had even
+    started. No fallback: if there is no `ffsubsync` process, there is no engine child.
     """
-    allowed = ("ffmpeg", "ffprobe", "ffsubsync")
-    kids = []
-    for p in procs_with(root_fragment):
-        argv = p["cmd"].split()
-        if not argv:
-            continue
-        first = os.path.basename(argv[0])
-        is_engine = first in allowed or (first.startswith("python")
-                                         and any("ffsubsync" in a for a in argv))
-        if is_engine:
-            kids.append(p)
+    engine = engine_procs()
+    pids = {p["pid"] for p in engine}
+    kids = list(engine)
+    if pids:
+        for p in all_procs():
+            if p["ppid"] in pids:
+                kids.append(p)
     return kids
 
 
@@ -98,30 +112,59 @@ def mode_engine_cancel(args):
     bid = (resp or {}).get("Id") if isinstance(resp, dict) else None
     print("batch %s for %s track %s" % (bid, item["Name"], tracks[0]["Index"]), flush=True)
 
-    # Wait for the engine's child to exist — that is the thing the cancel must reach.
+    # Wait for the engine's own child to exist — that is the thing the cancel must reach.
     seen = []
     deadline = time.time() + args.wait
+    child_seen = False
     while time.time() < deadline:
         kids = engine_children(str(SLOW_SINGLE))
-        if kids:
+        engine_pids = {p["pid"] for p in kids if "ffsubsync" in p["cmd"]}
+        has_child = any(p["ppid"] in engine_pids and p["pid"] not in engine_pids for p in kids)
+        if kids and (has_child or child_seen):
             seen = kids
-            print("engine children before cancel: %s" % json.dumps(kids)[:400], flush=True)
-            break
-        time.sleep(0.2)
+            if has_child:
+                child_seen = True
+            if child_seen:
+                print("engine + child before cancel: %s" % json.dumps(kids)[:500], flush=True)
+                break
+        time.sleep(0.1)
 
+    if not child_seen and seen:
+        print("engine seen but no child of it appeared; cancelling anyway: %s"
+              % json.dumps(seen)[:300], flush=True)
     if not seen:
-        print("no engine child appeared within %ss" % args.wait, flush=True)
+        print("no engine process appeared within %ss" % args.wait, flush=True)
 
+    def descendants(pids, pool):
+        """Every process reachable from `pids` through parent links, however deep."""
+        out, frontier = [], set(pids)
+        while frontier:
+            nxt = set()
+            for p in pool:
+                if p["ppid"] in frontier and p["pid"] not in frontier:
+                    out.append(p)
+                    nxt.add(p["pid"])
+            frontier = nxt
+        return out
+
+    pool = all_procs()
+    engine_pids = {p["pid"] for p in seen if "ffsubsync" in p["cmd"]}
+    kids = descendants(engine_pids, pool)
+    tracked = sorted({p["pid"] for p in seen} | {p["pid"] for p in kids})
+    print("tracked pids: %s" % tracked, flush=True)
     time.sleep(args.settle)
+    st_b, before_status, _ = ss.get("/SubSync/Batch/%s" % bid)
     st, body, _ = ss.post("/SubSync/Batch/%s/Cancel" % bid)
     cancel_at = time.time()
-    print("cancel -> %s %s" % (st, json.dumps(body)[:200] if not isinstance(body, str) else body[:200]),
-          flush=True)
+    print("cancel -> %s %s (batch was %s)" % (st, json.dumps(body)[:200] if not isinstance(body, str) else body[:200],
+                                              json.dumps(before_status)[:200]), flush=True)
 
     samples = []
     for _ in range(args.post):
         time.sleep(1.0)
-        alive = engine_children(str(SLOW_SINGLE))
+        # Tracked by pid: a child that outlives its parent is reparented to init, so matching on the
+        # command line again would lose it exactly when the defect shows itself.
+        alive = [p for p in all_procs() if p["pid"] in tracked]
         samples.append({"t": round(time.time() - cancel_at, 1), "alive": alive})
         print("+%4.1fs alive=%d %s" % (time.time() - cancel_at, len(alive),
                                        json.dumps(alive)[:300]), flush=True)

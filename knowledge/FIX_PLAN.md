@@ -16,7 +16,7 @@ one-line note on each. **Never tick something you did not verify.**
 | state | id | sev | what | evidence / commit |
 |---|---|---|---|---|
 | done | **S11** | high | the reference derivation hands ffsubsync the video, so it demuxes the whole file and hangs | `ac66249` — before 7 Completed + 1 Failed (`unable to read reference`), after 8/8 Completed, 0 engine demuxes; A4 50/50, 16.5 s, no leftovers |
-| open | **S11b** | high | cancelling a batch leaves the engine ffmpeg child alive | not measured this session: `tests/backend/s11b_cancel.py` is written but untested; the slow-profile server must be started with `SLOW=1 ./start-server.sh` first |
+| refuted | **S11b** | high | cancelling a batch left the engine's ffmpeg child alive. Measured on `SLOW=1` with the shim active (engine 70 s per run): the batch was cancelled while ffsubsync pid 101537 and its child pid 101541 were both alive, and **both were gone within 1 s and stayed gone for 25 s** (0 survivors). The session-1 symptom was seen while the engine was demuxing the whole container — the S11 fallback that no longer exists. Residual risk, still open as **B7**: the extraction lane passes `CancellationToken.None`, so a `Kill` cannot stop a lane pass | `s11b-after.json`, batch `93f9471c…`; harness `tests/backend/s11b_cancel.py` |
 | done | **S6** | high | bulk ran one whole-file pass per worker | `a46c5cd` — 48/50 tracks in 18 min where 1/50 took 22 min |
 
 ## Tier 2 — nothing may write a wrong file, lie on screen, or leave junk behind (14 items)
