@@ -459,6 +459,45 @@ if (!string.IsNullOrEmpty(indexedPath) && !string.IsNullOrEmpty(walkPath))
         $"{indexedStats.IndexedMisses} misses");
 }
 
+// Several tracks of one file in a single pass. Every requested track must come out identical to what
+// a pass of its own would produce, and the whole set must cost fewer reads than doing them one after
+// another: that sharing is the only reason the multi-track pass exists.
+var multiPath = Environment.GetEnvironmentVariable("MKV_FIX_MULTI");
+if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
+{
+    var ordinals = new[] { 0, 1, 2 };
+    var many = new Dictionary<int, string>();
+    var manyOk = MkvSubtitleExtractor.TryExtractMany(multiPath, ordinals, out many, out var manyReason, out var manyStats);
+    Check("one pass extracts every requested track", manyOk && many.Count == ordinals.Length,
+        manyOk ? $"{many.Count} of {ordinals.Length} tracks" : manyReason);
+
+    var separateReads = 0;
+    var separateCues = 0;
+    foreach (var ordinal in ordinals)
+    {
+        var single = new MkvExtractionStats();
+        var singleOk = MkvSubtitleExtractor.TryExtract(
+            multiPath, ordinal, out var singleText, out var singleReason, null, out single, null, null, default);
+        Check($"track {ordinal} extracted on its own", singleOk, singleReason);
+        Check($"track {ordinal} is identical with and without sharing",
+            many.TryGetValue(ordinal, out var shared) && shared == singleText,
+            $"shared {(many.ContainsKey(ordinal) ? many[ordinal].Length : -1)} chars vs single {singleText.Length} chars");
+        Check($"track {ordinal} carries only its own text",
+            !singleText.Contains("Track " + ordinal + " line", StringComparison.Ordinal) == (ordinal == 0),
+            "track text looks like another track's");
+        separateReads += single.ReadCalls;
+        separateCues += single.SubtitleBlocks;
+    }
+
+    Check("sharing one pass reads less than separate passes",
+        manyStats.ReadCalls < separateReads,
+        $"shared {manyStats.ReadCalls} reads vs {separateReads} separate "
+        + $"({Math.Round(100.0 * manyStats.ReadCalls / Math.Max(1, separateReads))}%)");
+    Check("the shared pass returns every track's cues",
+        manyStats.SubtitleBlocks + manyStats.AlsoBlocks == separateCues,
+        $"{manyStats.SubtitleBlocks} + {manyStats.AlsoBlocks} vs {separateCues}");
+}
+
 // ---------------- Worker pool: slots, not groups ----------------
 // The failure this guards against: three jobs finished, the fourth kept running, and the three
 // idle workers waited for it instead of taking the next jobs from the queue.
@@ -1069,6 +1108,15 @@ def run_page_checks():
     report('the blocking extraction runs off the thread pool',
            'TaskCreationOptions.LongRunning' in '\n'.join(plugin_sources))
     report('the pump wake signal cannot be swallowed', '_wakePump = new(0)' in '\n'.join(plugin_sources))
+
+    # One pass over a file serves every queued language of it, and the tracks it produced are reused
+    # by the jobs that follow.
+    service_text = '\n'.join(plugin_sources)
+    report('one extraction pass serves the file\'s queued subtitles',
+           'SiblingOrdinals' in service_text and 'TryExtractMany' in service_text)
+    report('extracted tracks are reused by the following jobs',
+           'CacheExtracted' in service_text and 'TryTakeExtracted' in service_text
+           and 'matroska-cached' in service_text)
     report('the worker panel falls back to what the server is running',
            'SubSync/Active' in main_html and 'lastActive' in main_html)
     report('the extraction note reaches the log line',
@@ -1119,6 +1167,14 @@ def main():
                        check=True, capture_output=True)
         env[variable] = path
         env[variable + '_EXPECT'] = str(expected)
+
+    # One file with three subtitle tracks, for the multi-track pass.
+    multi_path = os.path.join(fixtures, 'multi.mkv')
+    subprocess.run(['python3', generator, multi_path, '--clusters', str(clusters),
+                    '--payload', '1', '--sub-every', str(sub_every), '--sub-tracks', '3'],
+                   check=True, capture_output=True)
+    env['MKV_FIX_MULTI'] = multi_path
+    env['MKV_FIX_MULTI_EXPECT'] = str(expected)
     ENV.clear()
     ENV.update(env)
 

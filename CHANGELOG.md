@@ -191,7 +191,44 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.50]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.51]
+
+### Changed
+- **A file is read once and every queued subtitle of it comes out of that one pass.** Until now each
+  language of an episode walked the same clusters again: a 50-language episode paid the cluster reads
+  fifty times. The first job for a file now extracts every embedded track that is queued for it in a
+  single pass, caches the results, and the jobs that follow reuse their track instead of reading the
+  file at all. Tracks the pass cannot serve (no cue index, no block offsets, not text) fall back to
+  their own extraction, and a pass is capped at 48 tracks so a very large batch does not hold every
+  track's text in memory at once.
+
+  Measured on the generated fixture with three subtitle tracks in one file:
+
+  ```
+  one pass extracts every requested track          [3 of 3 tracks]
+  track 0 is identical with and without sharing    [shared 813 chars vs single 813 chars]
+  track 1 is identical with and without sharing    [shared 803 chars vs single 803 chars]
+  track 2 is identical with and without sharing    [shared 803 chars vs single 803 chars]
+  sharing one pass reads less than separate passes [shared 27 reads vs 51 separate (53%)]
+  the shared pass returns every track's cues       [10 + 20 vs 30]
+  ```
+
+  Three tracks are half the reads; the saving grows with the number of languages, because the cluster
+  header is read once for all of them rather than once for each.
+
+### Added
+- `MkvSubtitleExtractor.TryExtractMany` extracts several text tracks of one file in a single pass, with
+  per-track results and the cost of the whole pass in its stats.
+- The fixture generator can write several subtitle tracks (`--sub-tracks N`), which is what the checks
+  above run against.
+
+### Notes
+- The task result says which of the two it got: `read through the container index (seekhead-cues), N ms`
+  for the job that did the pass, `reused from the pass that read this file for another subtitle` for the
+  ones that did not, and the plugin log records the pass itself as
+  `extract: method=shared-pass ... tracks=N/M ... alsoBlocks=...`.
+
+## [1.1.0.50]
 
 ### Fixed
 - **Batches queue in milliseconds instead of minutes, so the workers are actually used.** The

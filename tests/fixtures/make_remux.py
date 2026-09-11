@@ -97,15 +97,22 @@ def simple_block(track, timecode, payload, keyframe=True):
 
 
 def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True, cues=True,
-          rel_pos=True):
+          rel_pos=True, sub_tracks=1):
     payload = payload_mb * 1024 * 1024
     sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
                  for i in range(1, clusters // sub_every + 2)]
+    # Extra subtitle tracks carry recognisably different text, so a pass that shares one read of the
+    # file across tracks can be checked for putting the right blocks in the right track.
+    extra_texts = [[f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nTrack {k} line {i}\n\n"
+                    for i in range(1, clusters // sub_every + 2)]
+                   for k in range(1, max(sub_tracks, 1))]
+    sub_track_numbers = [SUBS + k for k in range(max(sub_tracks, 1))]
 
     tracks_elt = element(TRACKS,
                          track_entry(VIDEO, 1, 'V_MPEG4/ISO/ASP', element(DEFAULT_DURATION, uint_bytes(int(2e10))))
                          + track_entry(AUDIO, 2, 'A_AAC')
-                         + track_entry(SUBS, 17, 'S_TEXT/UTF8'))
+                         + b''.join(track_entry(num, 17, 'S_TEXT/UTF8')
+                                    for num in sub_track_numbers))
 
     info = element(INFO, element(TIMECODE_SCALE, uint_bytes(1_000_000))
                    + element(DURATION, struct.pack('>d', float(clusters)))
@@ -163,7 +170,7 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
         f.write(tracks_elt)
 
         video_offsets = []
-        sub_offsets = []
+        sub_marks = []
         sub_index = 0
         for i in range(clusters):
             cluster_time = i * 1000
@@ -171,10 +178,13 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
             inner += simple_block(VIDEO, 0, b'V' * 16)
             inner += simple_block(AUDIO, 0, b'A' * 8)
             write_sub = (i % sub_every == 0)
-            sub_relative = None
+            sub_rels = []
             if write_sub:
-                sub_relative = len(inner)  # block offset inside the cluster data
-                inner += simple_block(SUBS, 0, sub_texts[sub_index % len(sub_texts)].encode('utf-8'))
+                for k in range(len(sub_track_numbers)):
+                    sub_rels.append(len(inner))  # block offset inside the cluster data
+                    text = sub_texts[sub_index % len(sub_texts)] if k == 0 \
+                        else extra_texts[k - 1][sub_index % len(extra_texts[k - 1])]
+                    inner += simple_block(sub_track_numbers[k], 0, text.encode('utf-8'))
                 sub_index += 1
             # big video block: header written here, payload left as a sparse hole
             big_header = SIMPLE_BLOCK + vint_size(payload + 4) + vint_size(VIDEO) + struct.pack('>h', 0) + b'\x80'
@@ -185,13 +195,15 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
             f.seek(payload, os.SEEK_CUR)
             video_offsets.append(cluster_start - segment_start)
             if write_sub:
-                sub_offsets.append((cluster_start - segment_start, sub_relative))
+                sub_marks.append((cluster_start - segment_start, sub_rels))
 
         points = []
         if video_cues:
             points.extend((VIDEO, off, i * 1000, None) for i, off in enumerate(video_offsets))
         if sub_cues:
-            points.extend((SUBS, off, i * 1000, rel) for i, (off, rel) in enumerate(sub_offsets))
+            for track_index, track_number in enumerate(sub_track_numbers):
+                for i, (off, rels) in enumerate(sub_marks):
+                    points.append((track_number, off, i * 1000, rels[track_index]))
         points.sort(key=lambda p: (p[2], p[0]))
         cue_payload = bytearray()
         for track, offset, time, relative in points:
@@ -220,7 +232,8 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
     size = os.path.getsize(path)
     print(f"{path}: {size / 1e9:.2f} GB apparent, {clusters} clusters, "
           f"{len(video_offsets) if video_cues else 0} video cues, "
-          f"{len(sub_offsets) if sub_cues else 0} subtitle cues, "
+          f"{len(sub_marks) * len(sub_track_numbers) if sub_cues else 0} subtitle cues "
+          f"over {len(sub_track_numbers)} track(s), "
           f"cues element {'yes' if cues else 'NO'}")
 
 
@@ -234,7 +247,8 @@ if __name__ == '__main__':
     ap.add_argument('--no-video-cues', action='store_true')
     ap.add_argument('--no-cues', action='store_true')
     ap.add_argument('--no-rel-pos', action='store_true', help='omit CueRelativePosition (forces the block walk)')
+    ap.add_argument('--sub-tracks', type=int, default=1, help='how many text subtitle tracks to write')
     args = ap.parse_args()
-    build(args.out, args.clusters, args.payload, args.sub_every,
+    build(args.out, args.clusters, args.payload, args.sub_every, sub_tracks=args.sub_tracks,
           sub_cues=not args.no_sub_cues, video_cues=not args.no_video_cues, cues=not args.no_cues,
           rel_pos=not args.no_rel_pos)

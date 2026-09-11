@@ -271,6 +271,12 @@ public class SubSyncService : IDisposable
     // wait for something else to wake it - dispatch lines 19 seconds apart while eight slots sat
     // idle. Extra signals only cost an empty pass or two.
     private readonly SemaphoreSlim _wakePump = new(0);
+
+    // Subtitle text extracted from a file while it was being read for another subtitle of the same
+    // file. Each entry is a few kilobytes of text; the queue keeps the oldest ones out.
+    private readonly ConcurrentDictionary<string, string> _extractedText = new(StringComparer.Ordinal);
+    private readonly ConcurrentQueue<string> _extractedOrder = new();
+    private const int ExtractedCacheLimit = 256;
     private readonly ConcurrentDictionary<string, (Video Video, MediaBrowser.Model.Entities.MediaStream Stream, int Ordinal, Configuration.PluginConfiguration Config)> _jobContexts = new();
 
     // Per-job cancellation. Cancelling a batch only drops queued work; killing running
@@ -2412,7 +2418,9 @@ public class SubSyncService : IDisposable
                 // it in the task result means the difference is visible without the server log.
                 job.ExtractionNote = extractionMethod == "ffmpeg"
                     ? $"demuxed with ffmpeg, {extractionWatch.ElapsedMilliseconds} ms"
-                    : $"read through the container index ({extractionMethod}), {extractionWatch.ElapsedMilliseconds} ms";
+                    : extractionMethod == "matroska-cached"
+                        ? "reused from the pass that read this file for another subtitle"
+                        : $"read through the container index ({extractionMethod}), {extractionWatch.ElapsedMilliseconds} ms";
 
                 // A kill during extraction must not turn into "try the next method".
                 cancellationToken.ThrowIfCancellationRequested();
@@ -3108,6 +3116,74 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Which queued subtitles of this file should be extracted along with this one.
+    /// </summary>
+    /// <remarks>
+    /// Reading a file's clusters once and taking every requested subtitle out of them is what makes a
+    /// multi-language episode affordable: the alternative visits the same clusters once per language.
+    /// Only embedded tracks are listed (an external subtitle is already a file of its own), and the
+    /// list is capped so one very large batch does not hold every track's text in memory at once.
+    /// </remarks>
+    /// <param name="videoPath">The media file being read.</param>
+    /// <param name="primaryOrdinal">The ordinal of the subtitle this job is extracting.</param>
+    /// <returns>Ordinals to extract in one pass, the primary first.</returns>
+    private IReadOnlyList<int> SiblingOrdinals(string videoPath, int primaryOrdinal)
+    {
+        const int MaxTracksPerPass = 48;
+        var wanted = new List<int> { primaryOrdinal };
+        lock (_queueLock)
+        {
+            foreach (var other in _runOrder)
+            {
+                if (wanted.Count >= MaxTracksPerPass)
+                {
+                    break;
+                }
+
+                if (other.Status != SyncJobStatus.Queued
+                    || !_jobContexts.TryGetValue(other.Id, out var context)
+                    || context.Stream.IsExternal
+                    || !string.Equals(context.Video.Path, videoPath, StringComparison.Ordinal))
+                {
+                    continue;
+                }
+
+                if (!wanted.Contains(context.Ordinal))
+                {
+                    wanted.Add(context.Ordinal);
+                }
+            }
+        }
+
+        return wanted;
+    }
+
+    /// <summary>Looks up an already extracted track, taking it out so the text is freed after use.</summary>
+    /// <param name="videoPath">The media file.</param>
+    /// <param name="ordinal">Subtitle ordinal within the file.</param>
+    /// <param name="text">The extracted SRT, when it was cached.</param>
+    /// <returns>True when it was found.</returns>
+    private bool TryTakeExtracted(string videoPath, int ordinal, out string text) =>
+        _extractedText.TryRemove(ExtractedKey(videoPath, ordinal), out text!);
+
+    /// <summary>Remembers an extracted track for the jobs that follow it.</summary>
+    /// <param name="videoPath">The media file.</param>
+    /// <param name="ordinal">Subtitle ordinal within the file.</param>
+    /// <param name="text">The extracted SRT.</param>
+    private void CacheExtracted(string videoPath, int ordinal, string text)
+    {
+        var key = ExtractedKey(videoPath, ordinal);
+        _extractedText[key] = text;
+        _extractedOrder.Enqueue(key);
+        while (_extractedOrder.Count > ExtractedCacheLimit && _extractedOrder.TryDequeue(out var oldest))
+        {
+            _extractedText.TryRemove(oldest, out _);
+        }
+    }
+
+    private static string ExtractedKey(string videoPath, int ordinal) => ordinal + "\u0000" + videoPath;
+
+    /// <summary>
     /// Extracts an embedded subtitle using the cheapest applicable method, and reports which
     /// one worked:
     ///
@@ -3169,20 +3245,79 @@ public class SubSyncService : IDisposable
             var extractedText = string.Empty;
             var extractionReason = string.Empty;
             var extractionStats = new MkvExtractionStats();
-            var extracted = await Task.Factory.StartNew(
-                () => MkvSubtitleExtractor.TryExtract(
-                    videoPath,
-                    subtitleOrdinal,
-                    out extractedText,
-                    out extractionReason,
-                    progress,
-                    out extractionStats,
-                    null,
-                    null,
-                    cancellationToken),
-                cancellationToken,
-                TaskCreationOptions.LongRunning,
-                TaskScheduler.Default).ConfigureAwait(false);
+            var extracted = false;
+
+            // This track may already have been produced while the file was read for another language.
+            if (TryTakeExtracted(videoPath, subtitleOrdinal, out var cachedText))
+            {
+                PluginLog.Info(
+                    $"extract: method=reused cues={SrtWriter.CountCues(cachedText)} file={videoPath} stream={subtitleOrdinal}");
+                await File.WriteAllTextAsync(outputPath, cachedText, utf8, cancellationToken).ConfigureAwait(false);
+                return "matroska-cached";
+            }
+
+            // Every queued subtitle of this file that needs the same embedded track read goes through
+            // one pass: the clusters are visited once and serve all of them, instead of once per
+            // language. This is the whole difference between a 50-language episode costing one
+            // extraction and costing fifty.
+            var wanted = SiblingOrdinals(videoPath, subtitleOrdinal);
+            if (wanted.Count > 1)
+            {
+                job.Phase = "Extracting " + wanted.Count + " subtitles from the Matroska index in one pass";
+                var many = new Dictionary<int, string>();
+                var manyReason = string.Empty;
+                var manyStats = new MkvExtractionStats();
+                var manyOk = await Task.Factory.StartNew(
+                    () => MkvSubtitleExtractor.TryExtractMany(
+                        videoPath,
+                        wanted,
+                        out many,
+                        out manyReason,
+                        out manyStats,
+                        cancellationToken),
+                    cancellationToken,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).ConfigureAwait(false);
+
+                foreach (var pair in many)
+                {
+                    CacheExtracted(videoPath, pair.Key, pair.Value);
+                }
+
+                if (manyOk && many.TryGetValue(subtitleOrdinal, out var sharedText) && sharedText.Length > 0)
+                {
+                    extractedText = sharedText;
+                    extractionStats = manyStats;
+                    extracted = true;
+                }
+
+                PluginLog.Info(
+                    $"extract: method=shared-pass ms={watch.ElapsedMilliseconds} tracks={many.Count}/{wanted.Count} "
+                    + $"cues={SrtWriter.CountCues(extractedText)} bytesRead={manyStats.BytesRead} readCalls={manyStats.ReadCalls} "
+                    + $"clusters={manyStats.ClustersVisited} blocks={manyStats.SubtitleBlocks} alsoBlocks={manyStats.AlsoBlocks} "
+                    + $"ok={manyOk} reason={manyReason} file={videoPath}");
+            }
+
+            if (!extracted)
+            {
+                extractedText = string.Empty;
+                extractionReason = string.Empty;
+                extractionStats = new MkvExtractionStats();
+                extracted = await Task.Factory.StartNew(
+                    () => MkvSubtitleExtractor.TryExtract(
+                        videoPath,
+                        subtitleOrdinal,
+                        out extractedText,
+                        out extractionReason,
+                        progress,
+                        out extractionStats,
+                        null,
+                        null,
+                        cancellationToken),
+                    cancellationToken,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).ConfigureAwait(false);
+            }
 
             var srt = extractedText;
             var why = extractionReason;
@@ -3389,6 +3524,7 @@ public class SubSyncService : IDisposable
         "cue-index" => "from the Matroska cue index",
         "metadata-scan" => "by scanning Matroska metadata only (no full read)",
         "matroska-cues" => "from the Matroska index",
+        "matroska-cached" => "from the pass that already read this file",
         "mp4-sample-table" => "with the MP4 sample table",
         _ => "with ffmpeg (whole-file read)"
     };
