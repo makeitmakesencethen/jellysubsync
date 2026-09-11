@@ -146,6 +146,34 @@ by `AGENTS.md` as a refusal threshold but **does not exist in the codebase** (st
 scan after a failed job re-reports it. *Direction:* write to a temp name and rename only after
 verification, or delete the output on the verification failure path.
 
+**S11 — the reference derivation falls back to ffsubsync's own whole-file demux, one per job, and does not finish (new, high).**
+*Repro:* the 50-track slow-profile batch, `ParallelWorkers = 4`, no per-run reference present yet.
+*Evidence:* two jobs sat in `Syncing (using another subtitle track)` at progress 0.1 for 7 and 17 minutes
+while their own subtitle was already in hand (`ExtractionNote: read through the container index
+(subtitle-cache), 32 ms / 37 ms`). Both had handed **the video file itself** to ffsubsync as the
+reference — `[1485cf8d…] ffsubsync start: … reference=s:1 args=/opt/data/jf12test/media-slow/Helikopterrånet S01E01.mkv`
+and `[d7066c3f…] … reference=s:2 …` — and each spawned its own ffmpeg whole-file demux:
+`ffmpeg -loglevel fatal -nostdin -i …/Helikopterrånet S01E01.mkv -map 0:s:1 -f srt -` running 17:38, and
+`-map 0:s:2` running 07:38, at 12.9 ms per 16 KB. The file's own text for those tracks was already
+extracted and cached in the same minute (`extract: method=cache cues=803 … stream=1`).
+*Why it matters:* the code at `SubSyncService.cs` ~3240 exists precisely to prevent this — "letting
+ffsubsync pull the stream out of the video itself is not [cheap]: it demuxes the whole file. Measured
+on an 8.2 GB episode: 12.5 s and 8218 MB read, repeated for every subtitle." Here the plugin's own
+per-run reference extraction did not produce the file, so the job fell through to the engine's demux,
+and on slow storage that read does not come back: the batch never reaches 50/50 while a worker is
+parked in it. Because the reference is run-scoped and deliberately never cached, a 50-track batch over
+a multi-file season pays this per file.
+*Direction:* when the reference extraction fails but the sibling track's text is already in the
+subtitle cache, build the reference from that text instead of handing the engine the container; and
+make the engine path a bounded, cancellable read rather than an open-ended demux.
+
+**S11b — cancelling the batch did not reliably kill the demux.**
+`POST /SubSync/Batch/{id}/Cancel` returned 200 and marked the remaining task `Cancelled` / `Killed by
+the user.`, and the batch went to `FinishedAtUtc` — but **one of the two ffmpeg demuxes was still alive
+about 20 seconds later** (`ps` matched one `-map 0:s:` process). Consistent with D1/static finding 7
+(the matroska path passes `CancellationToken.None`); here it is the *engine* child that outlives the
+cancel. *Severity:* medium-high (a cancelled job that keeps a NAS saturated).
+
 **S5 — bitmap tracks are invisible rather than refused in the UI (new).**
 `GET /SubSync/Subtitles/{bitmap item}` → `200 []`, while `/Sync` with the stream index fails with the
 correct message. The user cannot see the track to learn why it cannot be synced.
@@ -310,9 +338,18 @@ about the same time. What is **not** fixed, stated plainly:
 * the lane's cost is per **file**, not per track — `270.7 MB` for 6 tracks and `972.5 MB` for 45 of the
   same file — so making the lane run more, smaller passes (6 tracks, then 42) is worse in bytes than a
   single pass, which is why eliminating the job-side pass matters more than shortening the lane's;
-* the last two tracks were still in `Syncing (using another subtitle track)` — the per-job reference
-  extraction — when the measurement window closed, so "the whole series finishes with zero failures"
-  is **not yet demonstrated**.
+* the last two tracks never finished: they were parked in the per-job **reference** derivation
+  (§S11), so `FinishedAtUtc` came from a cancel, not from the work completing.
+
+The batch ended as `Total 50 · Completed 49 · Ok 48 · Failed 0 · Cancelled 1`, created 20:31:07.6,
+finished 20:49:09.7 — **48 of 50 tracks done in ~18 minutes with zero failures**, against 1 of 50 in
+22 minutes before. Two job-side `matroska-shared` passes still ran (458 287 ms and 598 681 ms), so the
+escape hatch fired twice rather than once; 39 of the 50 tasks then reported
+`reused from the pass that read this file for another subtitle` and the rest
+`read through the container index (subtitle-cache), 3–37 ms`. Every one of the 50 took its text from
+the plugin's own reader or its cache — no ffmpeg whole-file subtitle read for the *subtitle* itself.
+"It finishes with zero failures" is therefore **half demonstrated**: zero failures, but not a clean
+finish, and the blocker is now the reference path, not the subtitle path.
 
 ## 8b. Open questions for the user (the brief conditions two of these on agreement)
 
