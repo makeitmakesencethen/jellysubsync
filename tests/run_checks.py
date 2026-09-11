@@ -439,8 +439,13 @@ foreach (var scenario in mkvScenarios)
     }
 }
 
-// The indexed path must read less than walking the clusters to find the same subtitles:
-// if CueRelativePosition handling ever regresses, these two numbers collapse together.
+// The indexed path must never read more than walking the clusters to find the same subtitles:
+// if CueRelativePosition handling ever regresses, the indexed path starts paying for clusters it
+// should have skipped. The two used to differ sharply (0.05 MB against 0.61 MB) because the walk
+// read a 64 KB window per probe; now the walk sizes its window to the storage, and on a local disk
+// that is a few kilobytes, so on this fixture the two are equal. On storage where a read costs a
+// millisecond or more the walk is deliberately given whole-file-sized windows instead, and the gap
+// is large again (few reads, the file's bytes) - which is why this is "no worse", not "less".
 var indexedStats = new MkvExtractionStats();
 var walkStats = new MkvExtractionStats();
 var indexedPath = Environment.GetEnvironmentVariable("MKV_FIX_CUES");
@@ -449,8 +454,8 @@ if (!string.IsNullOrEmpty(indexedPath) && !string.IsNullOrEmpty(walkPath))
 {
     MkvSubtitleExtractor.TryExtract(indexedPath, 0, out _, out _, null, out indexedStats);
     MkvSubtitleExtractor.TryExtract(walkPath, 0, out _, out _, null, out walkStats);
-    Check("indexed extraction reads less than the block walk",
-        indexedStats.BytesRead < walkStats.BytesRead,
+    Check("indexed extraction never reads more than the block walk",
+        indexedStats.BytesRead <= walkStats.BytesRead,
         $"indexed {indexedStats.BytesRead / 1e6:0.00} MB vs walk {walkStats.BytesRead / 1e6:0.00} MB");
     Check("indexed extraction needs fewer reads than the block walk",
         indexedStats.ReadCalls <= walkStats.ReadCalls,

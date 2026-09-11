@@ -4,6 +4,40 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.5 (beta)
+
+Extraction read the whole file and did it several times per episode. This removes both, and it does
+not assume anything about anyone's storage.
+
+- **Fixed: the reader's window was capped at 64 KB, which is why extraction read the file through.**
+  The walker already skipped a block by jumping over its payload - but with a 64 KB window nearly every
+  jump landed outside the window, so the next window was read again and the windows tiled the file end
+  to end. Measured on a real server: 611 MB read and 10,779 read calls for one 611 MB episode, 42-46 s
+  per pass, and the same file read twice back to back.
+
+- **The window is now sized from a measurement of the storage, not a constant.** A walk reads a few
+  probes, keeps the fastest, and decides: if a read costs a millisecond or more (a network share), the
+  clusters are read in pieces up to 4 MB, so an episode costs a handful of reads instead of ten
+  thousand. If reads are cheap (a local disk), it reads only the block headers and skips the payloads,
+  which moves a fraction of the bytes. The measurement is taken once, lazily - a file whose index names
+  its blocks is read by probing exact positions and never pays for it - and it is printed in the log:
+  `extract: storage 0.03 ms per 16 KB read -> walk window 4 KB (reads are cheap here, so only the block
+  headers are read)`. Two installs with different hardware will therefore report different decisions,
+  which is the point: nothing here is tuned to one server.
+
+- **Measured on the test fixtures, on the file shape that was slow** (cue points for the subtitle track
+  but no block offsets, which is what that server's files have): 0.60 MB and 17 reads before, 0.10 MB
+  and 20 reads after. On the local-disk branch that is a 6x cut in bytes; on the share branch the same
+  file costs ~150 reads instead of 10,779.
+
+- **Fixed: every pass was logged twice.** The shared pass wrote its own line, and the job then wrote a
+  second line with the same numbers under the inner method's name, which read like a second pass had
+  run. One pass, one line now.
+
+- The pass line also reports `blockOffsets` (whether the file's index says where its subtitle blocks
+  are) and the reuse line reports `cacheLeft` (how many languages are still waiting in the pass's
+  cache), so a run's log shows whether the work a pass did is reaching the jobs that need it.
+
 ## 2.0.4 (beta)
 
 - **Fixed: the Sync tab was unclickable, and a Save button appeared on it.** Removing the "Reference

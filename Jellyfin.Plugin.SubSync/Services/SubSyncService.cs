@@ -3703,7 +3703,7 @@ public class SubSyncService : IDisposable
             if (TryTakeExtracted(videoPath, subtitleOrdinal, out var cachedText))
             {
                 PluginLog.Info(
-                    $"extract: method=reused cues={SrtWriter.CountCues(cachedText)} file={videoPath} stream={subtitleOrdinal}");
+                    $"extract: method=reused cues={SrtWriter.CountCues(cachedText)} cacheLeft={_extractedText.Count} file={videoPath} stream={subtitleOrdinal}");
                 await File.WriteAllTextAsync(outputPath, cachedText, utf8, cancellationToken).ConfigureAwait(false);
                 return "matroska-cached";
             }
@@ -3736,18 +3736,22 @@ public class SubSyncService : IDisposable
                     CacheExtracted(videoPath, pair.Key, pair.Value);
                 }
 
-                if (manyOk && many.TryGetValue(subtitleOrdinal, out var sharedText) && sharedText.Length > 0)
-                {
-                    extractedText = sharedText;
-                    extractionStats = manyStats;
-                    extracted = true;
-                }
-
                 PluginLog.Info(
                     $"extract: method=shared-pass ms={watch.ElapsedMilliseconds} tracks={many.Count}/{wanted.Count} "
-                    + $"cues={SrtWriter.CountCues(extractedText)} bytesRead={manyStats.BytesRead} readCalls={manyStats.ReadCalls} "
+                    + $"cues={SrtWriter.CountCues(many.TryGetValue(subtitleOrdinal, out var own) ? own : string.Empty)} "
+                    + $"bytesRead={manyStats.BytesRead} readCalls={manyStats.ReadCalls} "
                     + $"clusters={manyStats.ClustersVisited} blocks={manyStats.SubtitleBlocks} alsoBlocks={manyStats.AlsoBlocks} "
-                    + $"ok={manyOk} reason={manyReason} file={videoPath}");
+                    + $"blockOffsets={manyStats.BlockOffsets} ok={manyOk} reason={manyReason} file={videoPath}");
+
+                if (manyOk && many.TryGetValue(subtitleOrdinal, out var sharedText) && sharedText.Length > 0)
+                {
+                    // The line above is the whole record of this extraction: it was one pass over the
+                    // file and it served every queued language. The generic line further down used to
+                    // follow it with the same numbers under a different method name, which read like a
+                    // second pass had run - two lines per pass, one of them a duplicate.
+                    await File.WriteAllTextAsync(outputPath, sharedText, utf8, cancellationToken).ConfigureAwait(false);
+                    return "matroska-shared";
+                }
             }
 
             if (!extracted)
@@ -3973,8 +3977,9 @@ public class SubSyncService : IDisposable
     private static string DescribeExtraction(string method) => method switch
     {
         "seekhead-cues" => "from the Matroska index (SeekHead)",
+        "matroska-shared" => "from the pass that read this file for its other languages",
         "cue-index" => "from the Matroska cue index",
-        "metadata-scan" => "by scanning Matroska metadata only (no full read)",
+        "metadata-scan" => "by walking the file's block headers (this file's index does not point at its subtitle blocks)",
         "matroska-cues" => "from the Matroska index",
         "matroska-cached" => "from the pass that already read this file",
         "mp4-sample-table" => "with the MP4 sample table",

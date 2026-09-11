@@ -39,6 +39,15 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how many subtitle blocks those further tracks contributed.</summary>
     public int AlsoBlocks { get; set; }
 
+    /// <summary>Cue points that named the block's position inside its cluster, not just the cluster.</summary>
+    public int BlockOffsets { get; set; }
+
+    /// <summary>Fastest measured read on the storage holding the file, in milliseconds.</summary>
+    public double StorageProbeMs { get; set; }
+
+    /// <summary>Window the walk used, in bytes, chosen from <see cref="StorageProbeMs"/>.</summary>
+    public int WalkWindow { get; set; }
+
     /// <summary>Gets or sets how many cue points the index held (all tracks).</summary>
     public long CuePoints { get; set; }
 
@@ -71,7 +80,7 @@ public sealed class MkvExtractionStats
     public override string ToString() =>
         string.Format(
             CultureInfo.InvariantCulture,
-            "{0}: {1} clusters, {2} blocks, {3:0.0} MB in {4} reads, {5} ms (locate {6} ms, read {7} ms)",
+            "{0}: {1} clusters, {2} blocks, {3:0.0} MB in {4} reads, {5} ms (locate {6} ms, read {7} ms, {8} cue points, {9} with a block offset)",
             Method,
             ClustersVisited,
             SubtitleBlocks,
@@ -79,7 +88,9 @@ public sealed class MkvExtractionStats
             ReadCalls,
             TotalMs,
             LocateMs,
-            ReadMs)
+            ReadMs,
+            CuePoints,
+            BlockOffsets)
         + (AlsoTracks > 0
             ? string.Format(
                 CultureInfo.InvariantCulture,
@@ -567,9 +578,27 @@ public static class MkvSubtitleExtractor
         MarkIoBaseline();
         var (kernelBytesAtStart, kernelCallsAtStart) = (_kernelBytesAtStart, _kernelCallsAtStart);
 
+        // Cue points that name a cluster but not the block inside it are a trap: finding the block
+        // means walking that cluster's ~150 blocks, and there is one such cluster per cue point, so
+        // the walk ends up covering the whole file (measured: 2,069 clusters, 611 MB, 10,779 reads for
+        // one 611 MB episode). A single sequential pass over the clusters costs the same bytes with a
+        // fraction of the reads, and each track of the file is served by that same pass, so the
+        // clusters the cue index points at are worth using only when they name the block itself.
+        // Cue points that name a cluster but not the block inside it mean the block has to be found by
+        // walking that cluster - and a file's clusters are mostly cue clusters once the index covers the
+        // track, so this walk is the whole file's worth of clusters either way. What made it expensive
+        // was the window it walked with (64 KB, so ~5 reads per cluster and the windows tiled the file:
+        // 10,779 reads, 611 MB, 42 s measured), not the decision to use the index. The window is now
+        // sized from the storage (see PickScanWindow) and the block offsets are counted so the log says
+        // which shape the file has.
+        var blockOffsets = cueRefs.Count(r => r.RelativePosition >= 0);
+        stats.BlockOffsets = blockOffsets;
+        Diag($"cue refs: {cueRefs.Count}, with block offsets: {blockOffsets}");
+
         if (cueRefs.Count > 0)
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
+            reader.WindowSize = IndexedWindowSize;
 
             var seen = new HashSet<long>();
             var index = 0;
@@ -659,7 +688,11 @@ public static class MkvSubtitleExtractor
             // payloads are skipped, so a 60 GB remux costs a few megabytes of reads, where
             // handing it back to ffmpeg would cost all 60 GB.
             stats.Method = "metadata-scan";
-            reader.WindowSize = 4 * 1024;
+            // The scan reads every cluster's block headers and skips the payloads, so the bytes it can
+            // avoid depend on the window: 4 KB windows read ~11% of the file with one read per block,
+            // a 4 MB window reads all of it with one read per 4 MB. Which is cheaper depends on how
+            // long a read costs, so it is chosen from a measured latency (see PickScanWindow).
+            reader.WindowSize = reader.GetWalkWindow();
             if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress, cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
@@ -684,8 +717,9 @@ public static class MkvSubtitleExtractor
         if (alsoExtract is { Count: > 0 } && alsoResults is not null && cueBuffer is not null)
         {
             // Neighbouring subtitle blocks of different tracks sit next to each other in a cluster,
-            // so one wider read serves several of them where 4 KB served one.
-            reader.WindowSize = 64 * 1024;
+            // so one wider read serves several of them. Sized like the scan: the whole point of this
+            // pass is that the clusters are visited once for every language.
+            reader.WindowSize = reader.GetWalkWindow();
 
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
             var byCluster = new SortedDictionary<long, List<(int Index, CueRef Ref)>>();
@@ -857,6 +891,68 @@ public static class MkvSubtitleExtractor
     /// <summary>
     /// Marks the start of a measured extraction, so kernel counters can be reported as a delta.
     /// </summary>
+    /// <summary>Cue-point reads: the block's exact position is known, so read as few bytes as possible.</summary>
+    private const int IndexedWindowSize = 4 * 1024;
+
+    /// <summary>
+    /// Reads a few probes to time the storage, then sizes the walk window for it. Called once per
+    /// extraction: a probe per cluster would add thousands of reads of its own.
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <returns>Window size in bytes.</returns>
+    private static int PickScanWindow(BlobReader reader)
+    {
+        // A small window saves bytes (only block headers are read) but needs one read per block; a
+        // large one reads the file through but needs one read per window. On a local disk a read is
+        // microseconds, so the bytes win. On a share where a read is milliseconds - one measured
+        // server spent ~3.5 ms per read, and its extraction was 42 s of which ~37 s was waiting -
+        // the count wins. Sized from a probe rather than from a setting, so the same code is right on
+        // a Raspberry Pi, an SSD and a NAS.
+        // Three probes, and the fastest one decides: the first read of a file is often cold (a page
+        // cache miss, a share waking up, a dirty page being written back) and would otherwise talk the
+        // walk into treating an SSD like a NAS.
+        if (reader.Length < 4 * 1024 * 1024)
+        {
+            // Too small to be worth deciding about: walking its few hundred blocks is fast even when
+            // every read is slow, and the probe would cost more than the walk it is choosing between.
+            return 4 * 1024;
+        }
+
+        Span<byte> probe = stackalloc byte[16 * 1024];
+        var fastest = double.MaxValue;
+        var got = 0;
+        foreach (var fraction in new[] { 0.5, 0.25, 0.75 })
+        {
+            var watch = Stopwatch.StartNew();
+            var read = reader.ReadAt((long)(reader.Length * fraction), probe);
+            watch.Stop();
+            if (read <= 0)
+            {
+                continue;
+            }
+
+            got = read;
+            fastest = Math.Min(fastest, watch.Elapsed.TotalMilliseconds);
+        }
+
+        if (got <= 0 || fastest == double.MaxValue)
+        {
+            return 4 * 1024;
+        }
+
+        // A read on a share costs milliseconds; on a local disk it costs tens of microseconds. When the
+        // read itself is expensive, transfer the file in a handful of big reads (the walk covers the
+        // file anyway). When it is cheap, read only the block headers and skip the rest, which moves a
+        // fraction of the bytes.
+        var window = fastest >= 1.0 ? BlobReader.MaxWindowSize : 4 * 1024;
+        PluginLog.Info(
+            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read -> walk window {window / 1024} KB "
+            + (fastest >= 1.0
+                ? "(reads are expensive here, so the file is read in big pieces)"
+                : "(reads are cheap here, so only the block headers are read)"));
+        return window;
+    }
+
     private static void MarkIoBaseline()
     {
         var (bytes, calls) = KernelIo();
@@ -1078,8 +1174,13 @@ public static class MkvSubtitleExtractor
         {
             // A cue cluster holds the subtitle block plus every audio frame of that stretch
             // (~150 blocks in practice). Sizing the window to the cluster means a handful of
-            // round trips instead of one per block.
-            reader.WindowSize = (int)Math.Clamp((long)size / 8, 64 * 1024, 512 * 1024);
+            // round trips instead of one per block - but never more than the storage can use:
+            // the window is either bytes-light or round-trip-light, chosen from a measured read
+            // (see PickScanWindow), never hard-coded to one storage's behaviour.
+            // Sized by the storage, never by the cluster: a window the size of the cluster reads the
+            // whole cluster for a block that is usually in its first few kilobytes (measured: 9.5 MB
+            // where 0.6 MB did, on a small file whose blocks sit near the start of each cluster).
+            reader.WindowSize = Math.Max(reader.WindowSize, reader.GetWalkWindow());
         }
 
         stats.ClustersVisited++;
@@ -2019,7 +2120,14 @@ public static class MkvSubtitleExtractor
     private sealed class BlobReader
     {
         /// <summary>Largest window the reader may use.</summary>
-        private const int MaxWindowSize = 64 * 1024;
+        // How large one read may be. This was 64 KB, which is why extraction read a whole file: the
+        // walker skips a block by jumping over its payload, and with a 64 KB window nearly every jump
+        // landed outside it, so the next window was read again - the windows tiled the file end to end
+        // (611 MB read and 10,779 read calls for a 611 MB episode, measured). A generous window means a
+        // handful of reads cover a cluster, and on high-latency storage the number of reads is what
+        // costs, not the bytes. Callers that want to read as few bytes as possible (the per-cue path,
+        // where the exact block position is known) set WindowSize small instead.
+        public const int MaxWindowSize = 4 * 1024 * 1024;
 
         private readonly FileStream _stream;
         private readonly byte[] _window = new byte[MaxWindowSize];
@@ -2033,6 +2141,16 @@ public static class MkvSubtitleExtractor
         /// in a metadata scan wants it small.
         /// </summary>
         public int WindowSize { get; set; } = 4 * 1024;
+
+        /// <summary>
+        /// Window to walk clusters with, measured from the storage the first time one is walked.
+        /// Lazy on purpose: a file whose cue index names its blocks is read by probing exact
+        /// positions, never by walking, so it should not pay for a measurement it will not use.
+        /// </summary>
+        /// <returns>Window size in bytes.</returns>
+        public int GetWalkWindow() => _walkWindow > 0 ? _walkWindow : (_walkWindow = PickScanWindow(this));
+
+        private int _walkWindow;
 
         public BlobReader(FileStream stream)
         {
