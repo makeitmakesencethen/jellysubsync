@@ -191,7 +191,21 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.48]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.49]
+
+### Fixed
+- **The worker panel shows one row per worker that is actually working again.** Drawing every
+  configured slot padded the panel with "idle -" rows and empty bars, so a two-worker run became eight
+  lines and the tasks doing the work were the hard part to find. Each row keeps what the old layout
+  carried - which subtitle, what phase it is in, and how far along it is - and nothing else.
+
+### Changed
+- Slimmer progress bars: 3 px for the run bar and the per-worker bars (was 5 px, and 7 px before that).
+- Less text: no per-row elapsed time, and the batch phase line stays hidden while the worker rows are
+  showing the same phase. The run line stays short - strategy badge, `busy/limit workers`, and the
+  position (`episode 7/136`, or `task 12/40` for a single episode).
+
+## [1.1.0.48]
 
 ### Fixed
 - **A batch is queued without touching the media share, which is why runs behaved as if they were

@@ -1037,9 +1037,11 @@ def run_page_checks():
            'forcedCounts' in main_html and 'forcedCounts' in client)
     report('the server exposes the forced flag', any('IsForced' in text for text in plugin_sources))
 
-    # Every worker slot is drawn, so the panel answers how much of the configured parallelism is
-    # actually in use; and the reader that extracted a subtitle travels with the result.
-    report('idle worker slots are drawn', 'ss-worker-idle' in main_html)
+    # One row per worker that is actually working. Drawing every slot padded the panel with idle
+    # rows ("idle —", empty bars) that buried the two or three tasks doing the work.
+    report('the worker panel draws only working workers', 'ss-worker-idle' not in main_html)
+    report('the worker panel shows each worker phase and percentage',
+           'ss-worker-phase' in main_html and "ss-worker-pct" in main_html and "pct + '%" in main_html)
     report('the worker panel falls back to what the server is running',
            'SubSync/Active' in main_html and 'lastActive' in main_html)
     report('the extraction note reaches the log line',

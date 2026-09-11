@@ -72,8 +72,6 @@
             .ss-worker-idx { font-size: .72rem; opacity: .5; text-align: right; }
             .ss-worker-name { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .ss-worker-phase { font-size: .72rem; opacity: .55; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .ss-worker-idle { opacity: .45; background: rgba(255,255,255,.02); }
-            .ss-worker-idle .ss-worker-name { font-style: italic; }
             .ss-worker-pct { font-size: .76rem; opacity: .8; font-variant-numeric: tabular-nums; }
             .ss-worker-bar-wrap { grid-column: 2 / 4; background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin-top: 3px; overflow: hidden; }
             .ss-worker-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
@@ -506,45 +504,31 @@
                 var box = $('ss-workers');
                 if (!box) return;
 
+                // One row per worker that is actually working - the same shape as before, with the
+                // phase and the percentage. Every slot is *not* drawn: padding the panel with idle
+                // rows turned a two-worker run into eight lines of "idle —" and buried the work.
                 var mine = ((view && (view.RunningTasks || view.runningTasks)) || []).map(normalizeRunning);
                 var elsewhere = (lastActive.running || []).map(normalizeRunning);
                 var busy = mine.length ? mine : elsewhere;
 
-                var limit = (view && (view.WorkerLimit || view.workerLimit)) || 0;
-                if (!limit) {
-                    limit = (view && (view.WorkerSetting || view.workerSetting)) || 0;
-                }
-                if (!limit && busy.length) {
-                    limit = busy.length;
-                }
-
-                if (!busy.length && limit <= 1) {
+                if (!busy.length) {
                     box.classList.add('ss-hidden');
                     box.innerHTML = '';
                     return;
                 }
 
-                var slots = Math.max(limit, busy.length);
                 var html = '';
-                for (var slot = 0; slot < slots; slot++) {
-                    var task = busy[slot];
-                    var pct = 0;
-                    var name = 'idle';
-                    var phase = '';
-                    if (task) {
-                        var prog = Math.max(0, Math.min(1, task.Progress || 0));
-                        pct = Math.round(prog * 100);
-                        name = task.Title || ('task ' + (slot + 1));
-                        phase = task.Phase || '';
-                    }
-                    html += '<div class="ss-worker' + (task ? '' : ' ss-worker-idle') + '">' +
+                busy.forEach(function (task, slot) {
+                    var prog = Math.max(0, Math.min(1, task.Progress || 0));
+                    var pct = Math.round(prog * 100);
+                    html += '<div class="ss-worker">' +
                         '<div class="ss-worker-idx">' + (slot + 1) + '</div>' +
-                        '<div class="ss-worker-name">' + esc(name) +
-                        (phase ? '<span class="ss-worker-phase">' + esc(phase) + '</span>' : '') + '</div>' +
-                        '<div class="ss-worker-pct">' + (task ? pct + '%' : '\u2014') + '</div>' +
+                        '<div class="ss-worker-name">' + esc(task.Title || ('task ' + (slot + 1))) +
+                        '<span class="ss-worker-phase">' + esc(task.Phase || '') + '</span></div>' +
+                        '<div class="ss-worker-pct">' + pct + '%</div>' +
                         '<div class="ss-worker-bar-wrap"><div class="ss-worker-bar" style="width:' + pct + '%"></div></div>' +
                         '</div>';
-                }
+                });
                 box.innerHTML = html;
                 box.classList.remove('ss-hidden');
             }
