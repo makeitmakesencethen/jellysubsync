@@ -28,11 +28,31 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _logger = loggerFactory.CreateLogger<Plugin>();
 
+        // Stated at startup because a settings change that appears to do nothing is otherwise
+        // invisible: this line shows where the plugin was loaded from, which file it reads, and
+        // the values it actually has.
         try
         {
-            if (Migrate(Configuration))
+            _logger.LogInformation(
+                "SubSync {Version} loaded from {Assembly}; settings file {Config}; parallel workers setting {Workers}",
+                GetType().Assembly.GetName().Version?.ToString() ?? "unknown",
+                AssemblyLocation,
+                SettingsFilePath,
+                Configuration?.ParallelWorkers);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "SubSync startup diagnostics unavailable");
+        }
+
+        try
+        {
+            // Configuration is nullable in the base class; with nothing loaded there is nothing
+            // to migrate.
+            var stored = Configuration;
+            if (stored is not null && Migrate(stored))
             {
-                UpdateConfiguration(Configuration); // persist the migrated values
+                UpdateConfiguration(stored); // persist the migrated values
             }
         }
         catch (Exception ex)
@@ -107,6 +127,21 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
     /// Gets the persistent state directory for sweep caches.
     /// </summary>
     public string StatePath => Path.Join(ApplicationPaths.DataPath, "subsync", "state");
+
+    /// <summary>
+    /// Gets where this plugin's own assembly was loaded from.
+    ///
+    /// Surfaced because two loaded copies of the plugin (an older folder that was not removed
+    /// during an update, say) would each hold their own configuration: the settings page would
+    /// write to one while the other ran the queue, and a changed setting would appear to be
+    /// ignored.
+    /// </summary>
+    public string AssemblyLocation => typeof(Plugin).Assembly.Location;
+
+    /// <summary>
+    /// Gets the file this plugin's settings are read from and written to.
+    /// </summary>
+    public string SettingsFilePath => ConfigurationFilePath;
 
     /// <inheritdoc />
     public IEnumerable<PluginPageInfo> GetPages()

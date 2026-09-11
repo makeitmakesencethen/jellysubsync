@@ -191,7 +191,28 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.36]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.37]
+
+### Added
+- **The settings page states the worker value in force against the value configured**, plus where
+  the plugin was loaded from and which settings file it reads:
+
+  ```
+  Workers: 4 in use (setting 8)
+  Loaded from: /config/data/plugins/SubSync_1.1.0.37/Jellyfin.Plugin.SubSync.dll  ·  /config/plugins/SubSync.xml
+  ```
+
+  A setting that appears to be ignored has exactly two explanations — the running copy is not the
+  one being edited, or the value never reached the settings file — and both are now visible
+  without reading any code. The startup log carries the same facts
+  (`SubSync <version> loaded from <assembly>; settings file <path>; parallel workers setting N`),
+  so a second loaded copy shows up as well.
+
+### Changed
+- **The language box says LOADING inside itself** (same box, same position, text replaced, restored
+  when the lists are in) instead of drawing a second layer over the existing text.
+
+## [1.1.0.36]
 
 ### Added
 - **The worker setting is now observable.** A run reported `4/4 workers` with 8 configured, and

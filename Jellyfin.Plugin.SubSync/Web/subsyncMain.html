@@ -65,14 +65,6 @@
             .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
             .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; max-height: 420px; overflow-y: auto; }
-            .ss-langwrap { position: relative; display: inline-flex; align-items: center; max-width: 260px; }
-            .ss-langwrap .ss-langload {
-                position: absolute; right: 10px; pointer-events: none;
-                font-size: .72rem; letter-spacing: .04em;
-                background: rgba(0,0,0,.45); color: #fff; padding: 1px 7px; border-radius: 10px;
-                animation: ss-pulse 1.4s ease-in-out infinite;
-            }
-            @keyframes ss-pulse { 0%, 100% { opacity: .55; } 50% { opacity: 1; } }
             .ss-worker {
                 display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
                 background: rgba(255,255,255,.04); border-radius: 6px; padding: 6px 9px;
@@ -156,12 +148,9 @@
 
                             <div class="ss-selactions" id="ss-selactions" style="display:none;">
                                 <button is="emby-button" type="button" id="ss-syncsel-btn" class="raised button-submit"><span>Sync</span></button>
-                                <span class="ss-langwrap">
-                                    <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
-                                        <option value="">All languages</option>
-                                    </select>
-                                    <span class="ss-langload ss-hidden" id="ss-langload">LOADING</span>
-                                </span>
+                                <select is="emby-select" id="ss-sellang" class="ss-compact" label="Subtitles" style="max-width:260px;">
+                                    <option value="">All languages</option>
+                                </select>
                                 <span class="ss-spin" id="ss-selscan" style="display:none;" title="Reading subtitle lists…"></span>
                                 <span class="ss-selchips" id="ss-selchips"></span>
                                 <span class="ss-selnote" id="ss-selnote"></span>
@@ -684,6 +673,16 @@
                     }
                     lines.push('ffmpeg: auto (Jellyfin\u2019s own ffmpeg is detected)');
                     lines.push('Speech cache (fast mode): ' + (s.SpeechCacheSummary || 'empty'));
+
+                    // Stated here so a setting that appears to be ignored is visible at a glance:
+                    // the value in force against the value configured, and the copy of the plugin
+                    // that is answering (a second loaded copy keeps its own settings).
+                    if (s.WorkerSummary || s.workerSummary) {
+                        lines.push('Workers: ' + (s.WorkerSummary || s.workerSummary));
+                    }
+                    if (s.PluginIdentity || s.pluginIdentity) {
+                        lines.push('Loaded from: ' + (s.PluginIdentity || s.pluginIdentity));
+                    }
                     $('ss-status').textContent = lines.join('\n');
                     var cacheEl = $('ss-speechcache');
                     if (cacheEl) {
@@ -807,20 +806,6 @@
                 var scanSpin = $('ss-selscan');
                 if (scanSpin) scanSpin.style.display = langScan.running ? 'inline-block' : 'none';
 
-                // The loading state lives *inside* the language box: its own options stay put, and
-                // the word and the real count appear over them while the lists are read.
-                var inlineLoad = $('ss-langload');
-                if (inlineLoad) {
-                    if (langScan.running) {
-                        inlineLoad.textContent = langScan.total
-                            ? 'LOADING ' + langScan.done + '/' + langScan.total
-                            : 'LOADING';
-                        inlineLoad.classList.remove('ss-hidden');
-                    } else {
-                        inlineLoad.classList.add('ss-hidden');
-                    }
-                }
-
                 var btn = $('ss-syncsel-btn');
                 var span = btn ? btn.querySelector('span') : null;
                 if (span) {
@@ -839,8 +824,15 @@
                 var langSel = $('ss-sellang');
                 if (langSel) {
                     if (langScan.running) {
-                        // The lists are still being read. The box keeps its own options rather
-                        // than turning into a placeholder; the indicator sits inside it.
+                        // The box itself says LOADING - same box, same position, no second layer:
+                        // the text is replaced inside it and put back when the lists are in.
+                        var progress = langScan.total
+                            ? 'LOADING ' + langScan.done + '/' + langScan.total
+                            : 'LOADING';
+                        if (langScan.signature !== progress) {
+                            langScan.signature = progress;
+                            langSel.innerHTML = '<option value="">' + esc(progress) + '</option>';
+                        }
                         langSel.disabled = true;
                         langSel.value = '';
                     } else {

@@ -166,6 +166,19 @@ public class FfSubSyncInstallationStatus
 
     /// <summary>Gets or sets the runtime identifier the bundled binary was built for, if present.</summary>
     public string? BundledRid { get; set; }
+
+    /// <summary>
+    /// Gets or sets where the plugin was loaded from and which settings file it reads — the two
+    /// things that explain a setting which appears to be ignored (a second loaded copy keeps its
+    /// own configuration).
+    /// </summary>
+    public string? PluginIdentity { get; set; }
+
+    /// <summary>
+    /// Gets or sets the worker count in force against the value configured, e.g.
+    /// <c>4 in use (setting 8)</c>.
+    /// </summary>
+    public string? WorkerSummary { get; set; }
 }
 
 /// <summary>
@@ -440,7 +453,18 @@ public class SubSyncService : IDisposable
         {
             VenvPath = Plugin.Instance?.VenvPath,
             ManagedBinaryPath = ManagedFfSubSyncPath,
-            IsInstalled = File.Exists(ManagedFfSubSyncPath)
+            IsInstalled = File.Exists(ManagedFfSubSyncPath),
+
+            // Where the plugin was loaded from and which settings file it reads: two loaded copies
+            // would each keep their own configuration, and the settings page would then write to
+            // one while the other ran the queue.
+            PluginIdentity = Plugin.Instance is { } plugin
+                ? plugin.AssemblyLocation + "  ·  " + plugin.SettingsFilePath
+                : "plugin instance unavailable",
+
+            // The value in force next to the configured one, so a disagreement is visible without
+            // reading any code.
+            WorkerSummary = $"{EffectiveWorkerLimit} in use (setting {ConfiguredWorkerLimit})"
         };
 
         // Check system python3

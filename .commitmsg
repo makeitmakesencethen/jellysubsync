@@ -1,13 +1,12 @@
-State the worker setting in force, and keep the language box while it loads
+State which plugin copy is answering, and put LOADING inside the language box
 
-A run reported "4/4 workers" with 8 configured. Every code path that reads the setting looked
-correct, so rather than guess, the value in force is now stated: the log gets
-"SubSync worker limit is N (configured: M, ceiling: 64)" whenever it changes, and the run line
-adds "setting is M" whenever the configured value disagrees with the limit being used. One line
-then settles it.
+A run reported "4/4 workers" with 8 configured, and no code path that reads the setting was wrong -
+so the settings page now states the facts needed to see why: the worker count in force against the
+configured one, the assembly the plugin was loaded from, and the settings file it reads. The
+startup log carries the same three, so a second loaded copy (an older plugin folder that survived
+an update, each holding its own configuration) is visible instead of silent.
 
-The language box also keeps its own options while the subtitle lists are read - it is disabled and
-the word plus the real count appear inside it ("LOADING 45/280") instead of replacing its contents
-with a placeholder, which made the control look like something else.
+The language box also says LOADING inside itself now - same box, same position, the text swapped
+and restored - rather than drawing a layer over the text that was already there.
 
-Version 1.1.0.36.
+Version 1.1.0.37.
