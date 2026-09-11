@@ -187,6 +187,10 @@
                                     <div class="fieldDescription">Maximum allowed offset in seconds for any subtitle segment. Default: 60.</div>
                                 </div>
                                 <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-maxrefoffset" label="Reference sanity limit (seconds)" min="1" max="600" />
+                                    <div class="fieldDescription">How far a subtitle may move when it is aligned against another subtitle track of the same file. A bigger shift means that reference track is mis-synced, so the job is refused instead of writing a wrong file. Audio-based sync is not affected. Default: 30.</div>
+                                </div>
+                                <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-maxsub" label="Max subtitle seconds" min="1" max="60" step="0.5" />
                                     <div class="fieldDescription">Maximum on-screen duration for a subtitle. Default: 10.</div>
                                 </div>
@@ -580,6 +584,7 @@
                 return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
                     $('ss-vad').value = c.VadMethod || 'subs_then_webrtc';
                     $('ss-maxoffset').value = c.MaxOffsetSeconds || 60;
+                    $('ss-maxrefoffset').value = c.MaxSubtitleReferenceOffsetSeconds || 30;
                     $('ss-maxsub').value = c.MaxSubtitleSeconds || 10;
                     $('ss-encoding').value = c.OutputEncoding || 'utf-8';
                     $('ss-ffmpeg').value = c.FfmpegPath || '';
@@ -606,6 +611,7 @@
                 return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
                     c.VadMethod = $('ss-vad').value;
                     c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
+                    c.MaxSubtitleReferenceOffsetSeconds = parseInt($('ss-maxrefoffset').value, 10) || 30;
                     c.MaxSubtitleSeconds = parseFloat($('ss-maxsub').value) || 10;
                     c.OutputEncoding = $('ss-encoding').value || 'utf-8';
                     c.FfmpegPath = $('ss-ffmpeg').value;

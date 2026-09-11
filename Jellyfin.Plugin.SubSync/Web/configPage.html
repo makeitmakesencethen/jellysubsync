@@ -69,6 +69,11 @@
                             <div class="fieldDescription">Maximum allowed offset in seconds for any subtitle segment. Default: 60.</div>
                         </div>
                         <div class="inputContainer">
+                            <label class="inputLabel" for="MaxSubtitleReferenceOffsetSeconds">Reference sanity limit (seconds)</label>
+                            <input is="emby-input" type="number" id="MaxSubtitleReferenceOffsetSeconds" name="MaxSubtitleReferenceOffsetSeconds" min="1" max="600" />
+                            <div class="fieldDescription">How far a subtitle may move when it is aligned against another subtitle track of the same file. A bigger shift means that reference track is mis-synced, so the job is refused instead of writing a wrong file. Audio-based sync is not affected. Default: 30.</div>
+                        </div>
+                        <div class="inputContainer">
                             <label class="inputLabel" for="MaxSubtitleSeconds">Max subtitle seconds</label>
                             <input is="emby-input" type="number" id="MaxSubtitleSeconds" name="MaxSubtitleSeconds" min="1" max="60" step="0.5" />
                             <div class="fieldDescription">Maximum on-screen duration for a subtitle. Default: 10.</div>
@@ -253,6 +258,7 @@
                         document.querySelector('#FfmpegPath').value = config.FfmpegPath || '';
                         document.querySelector('#VadMethod').value = config.VadMethod || 'subs_then_webrtc';
                         document.querySelector('#MaxOffsetSeconds').value = config.MaxOffsetSeconds || 60;
+                        document.querySelector('#MaxSubtitleReferenceOffsetSeconds').value = config.MaxSubtitleReferenceOffsetSeconds || 30;
                         document.querySelector('#MaxSubtitleSeconds').value = config.MaxSubtitleSeconds || 10;
                         document.querySelector('#OutputEncoding').value = config.OutputEncoding || 'utf-8';
                         document.querySelector('#UseGoldenSectionSearch').checked = config.UseGoldenSectionSearch || false;
@@ -308,6 +314,7 @@
                         config.FfmpegPath = document.querySelector('#FfmpegPath').value;
                         config.VadMethod = document.querySelector('#VadMethod').value;
                         config.MaxOffsetSeconds = parseInt(document.querySelector('#MaxOffsetSeconds').value) || 60;
+                        config.MaxSubtitleReferenceOffsetSeconds = parseInt(document.querySelector('#MaxSubtitleReferenceOffsetSeconds').value) || 30;
                         config.MaxSubtitleSeconds = parseFloat(document.querySelector('#MaxSubtitleSeconds').value) || 10;
                         config.OutputEncoding = document.querySelector('#OutputEncoding').value || 'utf-8';
                         config.UseGoldenSectionSearch = document.querySelector('#UseGoldenSectionSearch').checked;

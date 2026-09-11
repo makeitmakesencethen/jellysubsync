@@ -76,66 +76,7 @@ public static class SpeechCache
         return File.Exists(path) ? path : null;
     }
 
-    /// <summary>
-    /// Path of the cached copy of a *reference subtitle* extracted from a media file.
-    ///
-    /// Why this exists: telling ffsubsync to take a subtitle stream straight out of the video
-    /// (--reference-stream s:N) makes it demux the whole file. Measured on an 8.2 GB episode:
-    /// 12.5 s and 8218 MB read for one subtitle, repeated for every subtitle of that file. The
-    /// same subtitle, extracted once by our own index reader and passed as a small file, costs
-    /// 0.6 s and 6.5 MB and produces identical output.
-    /// </summary>
-    /// <param name="videoPath">Path of the media file.</param>
-    /// <param name="streamSpec">ffmpeg stream specifier of the reference track, e.g. <c>s:1</c>.</param>
-    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
-    /// <returns>Path where that subtitle is (or will be) cached.</returns>
-    public static string ReferencePath(string videoPath, string streamSpec, string engineVersion) =>
-        Path.Combine(
-            Root,
-            KeyFor(videoPath, "reference-subtitle|" + streamSpec, engineVersion) + ".ref.srt");
 
-    /// <summary>
-    /// Records that a reference subtitle has been extracted for this media file.
-    ///
-    /// Used only for scheduling: several subtitles of one file may then run at the same time,
-    /// because none of them has to demux the file any more. Without it they queued behind the
-    /// first, which is why a ten-track episode used one worker at a time.
-    /// </summary>
-    /// <param name="videoPath">Path of the media file.</param>
-    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
-    public static void MarkReferenceReady(string videoPath, string engineVersion)
-    {
-        try
-        {
-            File.WriteAllText(
-                ReferenceReadyPath(videoPath, engineVersion),
-                DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
-        }
-        catch (IOException)
-        {
-            // Best effort: without the marker the file is scheduled one subtitle at a time.
-        }
-    }
-
-    /// <summary>Whether a reference subtitle has already been extracted for this media file.</summary>
-    /// <param name="videoPath">Path of the media file.</param>
-    /// <returns>True when the marker exists.</returns>
-    public static bool ReferenceReady(string videoPath) =>
-        File.Exists(ReferenceReadyPath(videoPath, "any"));
-
-    private static string ReferenceReadyPath(string videoPath, string engineVersion) =>
-        Path.Combine(Root, KeyFor(videoPath, "reference-ready", engineVersion) + ".ready");
-
-    /// <summary>Gets the cached reference subtitle for a media file, or null when absent.</summary>
-    /// <param name="videoPath">Path of the media file.</param>
-    /// <param name="streamSpec">ffmpeg stream specifier of the reference track.</param>
-    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
-    /// <returns>Path of the cached <c>.ref.srt</c>, or null.</returns>
-    public static string? TryGetReference(string videoPath, string streamSpec, string engineVersion)
-    {
-        var path = ReferencePath(videoPath, streamSpec, engineVersion);
-        return File.Exists(path) ? path : null;
-    }
 
     /// <summary>
     /// Creates (or refreshes) the symlink that makes ffsubsync write its speech cache

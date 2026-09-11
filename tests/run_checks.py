@@ -1257,6 +1257,51 @@ def run_page_checks():
         report(f'{workflow} builds on .NET 10', "dotnet-version: '10.0.x'" in text)
         report(f'{workflow} does not reference a net9.0 output path', 'net9.0' not in text)
 
+    # A reference subtitle taken from a sibling track inherits that track's error, and every other
+    # track of the file then inherits it in turn: one mis-synced reference on a real server moved
+    # five language tracks by the same +57.5 s and all five were written as successes. It is
+    # therefore kept for the run that made it and never cached across runs.
+    service = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SubSyncService.cs'),
+                   encoding='utf-8').read()
+    store = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'ReferenceStore.cs'),
+                 encoding='utf-8').read()
+    plugin_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Plugin.cs'),
+                         encoding='utf-8').read()
+    cache_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SpeechCache.cs'),
+                        encoding='utf-8').read()
+
+    report('the reference is reserved inside the run, not in the cache directory',
+           'ReferenceStore.Reserve' in service
+           and 'SpeechCache.ReferencePath' not in service)
+    report('no reference marker file is written any more',
+           'MarkReferenceReady' not in service and 'ReferencePath' not in cache_source)
+    report('extracting a reference logs which track it is and how many cues it has',
+           'track {Reference}, {Cues} cues' in service
+           and 'public static int CueCount' in store)
+    report('a closed run drops the file rather than deleting it while others still need it',
+           'ReferenceStore.EndJob' in service and 'moreQueuedForThisFile' in store)
+    report('an interrupted run cannot leave a reference behind',
+           'ReferenceStore.SweepLeftovers' in plugin_source and 'SweepLeftovers' in store)
+    report('the scheduler asks the in-memory store whether a reference is ready',
+           'ReferenceStore.IsReady' in service
+           and 'ReferenceStore.EndJob(finishedVideo' in service)
+    report('releasing the reference happens outside the queue lock',
+           service.index('ReferenceStore.EndJob(finishedVideo')
+           < service.index('if (toStart.Count == 0)'))
+    report('a result pinned to the offset ceiling is refused, not written',
+           'the measured offset' in service and 'That is a clamp, not a fit' in service)
+    report('a shift past the reference sanity limit is refused',
+           'MaxSubtitleReferenceOffsetSeconds' in service
+           and 'is mis-synced. Nothing was written.' in service)
+    report('the sanity limit is configurable from the model and both pages',
+           'MaxSubtitleReferenceOffsetSeconds' in open(
+               os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                            'PluginConfiguration.cs'), encoding='utf-8').read()
+           and 'ss-maxrefoffset' in pages['subsyncMain.html']
+           and 'MaxSubtitleReferenceOffsetSeconds' in pages['configPage.html'])
+    report('the answer the scheduler keys on is memoised, not read per planning pass',
+           'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
+
     return failures
 
 

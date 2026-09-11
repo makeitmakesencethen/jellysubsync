@@ -29,6 +29,10 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         Instance = this;
         _logger = loggerFactory.CreateLogger<Plugin>();
 
+        // A reference subtitle must never outlive the run that made it, so anything an interrupted
+        // run left in the reference directory is cleared before the queue can start.
+        ReferenceStore.SweepLeftovers();
+
         // Stated at startup because a settings change that appears to do nothing is otherwise
         // invisible: this line shows where the plugin was loaded from, which file it reads, and
         // the values it actually has.

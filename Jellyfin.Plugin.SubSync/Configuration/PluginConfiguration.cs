@@ -67,6 +67,18 @@ public class PluginConfiguration : BasePluginConfiguration
     public int MaxOffsetSeconds { get; set; } = 60;
 
     /// <summary>
+    /// Gets or sets how large a shift may be when a job is aligned against a *reference subtitle*
+    /// taken from another track of the same file.
+    ///
+    /// Such a reference inherits that track's own sync error, and every other track of the file then
+    /// inherits it in turn: on a real server one mis-synced reference moved five language tracks by
+    /// the same +57.5 s and all five were written as successes. A shift beyond this limit is treated
+    /// as a mis-synced reference and refused with the measured numbers, instead of being written.
+    /// Alignments against the audio (the normal path) are not affected by this.
+    /// </summary>
+    public int MaxSubtitleReferenceOffsetSeconds { get; set; } = 30;
+
+    /// <summary>
     /// Gets or sets the output encoding for synced subtitles.
     /// </summary>
     public string OutputEncoding { get; set; } = "utf-8";

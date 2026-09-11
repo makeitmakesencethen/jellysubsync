@@ -4,6 +4,34 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.1 (beta)
+
+Fixes around the subtitle a sync is aligned against (the "reference"), all found by reading a real
+server's plugin log.
+
+- **A reference subtitle is no longer kept between runs.** It is extracted into the run's own cache
+  directory, shared by the other subtitles of the same file while they are queued, and deleted as soon
+  as that file's last subtitle is done (an interrupted run cannot leave one behind either — the
+  directory is cleared at startup). Why it matters: a reference taken from a sibling subtitle track
+  inherits that track's error and every other track of the file inherits it in turn. On a real server
+  one such reference moved five language tracks by the same +57.5 s and all five were written as
+  successes; clearing the cache did not change the result, because the wrong reference was rebuilt
+  identically every time. The audio analysis (the expensive one) is still cached as before.
+- **Fixed: a result pinned to "Maximum offset" is refused, not written.** A subtitle that came out at
+  exactly +60000 ms against a 60 s ceiling was clamped, not fitted — the file was still wrong while the
+  job reported success. Such a job now fails with the measured numbers and the source is untouched.
+- **Added: "Reference sanity limit" (default 30 s).** When a subtitle is aligned against another
+  subtitle track and the shift exceeds this, the reference is treated as mis-synced and the job is
+  refused with the track and the shift named, instead of writing a wrong file. Sync against the audio
+  is not affected. Set it higher only if the subtitles really are that far out.
+- **Fixed: queueing no longer crawls.** The per-file checks the scheduler makes while holding the queue
+  lock are now answered from memory instead of hitting the media share on every planning pass. Measured
+  on a real server before this change: 240 queued tasks spent 105-424 s queueing, with single tasks
+  stalled 32-40 s, and the log showed a single task spending 40326 ms of its 40331 ms in that wait.
+- **Added: the log names the reference.** Every extracted reference now reports which track it came
+  from and how many cues it has ("track s:1, 7 cues"), and every refusal names the track and the shift.
+  Without that line, a wrong reference was invisible.
+
 ## 2.0.0 (beta)
 
 **Jellyfin 12.0 support.** The plugin is rebuilt for the new server generation; it is the

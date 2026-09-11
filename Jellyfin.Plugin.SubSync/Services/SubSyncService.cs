@@ -1308,6 +1308,13 @@ public class SubSyncService : IDisposable
     /// True when this job's media file already has its speech analysis cached, so it can run
     /// without touching storage (and may share the file with another worker).
     /// </summary>
+    /// <summary>How long one answer about a media file's speech cache is trusted.</summary>
+    private static readonly TimeSpan SpeechCachedTtl = TimeSpan.FromSeconds(5);
+
+    private readonly Dictionary<string, (bool Cached, DateTime At)> _speechCachedMemo = new(StringComparer.Ordinal);
+
+    private readonly object _speechCachedGate = new();
+
     private bool SpeechIsCached(SyncJob job)
     {
         try
@@ -1317,11 +1324,35 @@ public class SubSyncService : IDisposable
                 return false;
             }
 
+            // The answer belongs to the media file, and the scheduler asks for it for every queued job
+            // on every planning pass - while holding the queue lock the enqueue path waits on. Reading
+            // it from storage each time cost tens of seconds per queued task on a share (240 tasks took
+            // 105-424 s to queue, the slowest single task 32-40 s, almost all of it "log=" time spent
+            // waiting for that lock). The answer cannot change except by a finished analysis, which is
+            // itself a filesystem event of the same file, so a few seconds of trust is enough.
+            var path = ctx.Video.Path;
+            var now = DateTime.UtcNow;
+
+            lock (_speechCachedGate)
+            {
+                if (_speechCachedMemo.TryGetValue(path, out var memo) && now - memo.At < SpeechCachedTtl)
+                {
+                    return memo.Cached;
+                }
+            }
+
             var key = SpeechCache.KeyFor(
-                ctx.Video.Path,
+                path,
                 (ctx.Config.VadMethod ?? "subs_then_webrtc") + "|audio",
                 EngineIdentity());
-            return SpeechCache.TryGet(key) is not null;
+            var cached = SpeechCache.TryGet(key) is not null;
+
+            lock (_speechCachedGate)
+            {
+                _speechCachedMemo[path] = (cached, now);
+            }
+
+            return cached;
         }
         catch (Exception)
         {
@@ -1752,14 +1783,32 @@ public class SubSyncService : IDisposable
             List<SyncJob> toStart;
             var limit = 1;
             var running = 0;
+            List<(string? VideoPath, bool MoreQueued)> finishedVideos;
 
             LogWorkerLimit();
 
             lock (_queueLock)
             {
+                finishedVideos = new List<(string?, bool)>();
+
                 foreach (var finished in inFlight.Where(kvp => kvp.Key.IsCompleted).Select(kvp => kvp.Key).ToList())
                 {
+                    var finishedJob = inFlight[finished];
                     inFlight.Remove(finished);
+
+                    var finishedPath = _jobContexts.TryGetValue(finishedJob.Id, out var finishedContext)
+                        ? finishedContext.Video.Path
+                        : null;
+
+                    // A reference is only worth keeping while another subtitle of that same media file
+                    // is still queued behind it. Once the file is done, this run's copy goes: a wrong
+                    // reference must not be able to poison a later run of the same file.
+                    var stillQueued = finishedPath is not null
+                        && _runOrder.Any(j => j.Status == SyncJobStatus.Queued
+                            && _jobContexts.TryGetValue(j.Id, out var queuedContext)
+                            && string.Equals(queuedContext.Video.Path, finishedPath, StringComparison.Ordinal));
+
+                    finishedVideos.Add((finishedPath, stillQueued));
                 }
 
                 running = inFlight.Count;
@@ -1787,8 +1836,15 @@ public class SubSyncService : IDisposable
                         job => JobNeedsHeavyIo(job, headMode),
                         job => SpeechIsCached(job)
                             || (_jobContexts.TryGetValue(job.Id, out var shareContext)
-                                && SpeechCache.ReferenceReady(shareContext.Video.Path)));
+                                && ReferenceStore.IsReady(shareContext.Video.Path)));
                 }
+            }
+
+            // Filesystem work stays outside the queue lock: releasing a reference may delete a whole
+            // directory, and this lock is what the enqueue path waits on.
+            foreach (var (finishedVideo, moreQueuedForIt) in finishedVideos)
+            {
+                ReferenceStore.EndJob(finishedVideo, moreQueuedForIt);
             }
 
             if (toStart.Count == 0)
@@ -2505,6 +2561,14 @@ public class SubSyncService : IDisposable
         // inputs set this so the subtitle being fixed is not used as its own reference.
         string? referenceStream = null;
 
+        // True when this job is aligned against a subtitle taken from a sibling track instead of
+        // against the audio. Such a result is only ever as good as that track, so it is checked
+        // before anything is written.
+        var usedSubtitleReference = false;
+
+        // Which track became the reference, for both log lines and the refusal message.
+        string? referenceSpec = null;
+
         // Paths for the safe atomic-replace workflow
         string? backupPath = null;   // .bak of original subtitle file (replace mode only)
         string? tempOutput = null;   // ffsubsync output in temp dir
@@ -2678,25 +2742,34 @@ public class SubSyncService : IDisposable
                     BundledFfSubSyncVersion,
                     typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
                 var referenceOrdinal = SubtitleStreamOrdinal(referenceStream);
-                var cachedReference = referenceOrdinal >= 0
-                    ? SpeechCache.TryGetReference(videoPath, referenceStream!, referenceIdentity)
+                referenceSpec = referenceStream;
+
+                // The reference lives in this run's own directory and is shared with the other
+                // subtitles of this file while they are still queued. It is deliberately never carried
+                // over from an earlier run: a reference taken from a sibling subtitle inherits that
+                // track's own error, and every other track of the file then inherits it in turn.
+                var referenceTarget = referenceOrdinal >= 0
+                    ? ReferenceStore.Reserve(videoPath, referenceStream!, referenceIdentity)
                     : null;
 
-                if (cachedReference is not null)
+                if (referenceTarget is not null && File.Exists(referenceTarget))
                 {
-                    referencePath = cachedReference;
+                    referencePath = referenceTarget;
                     referenceStream = null;
+                    usedSubtitleReference = true;
                     job.Phase = SyncPhaseLabel(fromCache: true, audioReference: false);
                     _logger.LogInformation(
-                        "Reusing the extracted reference subtitle for {Video}", videoPath);
+                        "Reusing this run's reference subtitle for {Video}: track {Reference}, {Cues} cues",
+                        videoPath,
+                        referenceSpec,
+                        ReferenceStore.CueCount(referenceTarget));
                 }
-                else if (referenceOrdinal >= 0)
+                else if (referenceTarget is not null)
                 {
-                    var referenceTarget = SpeechCache.ReferencePath(videoPath, referenceStream!, referenceIdentity);
                     var referencePart = referenceTarget + ".part";
                     try
                     {
-                        Directory.CreateDirectory(SpeechCache.Root);
+                        Directory.CreateDirectory(Path.GetDirectoryName(referenceTarget)!);
 
                         // Written to a temporary name and moved into place: two subtitles of the
                         // same file may extract the reference at the same time, and a reader must
@@ -2712,11 +2785,15 @@ public class SubSyncService : IDisposable
                             cancellationToken,
                             allowFfmpegFallback: false).ConfigureAwait(false);
                         File.Move(referencePart, referenceTarget, overwrite: true);
-                        SpeechCache.MarkReferenceReady(videoPath, referenceIdentity);
+                        ReferenceStore.MarkReady(videoPath);
                         referencePath = referenceTarget;
                         referenceStream = null;
+                        usedSubtitleReference = true;
                         _logger.LogInformation(
-                            "Extracted the reference subtitle once for {Video} ({Track})", videoPath, referenceStream ?? "s:" + referenceOrdinal);
+                            "Extracted this run's reference subtitle for {Video}: track {Reference}, {Cues} cues (deleted once this file's subtitles are done)",
+                            videoPath,
+                            referenceSpec,
+                            ReferenceStore.CueCount(referenceTarget));
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
@@ -2836,6 +2913,65 @@ public class SubSyncService : IDisposable
                     + (config.FixFramerate
                         ? "This is not a framerate pair a release could really have."
                         : "Turn on \"Correct framerate mismatch\" only for subtitles from a different framerate.");
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
+
+            // A result that sits on the configured offset ceiling is a clamp, not a fit: the engine
+            // wanted to move further and was not allowed to. Writing it produces a subtitle that is
+            // still wrong while the job reports success - measured on a real server as a whole episode
+            // written with exactly "+60000 ms" against a 60 s ceiling.
+            var ceilingMs = config.MaxOffsetSeconds * 1000.0;
+            if (measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
+            {
+                _logger.LogWarning(
+                    "Sync job {JobId}: refusing a result pinned to the offset ceiling ({Shift} ms of {Ceiling} ms) - nothing written",
+                    job.Id,
+                    onCeiling.ShiftMs,
+                    ceilingMs);
+                PluginLog.Info(
+                    $"job {job.Id} REFUSED: the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
+                    + $"({config.MaxOffsetSeconds} s), so the engine was clamped and the result is not a fit; "
+                    + $"nothing written, source untouched, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Refused";
+                job.Error = $"refused: the offset came out at {onCeiling.ShiftMs} ms, which is the configured ceiling "
+                    + $"({config.MaxOffsetSeconds} s). That is a clamp, not a fit, so nothing was written. "
+                    + "Raise \"Maximum offset\" only if this file really is that far out of sync.";
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
+
+            // Aligning to a reference taken from a sibling subtitle is only ever as good as that track.
+            // When the result needs an implausible shift, the reference is the suspect, and writing it
+            // pushes the same error into every track of the file.
+            if (usedSubtitleReference
+                && measured is { } fromReference
+                && Math.Abs(fromReference.ShiftMs) > config.MaxSubtitleReferenceOffsetSeconds * 1000.0)
+            {
+                var referenceDetail = $"{referenceSpec ?? "another subtitle track"}";
+                _logger.LogWarning(
+                    "Sync job {JobId}: refusing a {Shift} ms shift against the reference subtitle {Reference} (limit {Limit} s) - nothing written",
+                    job.Id,
+                    fromReference.ShiftMs,
+                    referenceDetail,
+                    config.MaxSubtitleReferenceOffsetSeconds);
+                PluginLog.Info(
+                    $"job {job.Id} REFUSED: aligning to the reference subtitle {referenceDetail} moved this track by "
+                    + $"{fromReference.ShiftMs} ms, past the {config.MaxSubtitleReferenceOffsetSeconds} s sanity limit - "
+                    + $"a reference that drags every track of a file by that much is mis-synced; nothing written, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Refused";
+                job.Error = $"refused: the reference subtitle {referenceDetail} moved this track by {fromReference.ShiftMs} ms "
+                    + $"(sanity limit {config.MaxSubtitleReferenceOffsetSeconds} s), which usually means that reference track "
+                    + "is mis-synced. Nothing was written. Sync this file against its audio, or raise \"Reference sanity limit\" "
+                    + "if the subtitles really are that far out.";
                 job.Progress = 1.0;
                 job.FinishedAtUtc = DateTime.UtcNow;
                 job.OutputPath = null;
