@@ -18,6 +18,46 @@ patching order. Where this file and an older one disagree, this file wins.
 Do not fix anything you have not reproduced. Do not reproduce anything the two records below already
 prove, unless you are re-running it as the "before" of a fix.
 
+## What one session will and will not finish (read this before anything else)
+
+The two records together hold about **75 items**: 19 live findings (D1–D19) and 30 static ones (F1–F30)
+from the audit, the junk list's line-numbered items, and 7 new ones from the backend test (S3, S4, S5, S7,
+S8, S11, S11b). **One session will not fix all of them.** That is expected, not a failure — what matters is
+that each session leaves commits that are verified, a report that says what was and was not attempted, and
+a list a later session can continue from. The 2026-09-11 session finished roughly a third of its own
+matrix; that is the honest scale of this work.
+
+So work in tiers, in this order, and stop cleanly at the end of your budget rather than half-finishing a
+tier:
+
+- **Tier 1 — the run has to finish.** S11 (the reference path that parks a job in a whole-file ffmpeg
+  demux), S11b (a cancelled batch leaving that demux alive), then the acceptance run: a full 50-track
+  episode and a whole series with **zero failures** (A4, A5, A8). If you do nothing else, do this.
+- **Tier 2 — it must not write a wrong file or leave junk.** S3 (a −59 s reference alignment is written
+  with a note where the docs promise a refusal), S4 (a failed job leaves a 0-byte sidecar in the library),
+  and "anything that lies": D5, D12, F27, F28, D2, D6, D11.
+- **Tier 3 — the things the user actually touches.** D13 and D14 (does the item-page action work at all?),
+  F29 (an armed, unconfirmed global Kill), F24 (a spinner that never clears), D18 (how a page is reached),
+  D7 (polling load), D3/D4/F12/F15 (the settings surface).
+- **Tier 4 — the rest of the matrices, layout, hygiene, and the low-severity findings.**
+
+Three things are **yours to decide, not the agent's to code**, and it must ask rather than guess:
+
+1. **S8** — a subtitle synced against the *audio* came back `+1780 ms` and was written as a success. Should
+   an audio-only result be written at all, or reported as unverified?
+2. **D1 / F2** — `Kill` stops every run on the server, with no id and no confirmation. Keep it (now
+   admin-only), scope it to the caller's own batch, or remove it?
+3. **D4 / F15** — there are two settings pages that edit different subsets of the same configuration.
+   Merge them, or make both render the same fields?
+
+Two things **cannot be tested on this machine** and must be named as blocked, not worked around: a
+**full disk** and a **separate filesystem for staging** both need a small filesystem this container cannot
+create without root.
+
+Whatever is left when the session ends is written into the report under "not attempted", with the reason
+and the smallest step that would finish it. **The report is the deliverable that makes the next session
+possible** — a session that fixes nothing but documents precisely where it stopped has done its job.
+
 ## 0. The record (read these; do not rediscover them)
 
 | Document | What it is |
