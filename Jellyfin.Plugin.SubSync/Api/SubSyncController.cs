@@ -248,7 +248,11 @@ public class SubSyncController : ControllerBase
             PluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
                 .GetName().Version?.ToString() ?? string.Empty,
             WorkerSetting = _syncService.ConfiguredWorkerLimit,
-            WorkerLimit = Services.SyncJobMode.IsParallel(Services.SyncJobMode.Normalize(jobs[0].Mode))
+            // The width that matters is the one the running jobs are using: if this batch's own
+            // mode is non-parallel but jobs from an earlier batch are still running, reporting
+            // "3/1 workers" describes neither of them.
+            WorkerLimit = Services.SyncJobMode.IsParallel(Services.SyncJobMode.Normalize(
+                jobs.FirstOrDefault(j => j.Status == Services.SyncJobStatus.Running)?.Mode ?? jobs[0].Mode))
                 ? Math.Clamp(_syncService.EffectiveWorkerLimit, 1, Services.SubSyncService.MaxParallelWorkers)
                 : 1,
             RunningTasks = jobs

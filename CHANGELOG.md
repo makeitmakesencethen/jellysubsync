@@ -191,7 +191,28 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.39]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.40]
+
+### Fixed
+- **The parallel-worker setting now saves.** The Settings field and the worker-rows container
+  shared the id `ss-workers`, so `getElementById` returned the container: the field was never
+  filled from the saved settings, and every save read `undefined` off a `<div>` and stored the
+  fallback of 4, whatever was typed. The field has its own id now, and the save reads back what
+  the server stored, saying so when the two differ ("Saved, but the server stored 4 while 8 was
+  asked for") - a save that quietly stores something else is no longer possible. The checks now
+  assert that every element id is unique and every settings field resolves to exactly one element.
+
+- **`Could not start batch: ... The value 'series' is not valid.`** The scope dropdown started
+  with a placeholder `<option value="series">` until the season list arrived. Clicking Sync inside
+  that window sent the literal word `series` as the item id, which Jellyfin rejects - and it looked
+  random because a page refresh usually loaded the seasons first. The placeholder now carries no
+  value, and a scope that is not a real id falls back to the whole series, with a line in the log
+  saying that is what happened.
+
+- **The progress line no longer reads "3/1 workers".** The width shown is the one the jobs that
+  are actually running use, instead of the mode of the batch sitting at the top of the queue.
+
+## [1.1.0.39]
 
 ### Fixed
 - **A library the plugin cannot write to is now reported once, with the folder named.** Reported

@@ -745,6 +745,47 @@ return failures == 0 ? 0 : 1;
 """
 
 
+def run_page_checks():
+    """Checks on the dashboard markup, where a mistake is invisible and silently wrong.
+
+    Two elements once shared id="ss-workers" (the worker-rows container and the settings input), so
+    getElementById returned the container: the settings field was never loaded and every save
+    stored the fallback of 4, whatever the user typed. A duplicate id or a settings field that
+    does not resolve is silent, so it is asserted here rather than discovered in use.
+    """
+    import collections
+    import re
+
+    failures = 0
+    web = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Web')
+
+    def report(name, ok, detail=''):
+        nonlocal failures
+        if not ok:
+            failures += 1
+        print(f'{"PASS" if ok else "FAIL"}  {name}' + (f'   [{detail}]' if detail and not ok else ''))
+
+    for entry in sorted(os.listdir(web)):
+        if not entry.endswith('.html'):
+            continue
+        markup = re.sub(r'<script\b.*?</script>', '',
+                        open(os.path.join(web, entry), encoding='utf-8').read(), flags=re.S)
+        ids = re.findall(r'\bid="([^"]*)"', markup)
+        dupes = {k: v for k, v in collections.Counter(ids).items() if v > 1}
+        report(f'{entry} has no duplicate element ids', not dupes, str(dupes))
+
+    main_html = open(os.path.join(web, 'subsyncMain.html'), encoding='utf-8').read()
+    markup = re.sub(r'<script\b.*?</script>', '', main_html, flags=re.S)
+    static_ids = collections.Counter(re.findall(r'\bid="([^"]*)"', markup))
+    settings_js = main_html[main_html.find('function loadConfig'):][:4000]
+    for element_id in sorted(set(re.findall(r"\$\('([^']+)'\)", settings_js))):
+        count = static_ids.get(element_id, 0)
+        report(f"settings field '{element_id}' exists exactly once", count == 1, f'found {count}')
+
+    report('the scope dropdown carries no fake item id', 'value="series"' not in main_html)
+    return failures
+
+
 def main():
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(WORK)
@@ -800,7 +841,10 @@ def main():
 
     run = subprocess.run([DOTNET, f'{WORK}/bin/Release/net9.0/logictest.dll'], cwd=WORK, capture_output=True, text=True, env=ENV)
     print(run.stdout or run.stderr)
-    return run.returncode
+    page_failures = run_page_checks()
+    if page_failures:
+        print(f'{page_failures} FAILURE(S)')
+    return run.returncode or (1 if page_failures else 0)
 
 
 if __name__ == '__main__':

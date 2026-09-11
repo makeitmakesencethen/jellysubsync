@@ -235,7 +235,7 @@
                                     </div>
                                 </div>
                                 <div class="ss-field">
-                                    <input is="emby-input" type="number" id="ss-workers" label="Parallel workers" min="1" max="64" />
+                                    <input is="emby-input" type="number" id="ss-workers-input" label="Parallel workers" min="1" max="64" />
                                     <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
                                 </div>
                                 <div class="ss-field">
@@ -553,15 +553,21 @@
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
                     $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'auto';
-                    $('ss-workers').value = c.ParallelWorkers || 4;
-                    var workerInput = $('ss-workers');
-                    if (workerInput) workerInput.max = workerCeiling;
+                    // The settings input has its own id: it used to share "ss-workers" with the
+                    // worker-rows container, and getElementById returned the container, so the
+                    // field was never loaded and every save stored the fallback (4).
+                    var workerInput = $('ss-workers-input');
+                    if (workerInput) {
+                        workerInput.value = c.ParallelWorkers || 4;
+                        workerInput.max = workerCeiling;
+                    }
                     renderLangChips();
                 });
             }
 
             function saveConfig() {
                 $('ss-save-status').textContent = 'Saving\u2026';
+                var wantedWorkers = Math.min(workerCeiling, Math.max(1, parseInt($('ss-workers-input').value, 10) || 4));
                 return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
                     c.VadMethod = $('ss-vad').value;
                     c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
@@ -574,10 +580,21 @@
                     c.FastMkvExtraction = $('ss-fastmkv').checked;
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'auto';
-                    c.ParallelWorkers = Math.min(workerCeiling, Math.max(1, parseInt($('ss-workers').value, 10) || 4));
+                    c.ParallelWorkers = wantedWorkers;
                     return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
                 }).then(function () {
-                    $('ss-save-status').textContent = 'Saved.';
+                    // Read back what the server actually stored: "Saved." on its own cannot
+                    // distinguish a stored setting from one that was silently dropped.
+                    return ApiClient.getPluginConfiguration(PLUGIN_ID);
+                }).then(function (stored) {
+                    var back = parseInt(stored && stored.ParallelWorkers, 10);
+                    var workerField = $('ss-workers-input');
+                    if (workerField && !isNaN(back)) {
+                        workerField.value = back;
+                    }
+                    $('ss-save-status').textContent = (back === wantedWorkers)
+                        ? 'Saved.'
+                        : 'Saved, but the server stored ' + back + ' while ' + wantedWorkers + ' was asked for.';
                 }).catch(function (e) {
                     $('ss-save-status').textContent = 'Save failed: ' + (e.message || e);
                 });
@@ -1312,7 +1329,7 @@
                                 '</div>';
                         } else {
                             html += '<div class="ss-row-actions">' +
-                                '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="series">Whole series</option></select>' +
+                                '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="">Whole series</option></select>' +
                                 '<select is="emby-select" id="ss-langfilter" class="ss-compact" label="Subtitle">' + seriesLangHtml() + '</select>' +
                                 '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync series</span></button>' +
                                 '</div>';
@@ -1390,13 +1407,13 @@
                     if (selected.Type === 'Series' && $('ss-scope')) {
                         $('ss-scope').onchange = function () {
                             var opt = $('ss-scope').options[$('ss-scope').selectedIndex];
-                            scopeTarget = $('ss-scope').value;
+                            scopeTarget = $('ss-scope').value || selected.Id;
                             saveState({ scope: scopeTarget });
                             var name = opt ? (opt.getAttribute('data-name') || opt.textContent) : selected.Name;
                             var rowName = $('ss-list').querySelector('.ss-row.selected .ss-name');
                             if (rowName) rowName.textContent = name;
-                            var v = $('ss-scope').value;
-                            if (v && v !== 'series') {
+                            var v = $('ss-scope').value || selected.Id;
+                            if (v) {
                                 discoverLangOptions(v, v !== selected.Id);
                             }
                         };
@@ -1789,6 +1806,19 @@
                 var scopeId = isMovie
                     ? selected.Id
                     : (scopeSel && scopeSel.value ? scopeSel.value : (scopeTarget || selected.Id));
+
+                // The scope dropdown starts with a placeholder before the season list arrives.
+                // Sending anything that is not a real id makes Jellyfin reject the request
+                // ("The value 'series' is not valid."), which looked like a random failure that
+                // went away after a refresh. Fall back to the series itself instead.
+                var idLooksReal = /^[0-9a-fA-F-]{16,}$/.test(String(scopeId || ''));
+                if (!idLooksReal) {
+                    logLine('Scope was not ready yet (' + scopeId + ') — syncing the whole series.');
+                    scopeId = selected.Id;
+                }
+                if (scopeTarget && !/^[0-9a-fA-F-]{16,}$/.test(String(scopeTarget))) {
+                    scopeTarget = null;
+                }
                 var scopeLabel = '';
                 if (scopeSel && scopeSel.selectedOptions && scopeSel.selectedOptions[0]) {
                     scopeLabel = scopeSel.selectedOptions[0].getAttribute('data-name')
