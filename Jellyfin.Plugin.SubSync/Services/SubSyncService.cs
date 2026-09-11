@@ -312,6 +312,12 @@ public class SubSyncService : IDisposable
     // loser either failed to write it or failed to move it into place, which used to end in the
     // engine being handed the whole container to demux.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _referenceGates = new(StringComparer.Ordinal);
+
+    // A lane pass reads a whole file in one go, tens of seconds on local storage and minutes on a
+    // slow share. Kill cancels the jobs, the engine's process trees and this source; it is replaced
+    // immediately afterwards so the next pass starts from a fresh one (a token that stays cancelled
+    // would abort every later extraction as soon as it started).
+    private volatile CancellationTokenSource _laneStop = new();
     private readonly ConcurrentDictionary<string, (Video Video, MediaBrowser.Model.Entities.MediaStream Stream, int Ordinal, Configuration.PluginConfiguration Config)> _jobContexts = new();
 
     // Per-job cancellation. Cancelling a batch only drops queued work; killing running
@@ -1138,6 +1144,21 @@ public class SubSyncService : IDisposable
         // Cancelling a token only helps processes that poll it. Kill the trees directly as
         // well: ffsubsync spawns ffmpeg, and both must be gone before the file handles are
         // released and the job is really finished.
+        // The extraction lane reads a whole file in one pass and is not a job, so it needs its own
+        // stop: measured before this, a kill left the lane reading 805.6 MB afterwards while
+        // /SubSync/Active reported nothing running. The source is replaced immediately so the next
+        // pass is not born cancelled.
+        try
+        {
+            var stopping = _laneStop;
+            _laneStop = new CancellationTokenSource();
+            stopping.Cancel();
+        }
+        catch (ObjectDisposedException)
+        {
+            // Shutdown already took it.
+        }
+
         var processesKilled = 0;
         foreach (var process in _liveProcesses.Values.ToList())
         {
@@ -1551,6 +1572,10 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
+            // This pass's own view of "everything is being stopped". A Kill cancels it; the token the
+            // extractor receives is the only reason a `Kill` used to leave the reader going.
+            var passStop = _laneStop;
+
             try
             {
                 var results = new Dictionary<int, string>();
@@ -1560,14 +1585,16 @@ public class SubSyncService : IDisposable
                     _extractTried.TryRemove(ExtractedKeyOf(videoPath, ordinal), out _);
                 }
 
-                var ok = await Task.Factory.StartNew(
+                var ok = false;
+                var reason = string.Empty;
+                ok = await Task.Factory.StartNew(
                     () => MkvSubtitleExtractor.TryExtractMany(
                         videoPath,
                         ordinals,
                         out results,
-                        out var reason,
+                        out reason,
                         out stats,
-                        CancellationToken.None,
+                        passStop.Token,
                         // Hand each subtitle over the moment the pass has read its last line, not when
                         // the whole file is done: that job starts syncing straight away, which is the
                         // difference between a language waiting for the other twenty-nine and it going
@@ -1583,9 +1610,19 @@ public class SubSyncService : IDisposable
                             _extractedReady[ExtractedKeyOf(videoPath, ordinal)] = 0;
                             WakePump();
                         }),
-                    CancellationToken.None,
+                    passStop.Token,
                     TaskCreationOptions.LongRunning,
                     TaskScheduler.Default).ConfigureAwait(false);
+
+                // A cancelled pass is not a failed one. The Matroska reader reports cancellation as an
+                // ordinary `false` ("cancelled"), and treating that as "this track holds no text" marks
+                // every track the pass never reached as unextractable until the next restart — the jobs
+                // for them then start, find nothing and fail. A Kill stops the pass; the tracks stay
+                // queued and the next pass reads them.
+                if (passStop.IsCancellationRequested)
+                {
+                    throw new OperationCanceledException(passStop.Token);
+                }
 
                 foreach (var pair in results)
                 {
@@ -1604,6 +1641,7 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"extract lane: {Path.GetFileName(videoPath)} -> {results.Count}/{ordinals.Count} subtitle(s), "
                     + $"{stats.BytesRead / 1e6:0.0} MB, {stats.ReadCalls} reads, {stats.TotalMs:0} ms, ok={ok}, "
+                    + $"reason={reason} "
                     + $"prefetched={stats.PrefetchedRanges} ranges/{stats.PrefetchedBytes / 1e6:0.0} MB "
                     + $"({DescribeExtraction(stats.Method)})");
 
@@ -1622,6 +1660,16 @@ public class SubSyncService : IDisposable
                 {
                     WakePump();
                 }
+            }
+            catch (OperationCanceledException)
+            {
+                // A Kill stops this pass. Whatever the pass handed over before it stopped is already in
+                // the subtitle cache and is reused; the rest stays queued and the next pass reads on,
+                // because a cancelled pass records nothing about the tracks it never reached.
+                PluginLog.Info(
+                    $"extract lane: pass on {Path.GetFileName(videoPath)} stopped (killed by the user) "
+                    + $"with {ordinals.Count} subtitle(s) still owed");
+                _lastPassFinishedUtc = DateTime.UtcNow;
             }
             catch (Exception ex)
             {
@@ -4063,6 +4111,11 @@ public class SubSyncService : IDisposable
     public void Dispose()
     {
         _disposing = true;
+
+        // A pass in flight is reading the media share; shutdown must not wait for it.
+        try { _laneStop.Cancel(); }
+        catch (ObjectDisposedException) { /* already cancelled */ }
+
         try { _cleanupTimer.Dispose(); }
         catch { /* already disposed */ }
 
@@ -4764,7 +4817,9 @@ public class SubSyncService : IDisposable
         "matroska-cues" => "from the Matroska index",
         "matroska-cached" => "from the pass that already read this file",
         "mp4-sample-table" => "with the MP4 sample table",
-        _ => "with ffmpeg (whole-file read)"
+        "ffmpeg" => "with ffmpeg (whole-file read)",
+        "cancelled" => "stopped by a kill",
+        _ => "by a reader this build cannot name (" + method + ")"
     };
 
     private async Task ExtractSubtitle(string videoPath, int streamIndex, string outputPath, CancellationToken cancellationToken = default)

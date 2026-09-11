@@ -1180,6 +1180,13 @@ def run_page_checks():
            'TaskCreationOptions.LongRunning' in '\n'.join(plugin_sources))
     report('the pump wake signal cannot be swallowed', '_wakePump = new(0)' in '\n'.join(plugin_sources))
 
+    # B7: the extraction lane reads a whole file in one pass and is not a job, so a Kill needs its own
+    # way in. Measured before this: 805.6 MB read in the 40 s after a Kill while /SubSync/Active
+    # reported nothing running, because the lane handed the reader `CancellationToken.None`.
+    report('a kill reaches the extraction lane\'s read',
+           '_laneStop' in '\n'.join(plugin_sources) and 'passStop.Token' in '\n'.join(plugin_sources)
+           and 'extract lane: pass on' in '\n'.join(plugin_sources))
+
     # One pass over a file serves every queued language of it, and the tracks it produced are reused
     # by the jobs that follow.
     service_text = '\n'.join(plugin_sources)

@@ -16,7 +16,7 @@ one-line note on each. **Never tick something you did not verify.**
 | state | id | sev | what | evidence / commit |
 |---|---|---|---|---|
 | done | **S11** | high | the reference derivation hands ffsubsync the video, so it demuxes the whole file and hangs | `ac66249` — before 7 Completed + 1 Failed (`unable to read reference`), after 8/8 Completed, 0 engine demuxes; A4 50/50, 16.5 s, no leftovers |
-| refuted | **S11b** | high | cancelling a batch left the engine's ffmpeg child alive. Measured on `SLOW=1` with the shim active (engine 70 s per run): the batch was cancelled while ffsubsync pid 101537 and its child pid 101541 were both alive, and **both were gone within 1 s and stayed gone for 25 s** (0 survivors). The session-1 symptom was seen while the engine was demuxing the whole container — the S11 fallback that no longer exists. Residual risk, still open as **B7**: the extraction lane passes `CancellationToken.None`, so a `Kill` cannot stop a lane pass | `s11b-after.json`, batch `93f9471c…`; harness `tests/backend/s11b_cancel.py` |
+| done | **B7** | high | `Kill` cannot interrupt a Matroska extraction. The lane handed the reader `CancellationToken.None`; measured on the slow profile, a Kill was followed by 805.6 MB of reads in 40 s while `/SubSync/Active` said nothing was running. `Kill` now cancels the pass and the source is re-armed for the next one; the same measurement after the fix: reads stop at +21.7 s (the current read batch finishes first), and the pass logs `stopped (killed by the user)`. A cancelled pass no longer marks tracks as unextractable, and the reason is printed (it used to be relabelled as an ffmpeg whole-file read) | `lane-kill-before.json` / `lane-kill-after.json`, harness `tests/backend/lane_kill.py` |
 | done | **S6** | high | bulk ran one whole-file pass per worker | `a46c5cd` — 48/50 tracks in 18 min where 1/50 took 22 min |
 
 ## Tier 2 — nothing may write a wrong file, lie on screen, or leave junk behind (14 items)
@@ -72,7 +72,7 @@ one-line note on each. **Never tick something you did not verify.**
 | open | **B28** | ? | Magic numbers that should be settings, and one that contradicts the documented policy |  |
 | open | **B29** | ? | Non-volatile `_disposing`, unsynchronised `_lastPassFinishedUtc` |  |
 | open | **B3** | ? | Scheduler touches the media share while holding the queue lock |  |
-| open | **B30** | ? | `DescribeExtraction`'s catch-all relabels anything unknown as ffmpeg |  |
+| partial | **B30** | ? | `DescribeExtraction`'s catch-all relabels anything unknown as ffmpeg | `DescribeExtraction`'s catch-all no longer calls every unknown reader "ffmpeg (whole-file read)" and names cancellation: a cancelled pass used to be logged as an ffmpeg demux (see B7) |
 | open | **B4** | ? | Cue-point parsing does not reset per `CueTrackPositions` |  |
 | open | **B5** | ? | `--version` process is spawned synchronously from a property getter, under the queue lock |  |
 | open | **B6** | ? | A job can stay `Running` forever |  |

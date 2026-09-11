@@ -1,0 +1,518 @@
+{
+  "label": "before",
+  "item": "Helikopterr\u00e5net S01E01",
+  "path": "/opt/data/jf12test/media-slow/Helikopterr\u00e5net S01E01.mkv",
+  "batch_id": "01abe750cb5b499aa16d00aedb4de00d",
+  "tasks": 50,
+  "lane_was_reading_before_kill": true,
+  "mb_read_by_server_before_kill": 25.8,
+  "kill_http": 200,
+  "kill_body": {
+    "queuedCancelled": 47,
+    "runningKilled": 3,
+    "stillRunning": 3,
+    "stillQueued": 0
+  },
+  "mb_read_after_kill": 805.6,
+  "samples": [
+    {
+      "t": 1.0,
+      "read_bytes": 502718135,
+      "mb_since_kill": 29.7,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 2.0,
+      "read_bytes": 525470426,
+      "mb_since_kill": 51.4,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 4.0,
+      "read_bytes": 559550280,
+      "mb_since_kill": 83.9,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 6.0,
+      "read_bytes": 617532204,
+      "mb_since_kill": 139.2,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 8.0,
+      "read_bytes": 681570873,
+      "mb_since_kill": 200.3,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 10.0,
+      "read_bytes": 755569660,
+      "mb_since_kill": 270.9,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 11.5,
+      "read_bytes": 832205308,
+      "mb_since_kill": 344.0,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 12.5,
+      "read_bytes": 890527409,
+      "mb_since_kill": 399.6,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 13.6,
+      "read_bytes": 933990672,
+      "mb_since_kill": 441.0,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 14.6,
+      "read_bytes": 974210005,
+      "mb_since_kill": 479.4,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 15.6,
+      "read_bytes": 1015955152,
+      "mb_since_kill": 519.2,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 16.6,
+      "read_bytes": 1047132935,
+      "mb_since_kill": 548.9,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 17.7,
+      "read_bytes": 1088979065,
+      "mb_since_kill": 588.8,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 18.7,
+      "read_bytes": 1121434484,
+      "mb_since_kill": 619.8,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 19.7,
+      "read_bytes": 1155907363,
+      "mb_since_kill": 652.7,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 20.7,
+      "read_bytes": 1178730071,
+      "mb_since_kill": 674.4,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 21.7,
+      "read_bytes": 1200258024,
+      "mb_since_kill": 695.0,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 22.8,
+      "read_bytes": 1222502943,
+      "mb_since_kill": 716.2,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 23.8,
+      "read_bytes": 1243572033,
+      "mb_since_kill": 736.3,
+      "active": {
+        "running": [
+          {
+            "jobId": "10fb188aabb64b16a94d8c4a2e5c0de2",
+            "batchId": "01abe750cb5b499aa16d00aedb4de00d",
+            "phase": "Extracting 48 subtitles from the Matroska index in one pass",
+            "progress": 0.05
+          }
+        ],
+        "queued": 0
+      }
+    },
+    {
+      "t": 24.8,
+      "read_bytes": 1257958207,
+      "mb_since_kill": 750.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 25.8,
+      "read_bytes": 1269240455,
+      "mb_since_kill": 760.7,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 26.9,
+      "read_bytes": 1277353684,
+      "mb_since_kill": 768.5,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 27.9,
+      "read_bytes": 1285850775,
+      "mb_since_kill": 776.6,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 28.9,
+      "read_bytes": 1292301920,
+      "mb_since_kill": 782.7,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 29.9,
+      "read_bytes": 1295095601,
+      "mb_since_kill": 785.4,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 31.0,
+      "read_bytes": 1297098627,
+      "mb_since_kill": 787.3,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 32.0,
+      "read_bytes": 1299474020,
+      "mb_since_kill": 789.6,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 33.0,
+      "read_bytes": 1300768051,
+      "mb_since_kill": 790.8,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 34.1,
+      "read_bytes": 1302063371,
+      "mb_since_kill": 792.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 35.1,
+      "read_bytes": 1303109335,
+      "mb_since_kill": 793.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 36.1,
+      "read_bytes": 1304154074,
+      "mb_since_kill": 794.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 37.1,
+      "read_bytes": 1305200037,
+      "mb_since_kill": 795.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 38.2,
+      "read_bytes": 1306244745,
+      "mb_since_kill": 796.0,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 39.2,
+      "read_bytes": 1308502903,
+      "mb_since_kill": 798.2,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 40.2,
+      "read_bytes": 1309631386,
+      "mb_since_kill": 799.3,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 41.2,
+      "read_bytes": 1310761125,
+      "mb_since_kill": 800.3,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 42.3,
+      "read_bytes": 1311889608,
+      "mb_since_kill": 801.4,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 43.3,
+      "read_bytes": 1313007811,
+      "mb_since_kill": 802.5,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 44.3,
+      "read_bytes": 1314108374,
+      "mb_since_kill": 803.5,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    },
+    {
+      "t": 45.3,
+      "read_bytes": 1316310692,
+      "mb_since_kill": 805.6,
+      "active": {
+        "running": [],
+        "queued": 0
+      }
+    }
+  ],
+  "active_after_kill": {
+    "running": [],
+    "queued": 0
+  },
+  "lane_end_line_after_kill": "2026-09-11 21:55:45.142Z INFO  extract lane: Helikopterr\u00e5net S01E01.mkv -> 1/1 subtitle(s), 10.0 MB, 1443 reads, 3569 ms, ok=True, prefetched=0 ranges/0.0 MB (from the Matroska index (SeekHead))",
+  "verdict": "a killed run keeps reading the file"
+}

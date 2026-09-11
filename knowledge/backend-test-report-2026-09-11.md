@@ -532,6 +532,26 @@ nothing, and never touches the user's own file.
   flags or re-read the track list immediately before each run.
 * The two checks that failed after S3 were updated, not deleted, and they carry the reason.
 
+## 7b. B7 — a Kill could not stop the extraction lane (fixed: this session)
+
+The lane handed the Matroska reader `CancellationToken.None`, so the pass that reads a file in one go
+could not be interrupted. Measured on the slow profile (`SLOW=1`, `extract: storage 12.94 ms per
+16 KB read`), 50 queued tracks on the 2.38 GB episode:
+
+| | before the fix | after the fix |
+|---|---|---|
+| `POST /SubSync/Kill` | `{"queuedCancelled": 47, "runningKilled": 3}` | `{"queuedCancelled": 50, "runningKilled": 0}` |
+| `/SubSync/Active` right after | `running: [], queued: 0` | `running: [], queued: 0` |
+| server read in the 40 s after the kill | **805.6 MB**, still rising when the window closed | **271.0 MB**, flat from +21.7 s |
+| lane log | `extract lane: … 0/5 subtitle(s), ok=False … (with ffmpeg (whole-file read))` — the pass ran to its end, and a cancelled pass was reported as an ffmpeg demux | `extract lane: pass on … stopped (killed by the user) with 7 subtitle(s) still owed` |
+
+The residual 21.7 s (and the ~270 MB, which is `rchar` — bytes handed to `read`/`pread`, including
+page-cache hits, so it is an upper bound rather than storage I/O) is the read batch in flight when the
+token is observed; tightening it further means threading the token into the reader's innermost read
+loop, which the next session can weigh against the cost on the fast path. `Kill` also used to leave a
+cancelled pass marking every track it never reached as "no text" (`_extractTried`), which the jobs then
+started on and failed; a cancelled pass now records nothing and the tracks stay queued.
+
 ## 8. Not attempted, with the smallest next step
 
 | Item | Why not | Smallest step that finishes it |
