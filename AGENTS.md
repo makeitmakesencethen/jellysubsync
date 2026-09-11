@@ -107,11 +107,19 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   from a sibling track inherits that track's error and every other track inherits it in turn, so a
   cached one poisons every later run of the file. Do not reintroduce a persistent `.ref.srt`, and do
   not put the reference back under `state/speech-cache` (that directory is for the audio analysis,
-  which is the artefact worth keeping).
+  which is the artefact worth keeping). **"Last job" means queued or running** — releasing the tree
+  while a worker still holds the path as its ffsubsync argument makes the engine fail with
+  `unable to read reference` and, worse, sends later jobs to a whole-file demux of the container.
+- **The reference is built from text, never by handing ffsubsync the container.** A job waiting on a
+  sibling reference reads the track from this run's memory, then the extracted-subtitle cache, then
+  the container index (`TryReadReferenceTextAsync`), under a per-file gate so only one job builds it.
+  A reference that *cannot be built* is not fatal: the job syncs against the audio instead.
 - **Never write a result that is pinned to `MaxOffsetSeconds`,** and never write a big shift that came
   from a subtitle reference (`MaxSubtitleReferenceOffsetSeconds`, default 30 s). Both are refused with
   the measured numbers: a clamped or reference-inherited offset is a wrong file that looks like a
-  success.
+  success. This is the one place the plugin deliberately does not finish a job — settled 2026-09-11
+  against the older "never refuse a job" wording, which applies to a reference that cannot be *built*
+  (that job still runs, against the audio), not to one that is provably from another cut.
 - **The scheduler's per-file checks must not touch storage.** `SpeechIsCached` is memoised because it
   used to be answered by stat-ing the media file for every queued job while holding `_queueLock`, which
   the enqueue path needs: 240 tasks took 105-424 s to queue. Any new predicate in `PlanStart` gets the

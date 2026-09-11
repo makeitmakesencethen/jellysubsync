@@ -477,13 +477,14 @@ sibling-reference path was added; the setting did not exist in the code, and the
 A result pinned to the `MaxOffsetSeconds` ceiling is refused the same way (previously annotated and
 written), which is what `AGENTS.md` asks for as well.
 
-**A conflict the user has to settle.** `GOAL_PROMPT`'s hard rules say *"the plugin never refuses a
-job — a bad reference means falling back to the audio"*, while `AGENTS.md` and this plan's S3 line ask
-for the refusal. The refusal is implemented; the alternative is to drop the reference and re-run the
-job against the audio (the job still finishes, the wrong file is still never written). Two checks in
-`tests/run_checks.py` pinned the old "written and annotated" behaviour and were rewritten to pin the
-refusal, with the conflict stated in the check comment, in `9c9514e` and here. Cheap to change: the
-refusal block is one `if` in `RunSyncJob` plus an engine run against the speech reference.
+**The conflict, and how it was settled.** `GOAL_PROMPT`'s hard rules say *"the plugin never refuses a
+job — a bad reference means falling back to the audio"*, while `AGENTS.md` and the fix plan's S3 line
+ask for the refusal. **fabji settled it on 2026-09-11: the refusal stands, as `AGENTS.md` and the fix
+plan specify.** The never-refuse rule applies where it was meant to — a reference that cannot be
+*built* falls back to the audio (`ac66249`, S11) — while a reference that exists and is provably from
+another cut is refused rather than used to write a wrong file. The two checks in `tests/run_checks.py`
+that pinned the old "written and annotated" behaviour therefore stay rewritten, and the split is now
+written down in `AGENTS.md` as well.
 
 ## 4. S4 — nothing is written before the engine's output is verified (fixed: `0a2b23d`)
 

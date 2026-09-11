@@ -1322,12 +1322,10 @@ def run_page_checks():
     report('releasing the reference happens outside the queue lock',
            service.index('ReferenceStore.EndJob(finishedVideo')
            < service.index('if (toStart.Count == 0)'))
-    # The record contradicts itself here, so both halves are pinned on purpose. GOAL_PROMPT's hard rule
-    # (\"the plugin never refuses a job - a bad reference means falling back to the audio\") and the fix
-    # plan's S3 line (\"implement MaxSubtitleReferenceOffsetSeconds as a refusal, as AGENTS.md already
-    # claims\") cannot both hold for a reference that exists but is provably from another cut. The refusal
-    # is implemented because AGENTS.md and the fix plan ask for it; the fallback that keeps the job alive
-    # is pinned right below, and the two are meant to be read together.
+    # Settled by fabji on 2026-09-11: the refusal stands, as AGENTS.md and the fix plan specify. The
+    # never-refuse rule applies to a reference that cannot be *built* (S11 falls back to the audio);
+    # a reference that exists and is provably from another cut is refused rather than used to write a
+    # wrong file. See AGENTS.md, "Key Patterns & Gotchas".
     report('a reference-derived shift past the limit is refused, not written',
            'refusing a reference-derived shift' in service
            and 'MaxSubtitleReferenceOffsetSeconds' in service
