@@ -62,19 +62,20 @@
             .ss-row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; }
             .ss-row-actions .emby-select { width: auto; }
             .ss-compact { width: auto !important; max-width: 220px; }
-            .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 6px; height: 7px; margin: 6px 0; overflow: hidden; }
+            .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin: 8px 0 4px; overflow: hidden; }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
-            .ss-workers { display: flex; flex-direction: column; gap: 6px; margin: 8px 0 2px; max-height: 420px; overflow-y: auto; }
+            .ss-workers { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; max-height: 420px; overflow-y: auto; }
             .ss-worker {
-                display: grid; grid-template-columns: 22px 1fr; gap: 8px; align-items: center;
-                background: rgba(255,255,255,.04); border-radius: 6px; padding: 6px 9px;
+                display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: baseline;
+                background: rgba(255,255,255,.04); border-radius: 6px; padding: 5px 9px 6px;
             }
-            .ss-worker-idx { font-size: .74rem; opacity: .6; text-align: right; }
+            .ss-worker-idx { font-size: .72rem; opacity: .5; text-align: right; }
             .ss-worker-name { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .ss-worker-phase { font-size: .74rem; opacity: .7; }
-            .ss-worker-bar-wrap { background: rgba(255,255,255,.09); border-radius: 4px; height: 5px; margin-top: 4px; overflow: hidden; }
+            .ss-worker-phase { font-size: .72rem; opacity: .55; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .ss-worker-pct { font-size: .76rem; opacity: .8; font-variant-numeric: tabular-nums; }
+            .ss-worker-bar-wrap { grid-column: 2 / 4; background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin-top: 3px; overflow: hidden; }
             .ss-worker-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
-            .ss-log { white-space: pre-wrap; max-height: 190px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin-top: 6px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
+            .ss-log { white-space: pre-wrap; max-height: 130px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin-top: 8px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
             .ss-settings-grid { max-width: 620px; }
             .ss-settings-grid .ss-subhead { margin: 1.6em 0 .3em; }
             .ss-settings-grid .ss-field { margin-bottom: 22px; }
@@ -164,7 +165,8 @@
                             <h2 class="sectionTitle" style="margin:0;">Settings</h2>
                             <p class="sectionDescription ss-muted" style="margin-top:4px;">Sync engine options. ffmpeg and the bundled ffsubsync are detected automatically — only change these if you know what you are doing.</p>
 
-                            <div id="ss-status" style="padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.06);color:var(--text-color,#ddd);white-space:pre-wrap;word-break:break-word;font-family:monospace;font-size:13px;margin:10px 0 16px;">Checking status...</div>
+                            <div id="ss-status" style="padding:10px 12px;border-radius:6px;background:rgba(255,255,255,.06);color:var(--text-color,#ddd);white-space:pre-wrap;word-break:break-word;font-size:.85rem;line-height:1.55;margin:10px 0 4px;">Checking status...</div>
+                            <div id="ss-identity" class="ss-muted" style="font-size:.74rem;opacity:.6;margin:0 0 16px;word-break:break-all;"></div>
 
                             <div class="ss-settings-grid">
                                 <h3 class="ss-subhead">Synchronization Settings</h3>
@@ -492,20 +494,17 @@
                     var phase = t.Phase || t.phase || 'working';
                     var prog = (t.Progress != null) ? t.Progress : (t.progress || 0);
                     var pct = Math.round(Math.max(0, Math.min(1, prog)) * 100);
-                    var startedRaw = t.StartedAtUtc || t.startedAtUtc;
-                    var elapsed = '';
-                    if (startedRaw) {
-                        var secs = Math.max(0, Math.round((Date.now() - new Date(startedRaw).getTime()) / 1000));
-                        elapsed = ' \u00b7 ' + (secs >= 60
-                            ? Math.floor(secs / 60) + 'm ' + (secs % 60) + 's'
-                            : secs + 's');
-                    }
+                    // One line per worker: name, then the phase dimmed beside it, then the number.
+                    // The elapsed time and the full phase text used to repeat on every row and made
+                    // eight workers read as a wall of text; the phase detail is in the log, and the
+                    // phase is only worth showing on its own line when no rows are drawn.
                     html += '<div class="ss-worker">' +
                         '<div class="ss-worker-idx">' + (i + 1) + '</div>' +
-                        '<div><div class="ss-worker-name">' + esc(title) + '</div>' +
-                        '<div class="ss-worker-phase">' + esc(phase) + ' \u00b7 ' + pct + '%' + elapsed + '</div>' +
+                        '<div class="ss-worker-name">' + esc(title) +
+                        '<span class="ss-worker-phase">' + esc(phase) + '</span></div>' +
+                        '<div class="ss-worker-pct">' + pct + '%</div>' +
                         '<div class="ss-worker-bar-wrap"><div class="ss-worker-bar" style="width:' + pct + '%"></div></div>' +
-                        '</div></div>';
+                        '</div>';
                 });
                 box.innerHTML = html;
                 box.classList.remove('ss-hidden');
@@ -668,19 +667,24 @@
                     } else {
                         lines.push('ffsubsync source: ' + (s.ResolvedBinaryPath || 'ffsubsync'));
                     }
-                    lines.push('ffmpeg: auto (Jellyfin\u2019s own ffmpeg is detected)');
-                    lines.push('Speech cache (fast mode): ' + (s.SpeechCacheSummary || 'empty'));
+                    lines.push('ffmpeg: Jellyfin\u2019s own ffmpeg is used automatically');
 
                     // Stated here so a setting that appears to be ignored is visible at a glance:
-                    // the value in force against the value configured, and the copy of the plugin
-                    // that is answering (a second loaded copy keeps its own settings).
+                    // the value in force against the value configured.
                     if (s.WorkerSummary || s.workerSummary) {
                         lines.push('Workers: ' + (s.WorkerSummary || s.workerSummary));
                     }
-                    if (s.PluginIdentity || s.pluginIdentity) {
-                        lines.push('Loaded from: ' + (s.PluginIdentity || s.pluginIdentity));
-                    }
                     $('ss-status').textContent = lines.join('\n');
+
+                    // The loaded copy of the plugin is only interesting when something is wrong, so
+                    // it is a small dimmed line instead of a fifth line of the status block. The
+                    // speech cache has its own element below, so it is not repeated here.
+                    var identityEl = $('ss-identity');
+                    if (identityEl) {
+                        var identity = s.PluginIdentity || s.pluginIdentity || '';
+                        identityEl.textContent = identity ? 'Loaded from ' + identity : '';
+                    }
+
                     var cacheEl = $('ss-speechcache');
                     if (cacheEl) {
                         cacheEl.textContent = 'Cached audio analysis: ' + (s.SpeechCacheSummary || 'empty')
@@ -689,11 +693,14 @@
 
                     var badge = $('ss-badge');
                     if (badge) {
+                        // The build lives here, next to the engine version, instead of inside the
+                        // progress line where it crowded out what the run was doing.
+                        var buildTag = s.PluginVersion ? ' \u00b7 v' + s.PluginVersion : '';
                         if (s.BundledFfSubSyncVersion) {
-                            badge.textContent = '\u2713 bundled ' + (s.BundledFfSubSyncVersion.split(' ')[1] || s.BundledFfSubSyncVersion);
+                            badge.textContent = '\u2713 bundled ' + (s.BundledFfSubSyncVersion.split(' ')[1] || s.BundledFfSubSyncVersion) + buildTag;
                             badge.classList.add('ss-badge-ok');
                         } else {
-                            badge.textContent = 'no bundled binary';
+                            badge.textContent = 'no bundled binary' + buildTag;
                         }
                     }
                 }).catch(function (e) {
@@ -1661,8 +1668,6 @@
                         if (badge) bits.push(badge);
                         var workerLimit = view.WorkerLimit || view.workerLimit || 0;
                         var workerSetting = view.WorkerSetting || view.workerSetting;
-                        var runningVersion = view.PluginVersion || view.pluginVersion;
-                        if (runningVersion) bits.push('v' + runningVersion);
                         if (workersNow > 1 || (workerLimit > 1 && total > workersNow)) {
                             bits.push(workerLimit > 0 ? workersNow + '/' + workerLimit + ' workers' : workersNow + ' workers');
                             // If the saved setting disagrees with the limit in force, say so: that
@@ -1680,7 +1685,9 @@
                                 ? 'episode ' + epPos + '/' + totalEp
                                 : 'task ' + Math.min(pos + 1, total) + '/' + total);
                             $('ss-run-label').textContent = bits.join(' \u00b7 ');
-                            $('ss-phase').textContent = phase;
+                            // The phase gets its own line only when no worker rows carry it; showing
+                            // both duplicated the same sentence twice on screen.
+                            $('ss-phase').textContent = workersNow > 0 ? '' : phase;
                             var prog = (current.Progress != null) ? current.Progress : (current.progress || 0);
                             var overall = total ? ((pos + prog) / total) : 0;
                             $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';

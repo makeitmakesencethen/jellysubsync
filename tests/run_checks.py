@@ -918,6 +918,16 @@ def run_page_checks():
     if node:
         parsed = subprocess.run([node, '--check', client_path], capture_output=True, text=True)
         report('subsync.js is valid JavaScript', parsed.returncode == 0, (parsed.stderr or '')[-200:])
+    report('the detail-view dialog uses the slim progress bar', 'height:3px' in client or 'height: 3px' in client)
+
+    # The run box was reported as messy: a 7px bar, an elapsed time on every worker row, and a phase
+    # line that repeated what the rows already said.
+    report('the overall progress bar stays slim', 'height: 3px' in main_html)
+    report('the worker bars stay slim', 'grid-column: 2 / 4' in main_html)
+    report('the phase is not printed twice while worker rows carry it',
+           "workersNow > 0 ? '' : phase" in main_html)
+    report('the build number lives in the badge, not the progress line',
+           's.PluginVersion' in main_html and "bits.push('v' + runningVersion)" not in main_html)
     return failures
 
 

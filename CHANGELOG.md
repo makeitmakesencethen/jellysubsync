@@ -191,7 +191,26 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.43]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.44]
+
+### Changed
+- **The progress display is quieter.** Reported as messy and overwhelming, so:
+
+  - the bars are **3px instead of 7px** (worker bars were 5px), with square ends so they read as thin
+    rules rather than blocks;
+  - a worker row is **one line** - name, the phase dimmed beside it, the percentage on the right -
+    with the bar under it. The elapsed time that repeated on every row is gone, and the full phase
+    text stays in the log;
+  - the phase no longer appears **twice**: while worker rows are shown they carry it, so the separate
+    phase line is left empty (it is still used for a single-file run, where there are no rows);
+  - the build number moved out of the progress line into the badge beside the engine version
+    (`bundled 0.5.1 - v1.1.0.44`), where it belongs;
+  - the status block lost its duplicate speech-cache line and its monospace wall-of-text look; the
+    loaded plugin path is now one small dimmed line, since it only matters when something is wrong.
+
+  The detail-view dialog uses the same 3px bars, so both places look alike.
+
+## [1.1.0.43]
 
 ### Added
 - **"Sync all episodes" in the item menu of a series or a season.** The detail-view side used to

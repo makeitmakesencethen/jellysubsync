@@ -164,6 +164,13 @@ public class FfSubSyncInstallationStatus
     /// <summary>Gets or sets the bundled ffsubsync version (plugin-shipped binary), if present.</summary>
     public string? BundledFfSubSyncVersion { get; set; }
 
+    /// <summary>
+    /// Gets or sets the running plugin version. Reported with the status so the interface can show
+    /// which build it is talking to without a second request, and so the build number does not have
+    /// to be crammed into the progress line.
+    /// </summary>
+    public string PluginVersion { get; set; } = string.Empty;
+
     /// <summary>Gets or sets the runtime identifier the bundled binary was built for, if present.</summary>
     public string? BundledRid { get; set; }
 
@@ -468,7 +475,12 @@ public class SubSyncService : IDisposable
 
             // The value in force next to the configured one, so a disagreement is visible without
             // reading any code.
-            WorkerSummary = $"{EffectiveWorkerLimit} in use (setting {ConfiguredWorkerLimit})"
+            WorkerSummary = $"{EffectiveWorkerLimit} in use (setting {ConfiguredWorkerLimit})",
+
+            // Which build is answering, shown beside the ffsubsync badge instead of inside the
+            // progress line.
+            PluginVersion = System.Reflection.Assembly.GetExecutingAssembly()
+                .GetName().Version?.ToString() ?? string.Empty
         };
 
         // Check system python3
