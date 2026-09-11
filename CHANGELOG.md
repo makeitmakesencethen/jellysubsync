@@ -191,7 +191,34 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.37]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.38]
+
+### Fixed
+- **Synced sidecars are named so Jellyfin can associate them with their video.** A sidecar must
+  start with the exact media filename followed by DOT-separated fields (Jellyfin's media naming
+  rule: `Film.mkv` → `Film.en.sdh.srt`). The marker was glued on with a hyphen
+  (`...-SYNCED.dan.srt`), which left Jellyfin unable to attach the file to the episode, so synced
+  subtitles never appeared. Now:
+
+  - embedded track → `Quicksand - S01E01 - Maja WEBDL-1080p.SYNCED.dan.srt`
+  - copied external → `…stem.sv.SYNCED.srt`
+
+  Files already written with the old hyphenated name keep that name; they can be renamed by hand
+  or re-synced, and the plugin will not touch them on its own.
+
+- **Settings now apply without restarting Jellyfin — all of them.** The plugin read the
+  configuration copy loaded when it was constructed, so a saved change could reach the settings
+  file and never reach the running plugin: the worker count stayed at its old value and "replace
+  the original" kept writing copies. Every settings read now goes through `SettingsSource`, which
+  re-reads the settings file whenever its timestamp changes, with the plugin's own copy as the
+  fallback when the file cannot be read.
+
+### Note
+- For an **embedded** track, "replace the original" and "save a copy" are the same thing by
+  design: the original lives inside the video, which is never modified, so a new external sidecar
+  is always written. The two modes differ only for external subtitle files.
+
+## [1.1.0.37]
 
 ### Added
 - **The settings page states the worker value in force against the value configured**, plus where

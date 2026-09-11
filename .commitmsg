@@ -1,12 +1,22 @@
-State which plugin copy is answering, and put LOADING inside the language box
+Name synced sidecars the way Jellyfin reads them, and apply settings immediately
 
-A run reported "4/4 workers" with 8 configured, and no code path that reads the setting was wrong -
-so the settings page now states the facts needed to see why: the worker count in force against the
-configured one, the assembly the plugin was loaded from, and the settings file it reads. The
-startup log carries the same three, so a second loaded copy (an older plugin folder that survived
-an update, each holding its own configuration) is visible instead of silent.
+Two faults, both reported from real use.
 
-The language box also says LOADING inside itself now - same box, same position, the text swapped
-and restored - rather than drawing a layer over the text that was already there.
+1. Synced sidecars were invisible in Jellyfin. A sidecar has to begin with the exact media
+   filename and then dot-separated fields (Film.mkv -> Film.en.sdh.srt); the synced marker was
+   glued on with a hyphen, so Jellyfin could not attach the file to the episode. The marker is now
+   a field: "<name>.SYNCED.<lang>.srt". Existing hyphenated files are left alone.
 
-Version 1.1.0.37.
+2. Settings could be saved and never applied, which made a worker count of 8 run as 4 and
+   "replace the original" write copies. The plugin read the configuration copy from its own
+   construction time. Every read now goes through SettingsSource: the settings file Jellyfin
+   writes is the source of truth, re-read whenever it changes, with the in-memory copy as the
+   fallback. Verified that a file round-trips workers, sync mode and VAD method, and that a
+   missing or malformed file neither throws nor loses the last known settings.
+
+For embedded tracks, "replace" and "copy" remain identical by design: the original is inside the
+video and the video is never modified, so a new sidecar is always written.
+
+Checks: 144, ALL PASS.
+
+Version 1.1.0.38.

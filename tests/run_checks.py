@@ -652,6 +652,29 @@ Check("the jobs planned are all different episodes",
     SubSyncService.PlanStart(manyTracks, Array.Empty<SyncJob>(), "ultimate", "wide", 32,
         _ => "/library", _ => true, _ => false).Select(j => j.ItemId).Distinct().Count() == 32);
 
+// ---------------- Settings come from the file Jellyfin writes ----------------
+// A saved setting that never reaches the running plugin looked like a setting being ignored
+// (worker count, sync mode). The file is now the source of truth, re-read when it changes.
+var settingsPath = Path.Combine(Path.GetTempPath(), "subsync-settings-" + Guid.NewGuid().ToString("N") + ".xml");
+var settingsXml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>"
+    + "<PluginConfiguration xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\" xmlns:xsd=\"http://www.w3.org/2001/XMLSchema\">"
+    + "<ParallelWorkers>8</ParallelWorkers><SyncModeCopy>false</SyncModeCopy><VadMethod>webrtc</VadMethod></PluginConfiguration>";
+File.WriteAllText(settingsPath, settingsXml);
+var loadedSettings = SettingsSource.Read(settingsPath);
+Check("settings are read from the settings file",
+    loadedSettings is not null && loadedSettings.ParallelWorkers == 8,
+    "workers " + (loadedSettings?.ParallelWorkers));
+Check("the sync mode comes from the file as well",
+    loadedSettings is not null && !loadedSettings.SyncModeCopy);
+Check("the VAD method comes from the file as well",
+    loadedSettings is not null && loadedSettings.VadMethod == "webrtc",
+    loadedSettings?.VadMethod ?? "(null)");
+Check("a missing settings file yields nothing rather than throwing",
+    SettingsSource.Read(settingsPath + ".missing") is null);
+File.WriteAllText(settingsPath, "this is not xml");
+Check("a malformed settings file does not throw", SettingsSource.Read(settingsPath) is null);
+File.Delete(settingsPath);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 

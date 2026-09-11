@@ -303,7 +303,7 @@ public class SubSyncService : IDisposable
     /// <returns>The ffsubsync executable path.</returns>
     public string ResolveFfSubSyncPath()
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = Services.SettingsSource.Current();
 
         // Explicit admin override wins over everything: if the user configured a
         // custom path (non-empty, non-default), honor it even when a bundled
@@ -421,7 +421,7 @@ public class SubSyncService : IDisposable
     /// </summary>
     private string ResolveFfmpegPath()
     {
-        var config = Plugin.Instance?.Configuration;
+        var config = Services.SettingsSource.Current();
         if (config is not null && !string.IsNullOrWhiteSpace(config.FfmpegPath))
         {
             return config.FfmpegPath;
@@ -602,7 +602,7 @@ public class SubSyncService : IDisposable
         }
 
         var source = mediaSources[0];
-        var languageFilter = Plugin.Instance?.Configuration?.SyncLanguages ?? Array.Empty<string>();
+        var languageFilter = Services.SettingsSource.Current()?.SyncLanguages ?? Array.Empty<string>();
 
         // Image-based tracks (PGS, VobSub, DVB, XSUB) can never be aligned — they are
         // left out entirely so they cannot be picked and fail. Tracks outside the
@@ -781,11 +781,11 @@ public class SubSyncService : IDisposable
         // display/logging handle on the originally selected stream.
         var subtitleOrdinal = subtitleStream.Index;
 
-        var config = Plugin.Instance?.Configuration ?? new Configuration.PluginConfiguration();
+        var config = Services.SettingsSource.Current() ?? new Configuration.PluginConfiguration();
 
         _logger.LogInformation(
             "Queued sync: item {ItemId} subtitle stream {SubtitleIndex} — output mode: {Mode}",
-            itemId, subtitleIndex, config.SyncModeCopy ? "copy (-SYNCED.srt)" : "replace original in place");
+            itemId, subtitleIndex, config.SyncModeCopy ? "copy (.SYNCED.srt)" : "replace original in place");
 
         var job = new SyncJob
         {
@@ -795,7 +795,7 @@ public class SubSyncService : IDisposable
             BatchLabel = batchLabel,
             BatchIndex = batchIndex,
             Label = label,
-            Mode = NormalizeMode(mode ?? Plugin.Instance?.Configuration?.MultiSyncMode)
+            Mode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode)
         };
 
         _jobs[job.Id] = job;
@@ -821,7 +821,7 @@ public class SubSyncService : IDisposable
     public IReadOnlyList<SyncJob> CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks, string? mode = null)
     {
         var batchId = Guid.NewGuid().ToString("N");
-        var resolvedMode = NormalizeMode(mode ?? Plugin.Instance?.Configuration?.MultiSyncMode);
+        var resolvedMode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode);
         var jobs = new List<SyncJob>(tasks.Count);
 
         for (var i = 0; i < tasks.Count; i++)
@@ -1427,7 +1427,7 @@ public class SubSyncService : IDisposable
     /// effective parallelism is visible instead of inferred.
     /// </summary>
     public int EffectiveWorkerLimit =>
-        NormalizeWorkers(Plugin.Instance?.Configuration?.ParallelWorkers ?? DefaultParallelWorkers);
+        NormalizeWorkers(Services.SettingsSource.Current()?.ParallelWorkers ?? DefaultParallelWorkers);
 
     /// <summary>
     /// The worker count exactly as configured, without falling back to the default.
@@ -1436,7 +1436,7 @@ public class SubSyncService : IDisposable
     /// "4/4 workers" with 8 configured means one of the two is not what the other thinks, and
     /// that is only visible when both are stated.
     /// </summary>
-    public int ConfiguredWorkerLimit => Plugin.Instance?.Configuration?.ParallelWorkers ?? -1;
+    public int ConfiguredWorkerLimit => Services.SettingsSource.Current()?.ParallelWorkers ?? -1;
 
     private static int _lastLoggedWorkerLimit = -1;
 
@@ -1512,7 +1512,7 @@ public class SubSyncService : IDisposable
                 }
                 else
                 {
-                    var config = Plugin.Instance?.Configuration;
+                    var config = Services.SettingsSource.Current();
                     var headMode = ResolveModeForBatch(head);
                     limit = IsParallelMode(headMode)
                         ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
@@ -1666,7 +1666,7 @@ public class SubSyncService : IDisposable
     public async Task<SweepResult> SweepLibraryAsync(IProgress<double> progress, CancellationToken cancellationToken)
     {
         var result = new SweepResult();
-        var config = Plugin.Instance?.Configuration;
+        var config = Services.SettingsSource.Current();
         var failStreakLimit = Math.Max(1, config?.SweepFailStreakLimit ?? 3);
         var maxItems = Math.Max(1, config?.SweepMaxItemsPerRun ?? 500);
 
@@ -2112,7 +2112,7 @@ public class SubSyncService : IDisposable
             // Language filter applies to external files and embedded tracks alike;
             // ListSubtitles already hides what the filter excludes, so reaching this
             // point means a stale client queued the track.
-            var allowedLanguages = Plugin.Instance?.Configuration?.SyncLanguages ?? Array.Empty<string>();
+            var allowedLanguages = Services.SettingsSource.Current()?.SyncLanguages ?? Array.Empty<string>();
             if (!LanguageSupport.MatchesFilter(subtitleStream.Language, allowedLanguages))
             {
                 throw new InvalidOperationException(
@@ -2364,18 +2364,18 @@ public class SubSyncService : IDisposable
                     var original = subtitleStream.Path;
                     var dir = Path.GetDirectoryName(original) ?? ".";
                     var stem = Path.GetFileNameWithoutExtension(original);
-                    // Jellyfin parses sidecar filenames from the END looking for a
-                    // language token. Pure-language files ("uzb.srt") parse clean:
-                    // language "Uzbek", no title. "uzb-SYNCED.srt" breaks the parse
-                    // ("Undefined" + raw stem as title), so for those files the copy
-                    // is named "{lang}.SYNCED.srt" which parses exactly like the
-                    // original. All other stems keep the collision-safe old name.
+                    // Jellyfin recognises a sidecar only when it starts with the exact media
+                    // filename and continues with DOT-separated fields (see the media naming
+                    // docs: "Film.mkv" -> "Film.en.sdh.srt"). A hyphenated marker
+                    // ("...-SYNCED.srt") leaves Jellyfin unable to associate the file with the
+                    // video, so nothing appears in the interface. The marker is therefore a
+                    // field, not part of the name.
                     var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
                         ? null
                         : subtitleStream.Language.Trim().ToLowerInvariant();
                     var target = lang is not null && string.Equals(stem, lang, StringComparison.OrdinalIgnoreCase)
                         ? Path.Combine(dir, $"{lang}.SYNCED.srt")
-                        : Path.Combine(dir, stem + "-SYNCED.srt");
+                        : Path.Combine(dir, stem + ".SYNCED.srt");
 
                     File.Copy(tempOutput, target, overwrite: true);
                     job.OutputPath = target;
@@ -2408,9 +2408,11 @@ public class SubSyncService : IDisposable
                 var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
                     ? null
                     : subtitleStream.Language.Trim().ToLowerInvariant();
+                // Dot-separated fields after the exact video filename, or Jellyfin will not
+                // associate the sidecar with the episode and it never shows up.
                 var target = lang is not null
-                    ? Path.Combine(videoDir, $"{videoNameNoExt}-SYNCED.{lang}.srt")
-                    : Path.Combine(videoDir, $"{videoNameNoExt}-SYNCED.srt");
+                    ? Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.{lang}.srt")
+                    : Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.srt");
 
                 File.Copy(tempOutput, target, overwrite: true);
                 job.OutputPath = target;
