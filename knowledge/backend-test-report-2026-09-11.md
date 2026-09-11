@@ -342,8 +342,11 @@ about the same time. What is **not** fixed, stated plainly:
   (§S11), so `FinishedAtUtc` came from a cancel, not from the work completing.
 
 The batch ended as `Total 50 · Completed 49 · Ok 48 · Failed 0 · Cancelled 1`, created 20:31:07.6,
-finished 20:49:09.7 — **48 of 50 tracks done in ~18 minutes with zero failures**, against 1 of 50 in
-22 minutes before. Two job-side `matroska-shared` passes still ran (458 287 ms and 598 681 ms), so the
+finished 20:49:09.7. The harness measured the whole thing, including the wait for the last task, at
+**1082.6 s (18.0 min) wall clock**, `{"Completed": 48, "Cancelled": 2}` — **48 of 50 tracks done, zero failures**, against 1 of 50 in
+22 minutes before. (The two `Cancelled` entries are the two S11 jobs I cancelled to free the queue;
+they are counted as cancelled, not failed, and `Runner` reported `mode=ultimate` for the batch.)
+Committed as `tests/backend/agg-slow-50tracks-w4.json`. Two job-side `matroska-shared` passes still ran (458 287 ms and 598 681 ms), so the
 escape hatch fired twice rather than once; 39 of the 50 tasks then reported
 `reused from the pass that read this file for another subtitle` and the rest
 `read through the container index (subtitle-cache), 3–37 ms`. Every one of the 50 took its text from
