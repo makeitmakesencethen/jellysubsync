@@ -3,6 +3,12 @@
 You are working on the Jellyfin plugin `Jellyfin.Plugin.SubSync` at `/opt/data/jellysubsync` (C#,
 `net10.0`, Jellyfin 12) — backend and web GUI in one job, one session, one branch.
 
+**Start here → `knowledge/FIX_PLAN.md`.** That file is the work list: **87 findings** from both documents,
+one line each, in four tiers, every line with a state (`open` / `done` / `refuted` / `decision` /
+`blocked`). Take the topmost line that is not `done` or `refuted`, reproduce it, fix it, verify it, commit
+it, tick the line with the commit and the evidence. **This brief tells you how; the fix plan tells you
+what.** Neither is complete without the other.
+
 Two earlier briefs are scope-limited and still valid as documents: `BACKEND_GOAL_PROMPT.md` (the
 original 46-row backend matrix) and `GUI_GOAL_PROMPT.md` (the GUI-only matrix). **This file is the one
 to work from.** It carries both surfaces, the state of play after the 2026-09-11 sessions, and a single
