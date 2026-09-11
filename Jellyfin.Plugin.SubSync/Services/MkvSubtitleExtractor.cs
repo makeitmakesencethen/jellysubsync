@@ -629,6 +629,7 @@ public static class MkvSubtitleExtractor
 
             var seen = new HashSet<long>();
             var index = 0;
+            var missedCuePoints = 0;
             foreach (var cueRef in cueRefs)
             {
                 var position = segmentDataStart + cueRef.ClusterOffset;
@@ -690,6 +691,8 @@ public static class MkvSubtitleExtractor
 
                 stats.ClustersVisited++;
 
+                var blocksBefore = track.BlocksFound;
+
                 if (cueRef.RelativePosition >= 0)
                 {
                     // The muxer recorded exactly where the block sits inside the cluster, so one
@@ -698,7 +701,8 @@ public static class MkvSubtitleExtractor
                     // catastrophic here. Measured on a real server after it leaked: every cue read a
                     // 4 MB window, so 779 cues moved 3.2 GB to collect ~50 KB of text.
                     reader.WindowSize = IndexedWindowSize;
-                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats))
+                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
+                        && track.BlocksFound != blocksBefore)
                     {
                         continue;
                     }
@@ -711,6 +715,32 @@ public static class MkvSubtitleExtractor
                     reason = "unsupported block encoding";
                     return false;
                 }
+
+                // Neither the block the index names nor the walk over its cluster produced a block of
+                // this track: the cue point exists in the index but nothing was read for it, so the
+                // subtitle that would come out of this pass is short by that much. Counting it here
+                // (rather than comparing the cue count with the index's, which cannot tell a missing
+                // block from a deliberately blank one) is what turns a silently truncated subtitle
+                // into a refusal, so the caller falls back to ffmpeg and gets the whole thing.
+                if (track.BlocksFound == blocksBefore)
+                {
+                    missedCuePoints++;
+                }
+            }
+
+            if (missedCuePoints > 0)
+            {
+                Diag($"incomplete: {missedCuePoints} of {cueRefs.Count} cue points produced no block");
+                reason = string.Format(
+                    CultureInfo.InvariantCulture,
+                    "{0} of {1} cue points in the index name a block that could not be read "
+                    + "({2} cue points carried a block offset, {3} did not)",
+                    missedCuePoints,
+                    cueRefs.Count,
+                    blockOffsets,
+                    cueRefs.Count - blockOffsets);
+                stats.Method = "incomplete";
+                return false;
             }
         }
         else
@@ -754,6 +784,7 @@ public static class MkvSubtitleExtractor
             reader.WindowSize = Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024);
 
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
+            var expectedCues = new Dictionary<int, int>();
             var clusterPositionsOf = new List<long>();
             var published = new HashSet<int>();
 
@@ -793,7 +824,14 @@ public static class MkvSubtitleExtractor
                 var index = wanted.Count;
                 wanted.Add((ordinal, extra, new List<Cue>()));
 
-                var needsWalk = extraRefs.All(r => r.RelativePosition < 0);
+                // Any cue point without a block offset means the track has to be walked: the cue
+                // points that do carry one are read directly, but the others can only be found by
+                // reading their cluster. Requiring *every* cue point to lack an offset (what this
+                // used to say) left the mixed case - which is exactly what a partially rewritten
+                // cue index produces - with those cue points skipped and never added to
+                // walkInCluster, so the track came out short and was still reported as produced.
+                var needsWalk = extraRefs.Any(r => r.RelativePosition < 0);
+                expectedCues[index] = extraRefs.Count;
                 foreach (var reference in extraRefs)
                 {
                     var clusterPosition = segmentDataStart + reference.ClusterOffset;
@@ -936,13 +974,23 @@ public static class MkvSubtitleExtractor
                         target.Cues);
                 }
 
-                PublishFinishedTracks(lastClusterOf, clusterPosition, wanted, published, publish);
+                PublishFinishedTracks(lastClusterOf, clusterPosition, wanted, expectedCues, published, publish);
             }
 
-            foreach (var (ordinal, _, extraCues) in wanted)
+            for (var i = 0; i < wanted.Count; i++)
             {
+                var (ordinal, trackOf, extraCues) = wanted[i];
                 if (extraCues.Count == 0)
                 {
+                    continue;
+                }
+
+                // Cue parity: every cue point of this track has to have produced a block, or the
+                // subtitle is short and must not be handed over as if it were whole. Reporting the
+                // track as produced is what let a half-read language be cached and reused.
+                if (expectedCues.TryGetValue(i, out var expected) && trackOf.BlocksFound < expected)
+                {
+                    Diag($"track {ordinal}: {trackOf.BlocksFound} blocks for {expected} cue points - not published");
                     continue;
                 }
 
@@ -1550,6 +1598,10 @@ public static class MkvSubtitleExtractor
         {
             return true; // another track: the payload is never touched
         }
+
+        // The block belongs to the track we are after, whether or not its text turns out to be
+        // blank: this is what the cue-parity check counts (see SubtitleTrack.BlocksFound).
+        track.BlocksFound++;
 
         if (offset + 3 > headerBytes)
         {
@@ -2310,12 +2362,14 @@ public static class MkvSubtitleExtractor
     /// <param name="lastClusterOf">Cluster position to the tracks that finish there.</param>
     /// <param name="clusterPosition">The cluster just processed.</param>
     /// <param name="wanted">Wanted tracks, in the order they were collected.</param>
+    /// <param name="expectedCues">Cue points the index holds per wanted track, keyed by its position in <paramref name="wanted"/>.</param>
     /// <param name="published">Tracks already handed over.</param>
     /// <param name="publish">Callback into the caller, null when nobody is listening.</param>
     private static void PublishFinishedTracks(
         SortedDictionary<long, List<int>> lastClusterOf,
         long clusterPosition,
         List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)> wanted,
+        Dictionary<int, int> expectedCues,
         HashSet<int> published,
         Action<int, string>? publish)
     {
@@ -2340,6 +2394,14 @@ public static class MkvSubtitleExtractor
 
                 var done = wanted[index];
                 if (done.Cues.Count == 0)
+                {
+                    continue;
+                }
+
+                // Hand a track over only when every cue point the index knows about produced a block.
+                // A track that is one block short would otherwise be stored (and published to the
+                // job that is waiting for it) as if it were complete.
+                if (expectedCues.TryGetValue(index, out var expected) && done.Track.BlocksFound < expected)
                 {
                     continue;
                 }
@@ -2476,6 +2538,16 @@ public static class MkvSubtitleExtractor
         public byte[]? CodecPrivate { get; set; }
 
         public bool Compressed { get; set; }
+
+        /// <summary>
+        /// How many blocks of this track the current pass has actually read out of the container.
+        ///
+        /// This is the evidence the cue-parity check needs: a block that was found and whose text
+        /// turned out to be blank still counts, a cue point whose block could not be located does
+        /// not. Comparing the extracted cue count against the index's cue count cannot tell those
+        /// two apart, which is why the check is made here instead.
+        /// </summary>
+        public int BlocksFound { get; set; }
 
         public bool IsSubtitle => TrackType == 17;
 

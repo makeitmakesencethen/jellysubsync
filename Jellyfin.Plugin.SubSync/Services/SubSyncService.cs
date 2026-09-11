@@ -3566,12 +3566,17 @@ public class SubSyncService : IDisposable
                     job.Progress = 0.85;
 
                     RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
-                    await ReplaceExternalSubtitle(subtitleStream.Path, tempOutput).ConfigureAwait(false);
-                    backupPath = subtitleStream.Path + ".bak.subsync";
+
+                    // The backup path is chosen (and therefore known to the rollback below) *before*
+                    // the original is touched: the destructive copy is inside ReplaceExternalSubtitle,
+                    // and a failure there used to leave `backupPath` null, so the only rollback there is
+                    // was skipped for exactly the case that needs it.
+                    backupPath = NextBackupPath(subtitleStream.Path);
+                    await ReplaceExternalSubtitle(subtitleStream.Path, backupPath, tempOutput).ConfigureAwait(false);
                     changedDir = Path.GetDirectoryName(subtitleStream.Path) ?? ".";
 
                     job.OutputPath = subtitleStream.Path;
-                    _logger.LogInformation("Replaced external subtitle: {Path} (backup at {Backup})", subtitleStream.Path, backupPath);
+                    _logger.LogInformation("Replaced external subtitle: {Path} (original kept at {Backup})", subtitleStream.Path, backupPath);
                 }
             }
             else
@@ -3613,8 +3618,11 @@ public class SubSyncService : IDisposable
                 throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
             }
 
-            // Step 5: Success — describe what changed (offset ms / framerate),
-            // then remove the replace-mode backup.
+            // Step 5: Success — describe what changed (offset ms / framerate). The replace-mode
+            // backup is deliberately NOT deleted: a sync that succeeds while being wrong used to
+            // leave the user with no way back, and the copy costs a few kilobytes. It is named
+            // *.bak.subsync, which is not a subtitle extension, so Jellyfin never shows it as a
+            // second track, and the result says where it is.
             var outcomeInput = backupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
             if (job.OutputPath is not null)
             {
@@ -3628,8 +3636,15 @@ public class SubSyncService : IDisposable
                     : job.Outcome + " \u00b7 " + cuesNote;
             }
 
-            SafeDelete(backupPath);
-            backupPath = null;
+            if (backupPath is not null)
+            {
+                // Worth saying plainly: the original file was overwritten in place.
+                var kept = Path.GetFileName(backupPath);
+                job.Outcome = string.IsNullOrEmpty(job.Outcome)
+                    ? "original replaced \u2014 kept at " + kept
+                    : job.Outcome + " \u00b7 original replaced, kept at " + kept;
+                _logger.LogInformation("Original subtitle kept at {Backup} (replace mode)", backupPath);
+            }
 
             job.Phase = "Complete";
             job.Status = SyncJobStatus.Completed;
@@ -3771,14 +3786,12 @@ public class SubSyncService : IDisposable
     /// Safely replaces an external subtitle file with the synced version.
     /// Creates a backup first, then atomically renames the new file into place.
     /// </summary>
-    private async Task ReplaceExternalSubtitle(string originalPath, string syncedTempPath)
+    private async Task ReplaceExternalSubtitle(string originalPath, string backupPath, string syncedTempPath)
     {
         if (!File.Exists(originalPath))
         {
             throw new FileNotFoundException($"Original subtitle file not found: {originalPath}");
         }
-
-        var backupPath = originalPath + ".bak.subsync";
 
         // 1. Copy original → backup (preserves original permissions/attrs)
         _logger.LogInformation("Backing up original subtitle: {Original} → {Backup}", originalPath, backupPath);
@@ -3787,6 +3800,35 @@ public class SubSyncService : IDisposable
         // 2. Copy synced temp → original (use Copy+Delete instead of cross-device Rename)
         _logger.LogInformation("Replacing subtitle with synced version: {Temp} → {Original}", syncedTempPath, originalPath);
         await Task.Run(() => File.Copy(syncedTempPath, originalPath, overwrite: true)).ConfigureAwait(false);
+    }
+
+    /// <summary>
+    /// Picks the path a replace run keeps the user's original subtitle at.
+    ///
+    /// A name ending in <c>.bak.subsync</c> is deliberately not a subtitle extension, so Jellyfin
+    /// never offers the backup as a second track. An earlier run's backup is never overwritten:
+    /// each replace keeps the copy it made, so the chain of originals stays intact.
+    /// </summary>
+    /// <param name="originalPath">The subtitle that is about to be overwritten.</param>
+    /// <returns>A path that does not exist yet.</returns>
+    private static string NextBackupPath(string originalPath)
+    {
+        var first = originalPath + ".bak.subsync";
+        if (!File.Exists(first))
+        {
+            return first;
+        }
+
+        for (var n = 2; n < 1000; n++)
+        {
+            var candidate = originalPath + ".bak" + n.ToString(CultureInfo.InvariantCulture) + ".subsync";
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        return originalPath + ".bak." + Guid.NewGuid().ToString("N").Substring(0, 8) + ".subsync";
     }
 
     /// <summary>
