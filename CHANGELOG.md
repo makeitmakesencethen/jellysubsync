@@ -191,7 +191,39 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.52]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.53]
+
+### Fixed
+- **A queued task is no longer shown as a failure.** Opening a batch while it was still being queued
+  listed every task as `FAIL <title> — Queued`, which reads as a run that failed instantly. Nothing had
+  failed: those tasks had not started. Only finished tasks are reported (`OK`, `SKIP`, `FAIL`); the rest
+  are counted (`(37 tasks still queued or running)`), and the batch view in History is fixed the same way.
+
+- **This plugin's own synced sidecars are no longer offered as tracks.** A sidecar is named
+  `<video>.SYNCED.<lang>.srt`, and Jellyfin reads the marker as a *language* - so every track list
+  carried a language called "SYNCED", and a season sync queued those files next to the very tracks they
+  were produced from. The batch therefore did the same work twice, and the second pass wrote over the
+  file the first had just written (which is also why a "Den osannolika mördaren" season batch came to
+  147 tasks). The marker is now recognised by name (`SrtWriter.IsSyncedSidecarName`, including the
+  legacy hyphen form) and those files are left out of the lists the UI offers. The originals are still
+  listed, and syncing one writes that sidecar again, so nothing becomes unreachable.
+
+### Added
+- **The enqueue path reports where its time goes.** Queueing has to be fast: the scheduler can only
+  start what is already in the queue, so a batch that trickles in looks exactly like a plugin that
+  refuses to parallelise - which is what a run on 1.1.0.51 did (twelve tasks in 13 ms, then about 5.3 s
+  per task once a job was running). Every task is timed part by part and the slowest one is named:
+
+  ```
+  batch <id> queued: tasks=147 mode=auto label='...' totalMs=524374 slowestTaskMs=20050
+    (index 53: gap=12 ms; item=1 ms, sources=19980 ms, settings=2 ms, log=1 ms, total=19996 ms)
+  enqueue slow: item=1 ms, sources=19980 ms, settings=2 ms, log=1 ms, total=19996 ms stream=43 video=...
+  ```
+
+  `gap` is the time between two tasks inside the loop, so a cost that is not inside the task is visible
+  too.
+
+## [1.1.0.52]
 
 ### Fixed
 - **A queued task is no longer reported as a failure.** Opening a batch while it was still being

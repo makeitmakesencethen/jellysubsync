@@ -498,6 +498,24 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
         $"{manyStats.SubtitleBlocks} + {manyStats.AlsoBlocks} vs {separateCues}");
 }
 
+// Our own synced sidecars carry a marker that Jellyfin reads as a language name, so they must never
+// be offered as tracks. Every name shape we write, plus names that must not match.
+foreach (var (name, expected) in new (string Name, bool Expected)[]
+{
+    ("Quicksand - S01E01 - Maja WEBDL-1080p.SYNCED.dan.srt", true),
+    ("Black.Mirror.2011.S05E02.1080p.NF.WEB-DL.H265.HONE-SYNCED.heb.srt", true),
+    ("Sommaren med slakten S01E01 H.265 EAC3.SYNCED.srt", true),
+    ("/media/serier/Show S01E01.SYNCED.swe.srt", true),
+    ("Quicksand - S01E01 - Maja WEBDL-1080p.dan.srt", false),
+    ("Sommaren med slakten S01E01 H.265 EAC3.srt", false),
+    ("Show.S01E01.synced-by-hand.srt", false),
+    ("", false),
+})
+{
+    var got = SrtWriter.IsSyncedSidecarName(name);
+    Check($"sidecar name '{name}' is {(expected ? "ours" : "not ours")}", got == expected, got.ToString());
+}
+
 // ---------------- Worker pool: slots, not groups ----------------
 // The failure this guards against: three jobs finished, the fourth kept running, and the three
 // idle workers waited for it instead of taking the next jobs from the queue.
@@ -1107,6 +1125,13 @@ def run_page_checks():
     report('queued or running tasks are never reported as failures',
            "status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled'" in main_html
            and 'still queued or running' in main_html)
+
+    # This plugin's own sidecars must not be offered as tracks: Jellyfin reads the marker as the
+    # language, so they appeared as a language called "SYNCED" and doubled every batch.
+    report('our own sidecars are recognised by name',
+           "IsSyncedSidecarName" in '\n'.join(plugin_sources) and 'IsOwnSidecar' in '\n'.join(plugin_sources))
+    report('the track list leaves our own sidecars out',
+           '.Where(s => !IsOwnSidecar(s))' in '\n'.join(plugin_sources))
 
     # The enqueue path is timed part by part, so a slow one can be named instead of guessed at.
     report('the enqueue path reports where its time goes',

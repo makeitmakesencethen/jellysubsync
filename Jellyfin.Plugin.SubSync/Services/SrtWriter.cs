@@ -77,6 +77,31 @@ public static class SrtWriter
             ms);
     }
 
+    /// <summary>
+    /// True when a subtitle file name is one of this plugin's own synced outputs.
+    /// </summary>
+    /// <remarks>
+    /// They are written as <c>&lt;video&gt;.SYNCED.&lt;lang&gt;.srt</c>, and Jellyfin reads the marker
+    /// as the language name, so these used to be offered in every track list as a language called
+    /// "SYNCED" and were queued alongside the tracks they were produced from - which meant a season
+    /// sync did the same work twice and the second pass wrote over what the first had just written.
+    /// The legacy hyphen form is recognised too, so a library carrying both is still cleaned up.
+    /// </remarks>
+    /// <param name="fileName">File name, with or without a directory.</param>
+    /// <returns>True when the name carries the synced marker.</returns>
+    public static bool IsSyncedSidecarName(string? fileName)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+        {
+            return false;
+        }
+
+        var name = Path.GetFileName(fileName);
+        return name.Contains(".SYNCED.", StringComparison.OrdinalIgnoreCase)
+            || name.Contains("-SYNCED.", StringComparison.OrdinalIgnoreCase)
+            || name.EndsWith("SYNCED.srt", StringComparison.OrdinalIgnoreCase);
+    }
+
     /// <summary>Counts cues in SRT text (used for logs and sanity checks).</summary>
     /// <param name="srt">SRT content.</param>
     /// <returns>Number of timing lines.</returns>

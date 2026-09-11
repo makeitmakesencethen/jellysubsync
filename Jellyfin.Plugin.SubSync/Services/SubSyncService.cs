@@ -637,10 +637,25 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Lists subtitle streams for a given video item.
+    /// True when an external subtitle is one of this plugin's own outputs.
     /// </summary>
-    /// <param name="itemId">The Jellyfin item ID.</param>
-    /// <returns>A list of subtitle infos, or null if the item is not found.</returns>
+    /// <remarks>
+    /// They are written as <c>&lt;video&gt;.SYNCED.&lt;lang&gt;.srt</c>, and Jellyfin reads the marker
+    /// as the language name - so they used to appear in every track list as a language called
+    /// "SYNCED" and were queued alongside the very tracks they were produced from. A season sync then
+    /// did the same work twice, and the second pass wrote over the file the first had just written.
+    /// The originals are still listed; syncing one produces the sidecar again.
+    /// </remarks>
+    /// <param name="stream">Subtitle stream from Jellyfin's media source.</param>
+    /// <returns>True when the file is one of ours.</returns>
+    private static bool IsOwnSidecar(MediaBrowser.Model.Entities.MediaStream stream) =>
+        stream.IsExternal && SrtWriter.IsSyncedSidecarName(stream.Path);
+
+    /// <summary>
+    /// Lists the subtitle tracks of one item, as the UI offers them.
+    /// </summary>
+    /// <param name="itemId">Media item.</param>
+    /// <returns>The selectable subtitle tracks, or null when the item is not a video.</returns>
     public List<SubtitleInfo>? ListSubtitles(Guid itemId)
     {
         var item = _libraryManager.GetItemById(itemId);
@@ -665,6 +680,7 @@ public class SubSyncService : IDisposable
         return source.MediaStreams
             .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
             .Where(s => !LanguageSupport.IsImageBased(s.Codec))
+            .Where(s => !IsOwnSidecar(s))
             .Where(s => LanguageSupport.MatchesFilter(s.Language, languageFilter))
             .Select(s =>
             {
