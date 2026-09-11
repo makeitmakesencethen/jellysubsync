@@ -53,13 +53,23 @@ def procs_with(fragment):
 
 
 def engine_children(root_fragment):
-    """The engine's own children: ffmpeg/ffsubsync processes touching the media path."""
+    """Processes the *engine* started for this file, not the harness's own helpers.
+
+    A live engine child is `ffmpeg …` / `ffprobe …`, or `python …/ffsubsync …`. Anything else whose
+    command line merely mentions the path is this harness or a shell around it: the first version of
+    this function matched its own `grep`/`ps`/calibration shell and reported them as survivors.
+    """
+    allowed = ("ffmpeg", "ffprobe", "ffsubsync")
     kids = []
     for p in procs_with(root_fragment):
-        cmd = p["cmd"]
-        if "/jellyfin.dll" in cmd or "dotnet" in cmd.split()[0]:
+        argv = p["cmd"].split()
+        if not argv:
             continue
-        kids.append(p)
+        first = os.path.basename(argv[0])
+        is_engine = first in allowed or (first.startswith("python")
+                                         and any("ffsubsync" in a for a in argv))
+        if is_engine:
+            kids.append(p)
     return kids
 
 

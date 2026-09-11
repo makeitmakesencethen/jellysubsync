@@ -68,6 +68,12 @@ Facts learned the hard way, worth not rediscovering:
   subtitles from 4..54 to 8..57, so a hard-coded index silently syncs a different track. Select the
   track by language/forced flags, or re-read `/SubSync/Subtitles/{id}` immediately before queueing.
 * **`/SubSync/Sync` answers with the job record itself** (`{"Id": …}`), not `{"JobId": …}`.
+* **S11b's harness counts processes, so it must not count its own.** The first version matched any
+  process whose command line mentions the media file, which included the shell running the `grep`
+  that had started it and a manual `ffmpeg -f null -` calibration: the smoke run recorded those as
+  "engine children" and a 70.9 s wall clock for a job that had finished in a second. It now requires
+  the process to *be* `ffmpeg`/`ffprobe`/`ffsubsync` (`python …/ffsubsync` counts). S11b is still
+  **unmeasured** — the smoke run proved the detector, not the defect.
 * **The slow profile must be proved, not assumed**: the plugin logs `extract: storage <ms> ms per
   16 KB read`, and `0.01 ms` means the shim never loaded.
 * `/SubSync/Subtitles/{id}` hides the plugin's own `.SYNCED.` sidecars, but `/SubSync/Sync` accepts an
