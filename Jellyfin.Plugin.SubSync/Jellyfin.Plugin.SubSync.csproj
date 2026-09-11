@@ -4,7 +4,7 @@
     <RootNamespace>Jellyfin.Plugin.SubSync</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>2.0.2.0</Version>
+    <Version>2.0.3.0</Version>
     <!-- Both follow <Version>, so a release cannot ship a mismatched assembly version: the
          catalog said 1.1.0.30 while the assembly still said 1.1.0.19, and the version the
          interface shows is read from the assembly. -->

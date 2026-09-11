@@ -225,14 +225,16 @@
                                     <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
                                 </div>
                                 <div class="ss-field">
-                                    <label class="selectLabel">Cached audio analysis</label>
+                                    <label class="selectLabel">Cached data</label>
                                     <div class="fieldDescription" id="ss-speechcache">Checking…</div>
                                     <button is="emby-button" type="button" id="ss-clearcache" class="raised" style="margin-top:6px;"><span>Clear cache</span></button>
                                     <div class="fieldDescription">
-                                        Fast mode keeps one small file (a few KB) per media file, holding the speech signal so the
-                                        other subtitles of that file do not re-analyse the audio. Entries unused for 30 days are
-                                        removed automatically, and the cache is capped at 250 MB. Clearing it only costs time — the
-                                        next fast run rebuilds what it needs.
+                                        Two things are cached. The <strong>audio analysis</strong> is one small file per media
+                                        file, holding the speech signal so the other subtitles of that file (and later runs) do not
+                                        listen to the audio again; unused entries are removed after 30 days and the cache is capped at
+                                        250 MB. The <strong>reference subtitle</strong> is the track a sync is aligned against, kept only
+                                        while that file's subtitles are being worked on. Clearing removes both, plus the scratch folders of
+                                        finished jobs — it only costs time, since everything is rebuilt when it is next needed.
                                     </div>
                                 </div>
 
@@ -761,8 +763,9 @@
 
                     var cacheEl = $('ss-speechcache');
                     if (cacheEl) {
-                        cacheEl.textContent = 'Cached audio analysis: ' + (s.SpeechCacheSummary || 'empty')
-                            + ' \u00b7 ' + (s.SpeechCacheSummary && s.SpeechCacheSummary.indexOf('empty') === -1 ? 'ready to reuse' : 'nothing cached yet');
+                        var summary = s.SpeechCacheSummary || 'empty';
+                        cacheEl.textContent = 'Audio analysis: ' + summary
+                            + ' \u00b7 ' + (summary.indexOf('empty') === -1 ? 'ready to reuse' : 'nothing cached yet');
                     }
 
                     var badge = $('ss-badge');
@@ -2216,7 +2219,8 @@
                     api('SubSync/SpeechCache/Clear', { method: 'POST' }).then(function (r) {
                         var removed = (r && (r.removed !== undefined ? r.removed : r.Removed)) || 0;
                         refreshStatus();
-                        diag('Cleared ' + removed + ' cached audio analysis file' + (removed === 1 ? '' : 's') + '.', false);
+                        var message = (r && (r.message || r.Message)) || ('Cleared ' + removed + ' cached audio analysis file' + (removed === 1 ? '' : 's') + '.');
+                        diag(message, false);
                     }).catch(function (err) {
                         diag('Could not clear the cache: ' + (err.message || err), true);
                     }).then(function () {

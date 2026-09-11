@@ -4,6 +4,16 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.3 (beta)
+
+- **"Clear cache" now clears every cache, not just one.** It used to empty the audio analysis only,
+  which left the reference subtitles behind - the exact thing that had been giving you wrong offsets.
+  It now removes the audio analysis, the references of the current run, and the scratch folders of
+  finished jobs, and reports what it removed. Safe at any time: everything is rebuilt when it is next
+  needed, so clearing only costs time. The Settings tab says so, and the label is "Cached data" rather
+  than "Cached audio analysis".
+- A running job's scratch folder is never touched by that button - only folders whose job is gone.
+
 ## 2.0.2 (beta)
 
 Two fixes to the same mistake: 2.0.1 answered a bad alignment by refusing the job, which is worse than

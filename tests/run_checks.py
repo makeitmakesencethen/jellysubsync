@@ -1306,6 +1306,21 @@ def run_page_checks():
     report('a forced/signs track is never chosen as the reference',
            'forcedTracks' in service and 'Never pick one' in service
            and 'IsForced' in service)
+    # "Clear cache" used to empty the audio analysis only, which left the reference subtitles in place:
+    # clearing the cache then changed nothing about a wrong result, which cost a whole debugging session.
+    controller = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api', 'SubSyncController.cs'),
+                      encoding='utf-8').read()
+    report('clear cache empties every cache, not just the audio analysis',
+           'SpeechCache.Clear()' in controller
+           and 'ReferenceStore.Clear()' in controller
+           and 'ClearStaleJobDirectories()' in controller)
+    report('clearing never deletes a running job\'s scratch folder',
+           '_jobs.ContainsKey(name)' in service and 'ref" continue' not in service)
+    report('the button says what it clears',
+           'Cached data' in pages['subsyncMain.html']
+           and 'audio analysis' in pages['subsyncMain.html']
+           and 'reference subtitle' in pages['subsyncMain.html'].lower())
+
     report('a reference with too few cues is dropped and the audio used instead',
            'LooksLikeSignsTrack(referenceCues' in service
            and 'falling back to the audio for this job' in service

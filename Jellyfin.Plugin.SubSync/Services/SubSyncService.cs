@@ -562,7 +562,8 @@ public class SubSyncService : IDisposable
         }
 
         status.ResolvedBinaryPath = ResolveFfSubSyncPath();
-        status.SpeechCacheSummary = SpeechCache.Describe();
+        status.SpeechCacheSummary = SpeechCache.Describe()
+            + " \u00b7 references: " + ReferenceStore.Describe();
         return status;
     }
 
@@ -1308,6 +1309,49 @@ public class SubSyncService : IDisposable
     /// True when this job's media file already has its speech analysis cached, so it can run
     /// without touching storage (and may share the file with another worker).
     /// </summary>
+    /// <summary>
+    /// Deletes the scratch directory of every job the plugin is no longer tracking. Used by the
+    /// "clear cache" action: a job's directory holds its extracted subtitle and the engine's output, so
+    /// only directories whose job is gone (or never existed - a crash) are removed, never a running one.
+    /// </summary>
+    /// <returns>Number of directories removed.</returns>
+    public int ClearStaleJobDirectories()
+    {
+        var root = Plugin.Instance?.TempPath;
+        if (string.IsNullOrEmpty(root) || !Directory.Exists(root))
+        {
+            return 0;
+        }
+
+        var removed = 0;
+        foreach (var directory in Directory.EnumerateDirectories(root))
+        {
+            var name = Path.GetFileName(directory);
+
+            // The reference tree has its own owner and its own lifetime.
+            if (name.Equals("ref", StringComparison.OrdinalIgnoreCase) || _jobs.ContainsKey(name))
+            {
+                continue;
+            }
+
+            try
+            {
+                Directory.Delete(directory, recursive: true);
+                removed++;
+            }
+            catch (IOException)
+            {
+                // A job may have just started using it; the next clear picks it up.
+            }
+            catch (UnauthorizedAccessException)
+            {
+                // Same.
+            }
+        }
+
+        return removed;
+    }
+
     /// <summary>Joins a note with another, so callers do not repeat the separator.</summary>
     /// <param name="existing">Note so far, or null.</param>
     /// <param name="addition">Note to append.</param>

@@ -339,18 +339,27 @@ public class SubSyncController : ControllerBase
     }
 
     /// <summary>
-    /// Empties the cached speech analysis ("fast" mode). Safe at any time: entries are
-    /// rebuilt on the next fast-mode run.
+    /// Empties every cache this plugin keeps: the audio analysis ("fast" mode), the reference
+    /// subtitles, and the scratch directories of jobs that are no longer running. Safe at any time -
+    /// each entry is rebuilt the next time it is needed, so clearing only costs time.
     /// </summary>
-    /// <returns>The new cache summary.</returns>
+    /// <returns>What was removed, and what is left.</returns>
     [HttpPost("SpeechCache/Clear")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> ClearSpeechCache()
     {
-        var removed = Services.SpeechCache.Clear();
+        var removedAudio = Services.SpeechCache.Clear();
+        Services.ReferenceStore.Clear();
+        var removedScratch = _syncService.ClearStaleJobDirectories();
+
         return Ok(new
         {
-            removed,
+            removed = removedAudio,
+            removedAudio,
+            removedScratch,
+            message = $"Cleared {removedAudio} cached audio analysis file{(removedAudio == 1 ? "" : "s")}, "
+                + "the reference subtitles of this run, and "
+                + $"{removedScratch} job scratch folder{(removedScratch == 1 ? "" : "s")}.",
             cache = Services.SpeechCache.Describe()
         });
     }
