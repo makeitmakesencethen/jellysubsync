@@ -1,4 +1,6 @@
 using System.ComponentModel.DataAnnotations;
+using System.Text.Json;
+using Jellyfin.Plugin.SubSync.Configuration;
 using Jellyfin.Plugin.SubSync.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -486,6 +488,58 @@ public class SubSyncController : ControllerBase
 
         return Content(js, "application/javascript");
     }
+
+    /// <summary>
+    /// Reads the plugin configuration.
+    /// </summary>
+    /// <remarks>
+    /// The plugin page used to read and write its settings through the web client's
+    /// <c>ApiClient.getPluginConfiguration</c>. That global is not defined when the page runs in
+    /// Jellyfin 12 (measured: <c>typeof window.ApiClient</c> stayed "undefined" for 22 seconds), and a
+    /// page that depends on it shows an empty settings form and makes no call at all. These two
+    /// endpoints are the page's own way in, the same shape as the rest of the plugin's API.
+    /// </remarks>
+    /// <returns>The stored configuration.</returns>
+    [Authorize(Policy = RequiresElevationPolicy)]
+    [HttpGet("Configuration")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<PluginConfiguration?> GetConfiguration()
+        => Ok(Plugin.Instance?.Configuration);
+
+    /// <summary>
+    /// Stores the plugin configuration.
+    /// </summary>
+    /// <param name="body">The configuration as the page read it, with its changes on top.</param>
+    /// <returns>The configuration as the server stored it.</returns>
+    [Authorize(Policy = RequiresElevationPolicy)]
+    [HttpPost("Configuration")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<PluginConfiguration?> SaveConfiguration([FromBody] JsonElement body)
+    {
+        // What the page sends back is what this API serialized (camelCase), so names are matched
+        // without regard to case; a configuration the model cannot carry is refused rather than
+        // half-stored.
+        PluginConfiguration? wanted;
+        try
+        {
+            wanted = body.Deserialize<PluginConfiguration>(CaseInsensitiveJson);
+        }
+        catch (JsonException ex)
+        {
+            return BadRequest($"The configuration could not be read: {ex.Message}");
+        }
+
+        if (wanted is null)
+        {
+            return BadRequest("No configuration in the body.");
+        }
+
+        Plugin.Instance!.UpdateConfiguration(wanted);
+        return Ok(Plugin.Instance.Configuration);
+    }
+
+    private static readonly JsonSerializerOptions CaseInsensitiveJson =
+        new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
 
     /// <summary>
     /// Serves the plugin page's client script.

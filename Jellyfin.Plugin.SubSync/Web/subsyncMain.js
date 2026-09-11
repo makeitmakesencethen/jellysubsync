@@ -9,6 +9,15 @@
 (function () {
     'use strict';
 
+    // The page's own <script src> is fetched but not executed in Jellyfin 12, so the script is attached
+    // by the client script the middleware injects (see subsync.js). A client that does execute the tag
+    // would attach a second copy: the first one wins, the second does nothing.
+    if (window.__subsyncPageLoaded) {
+        return;
+    }
+
+    window.__subsyncPageLoaded = true;
+
     var PLUGIN_ID = 'c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2';
     var allItems = [];
     var libraries = [];
@@ -76,7 +85,41 @@
     // `Authorization: MediaBrowser Token="..."` header and `?ApiKey=` are what
     // jellyfin-web sends and both are accepted by 10.11 as well.
     function token() {
-        return (typeof ApiClient !== 'undefined' && ApiClient.accessToken) ? ApiClient.accessToken() : '';
+        if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.accessToken) {
+            return ApiClient.accessToken();
+        }
+        // The web client keeps its session in localStorage and this page is injected into that client,
+        // so the page can read its own token. Without it nothing works when window.ApiClient is absent
+        // (Jellyfin 12 does not define it early; this instance never defines it — see whenApiReady).
+        try {
+            var raw = localStorage.getItem('jellyfin_credentials');
+            if (raw) {
+                var servers = (JSON.parse(raw) || {}).Servers;
+                if (servers && servers.length) {
+                    return servers[0].AccessToken || '';
+                }
+            }
+        } catch (e) { }
+        return '';
+    }
+
+    // The page asks for the signed-in user in five places, all of them for "my runs". The web client's
+    // answer is used when it is there; otherwise the server is asked once (see whenApiReady).
+    var cachedUserId = '';
+    function currentUserId() {
+        if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.getCurrentUserId) {
+            return currentUserId();
+        }
+        return cachedUserId;
+    }
+
+    function primeUserId() {
+        if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.getCurrentUserId) {
+            return Promise.resolve();
+        }
+        return api('Users/Me').then(function (me) {
+            cachedUserId = (me && me.Id) || '';
+        })['catch'](function () { });
     }
 
     function authHeader() {
@@ -274,7 +317,7 @@
 
     // ---------------- Settings ----------------
     function loadConfig() {
-        return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
+        return api('SubSync/Configuration').then(function (c) {
             $('ss-vad').value = c.VadMethod || 'subs_then_webrtc';
             $('ss-maxoffset').value = c.MaxOffsetSeconds || 60;
             $('ss-maxrefoffset').value = c.MaxSubtitleReferenceOffsetSeconds || 30;
@@ -301,7 +344,7 @@
     function saveConfig() {
         $('ss-save-status').textContent = 'Saving\u2026';
         var wantedWorkers = Math.min(workerCeiling, Math.max(1, parseInt($('ss-workers-input').value, 10) || 4));
-        return ApiClient.getPluginConfiguration(PLUGIN_ID).then(function (c) {
+        return api('SubSync/Configuration').then(function (c) {
             c.VadMethod = $('ss-vad').value;
             c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
             c.MaxSubtitleReferenceOffsetSeconds = parseFloat($('ss-maxrefoffset').value) || 30;
@@ -315,12 +358,10 @@
             c.SyncLanguages = syncLanguages.slice();
             c.MultiSyncMode = $('ss-multimode').value || 'auto';
             c.ParallelWorkers = wantedWorkers;
-            return ApiClient.updatePluginConfiguration(PLUGIN_ID, c);
-        }).then(function () {
-            // Read back what the server actually stored: "Saved." on its own cannot
-            // distinguish a stored setting from one that was silently dropped.
-            return ApiClient.getPluginConfiguration(PLUGIN_ID);
+            return api('SubSync/Configuration', { method: 'POST', body: JSON.stringify(c) });
         }).then(function (stored) {
+            // The server answers with what it stored, which is the point of this step: "Saved." on its
+            // own cannot distinguish a stored setting from one that was silently dropped.
             var back = parseInt(stored && stored.ParallelWorkers, 10);
             var workerField = $('ss-workers-input');
             if (workerField && !isNaN(back)) {
@@ -483,7 +524,7 @@
 
     // ---------------- Browse ----------------
     function loadLibraries() {
-        var uid = ApiClient.getCurrentUserId();
+        var uid = currentUserId();
         if (!uid) { diag('Not logged in \u2014 open from the Jellyfin web UI.', true); return Promise.resolve(); }
         return api('Users/' + uid + '/Views').then(function (data) {
             var folders = (data && data.Items) ? data.Items : [];
@@ -521,7 +562,7 @@
         });
         var lid = $('ss-library').value;
         if (lid) params.set('ParentId', lid);
-        var uid = ApiClient.getCurrentUserId();
+        var uid = currentUserId();
         var path = uid ? 'Users/' + uid + '/Items?' + params.toString() : 'Items?' + params.toString();
         $('ss-dataline').textContent = 'Loading\u2026';
         return api(path).then(function (data) {
@@ -1239,7 +1280,7 @@
                 SortBy: 'SortName',
                 SortOrder: 'Ascending'
             });
-            var uid = ApiClient.getCurrentUserId();
+            var uid = currentUserId();
             api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params.toString()).then(function (data) {
                 var seasons = (data && data.Items) || [];
                 var scope = $('ss-scope');
@@ -1286,7 +1327,7 @@
             SortBy: 'SortName',
             SortOrder: 'Ascending'
         });
-        var uid = ApiClient.getCurrentUserId();
+        var uid = currentUserId();
         return api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params.toString()).then(function (data) {
             var items = ((data && data.Items) || []);
             if (seasonOnly) {
@@ -2107,20 +2148,36 @@
     // the page itself (measured in a real browser). Wait for the client, and if it never arrives, say
     // so on the page instead of showing a surface that silently does nothing.
     var initStarted = false;
+    // The page reports how far it got, and why it stopped: "nothing happened" and "the web client never
+    // loaded" looked identical on screen, and only one of them is the user's problem to solve.
+    function initFailed(ex) {
+        var line = document.getElementById('ss-status');
+        var text = 'This page could not start: ' + (ex && ex.message ? ex.message : ex);
+        if (line) {
+            line.textContent = text;
+        }
+        if (window.console && console.error) {
+            console.error('SubSync page init failed', ex);
+        }
+    }
     function whenApiReady() {
         var tries = 0;
         (function attempt() {
-            if (typeof ApiClient !== 'undefined' && ApiClient) {
+            if ((typeof ApiClient !== 'undefined' && ApiClient) || token()) {
                 if (!initStarted) {
                     initStarted = true;
-                    init();
+                    try {
+                        primeUserId().then(init)['catch'](initFailed);
+                    } catch (ex) {
+                        initFailed(ex);
+                    }
                 }
                 return;
             }
             if (++tries > 80) {
                 var line = document.getElementById('ss-status');
                 if (line) {
-                    line.textContent = 'The Jellyfin web client did not finish loading, so this page cannot read or change settings. Reload the page.';
+                    line.textContent = 'The Jellyfin web client did not finish loading and no session was found, so this page cannot read or change settings. Sign in again, then reload the page.';
                 }
                 return;
             }

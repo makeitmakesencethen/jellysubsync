@@ -1259,7 +1259,7 @@ def run_page_checks():
     # build says so. `Authorization: MediaBrowser Token="..."` and ?ApiKey= are the modern forms
     # and are accepted by 10.11 as well, so the legacy ones must not come back.
     pages = {name: open(os.path.join(web, name), encoding='utf-8').read()
-             for name in ('subsync.js', 'subsyncMain.html', 'configPage.html')}
+             for name in ('subsync.js', 'subsyncMain.html', 'subsyncMain.js', 'configPage.html')}
     # The plugin page's client script lives in its own file from 2026-09-12: Jellyfin 12 injects the
     # plugin page as markup, and an inline <script> never executes there (measured in a real browser:
     # the page rendered and made no request of any kind, the status line stuck on "Checking status...",
@@ -1274,11 +1274,32 @@ def run_page_checks():
            and '<script type="text/javascript">' not in raw_main_html)
     controller_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api',
                                           'SubSyncController.cs'), encoding='utf-8').read()
-    report('the page starts only once the web client is there',
+    report('the client script attaches the page script itself',
+           "'/SubSync/MainScript'" in pages['subsync.js']
+           and 'data-ss-script' in pages['subsync.js']
+           and 'function attachPluginPageScript()' in pages['subsync.js'])
+    report('the page script does nothing when it is loaded a second time',
+           'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
+    report('a page that fails to start says so instead of showing a dead surface',
+           'function initFailed(ex)' in pages['subsyncMain.html']
+           and 'could not start: ' in pages['subsyncMain.html']
+           and "'catch'](initFailed)" in pages['subsyncMain.html'] or
+           ".then(init)['catch'](initFailed)" in pages['subsyncMain.html'])
+    report('the page reads and writes settings through the plugin, not the web client',
+           "api('SubSync/Configuration')" in pages['subsyncMain.html']
+           and 'getPluginConfiguration' not in pages['subsyncMain.html']
+           and 'updatePluginConfiguration' not in pages['subsyncMain.html'])
+    report('the plugin serves the configuration endpoints the page uses',
+           '[HttpGet("Configuration")]' in controller_source
+           and '[HttpPost("Configuration")]' in controller_source)
+    report('the page can find its own session when the web client has not loaded',
+           "localStorage.getItem('jellyfin_credentials')" in pages['subsyncMain.html']
+           and 'function primeUserId()' in pages['subsyncMain.html'])
+    report('the page starts only once it can authenticate',
            'whenApiReady' in pages['subsyncMain.html']
            and 'document.readyState === \'complete\' || document.readyState === \'interactive\') whenApiReady();'
            in pages['subsyncMain.html']
-           and 'did not finish loading, so this page cannot read or change settings' in pages['subsyncMain.html'])
+           and 'did not finish loading and no session was found' in pages['subsyncMain.html'])
     report('the page builds its own urls instead of needing the web client for them',
            'fetch(apiUrl(path)' in pages['subsyncMain.html'])
     report('the plugin serves the page script it advertises',
@@ -1423,9 +1444,13 @@ def run_page_checks():
     elevated = re.findall(
         r'\[Authorize\(Policy = RequiresElevationPolicy\)\]\s*\n\s*\[Http(?:Post|Get)\("([^"]+)"\)\]',
         controller)
-    item_scoped = ['Sync', 'Batch', 'Subtitles/Batch', 'Active', 'ClientScript']
+    item_scoped = ['Sync', 'Batch', 'Subtitles/Batch', 'Active', 'ClientScript', 'MainScript']
     report('the destructive and server-wide endpoints are administrator-only, the item ones are not',
-           sorted(elevated) == ['Install', 'Kill', 'Log', 'SpeechCache/Clear']
+           # The two configuration endpoints joined the list on 2026-09-12: the plugin's settings are
+           # administrator-only in Jellyfin, and the page now reads and writes them here instead of
+           # through the web client's API object (which is what it used to depend on).
+           sorted(elevated) == ['Configuration', 'Configuration', 'Install', 'Kill', 'Log',
+                                'SpeechCache/Clear']
            and 'RequiresElevation' in controller
            and all('\n    [HttpPost("%s")]' % r in controller or '\n    [HttpGet("%s")]' % r in controller
                    for r in item_scoped[:3])

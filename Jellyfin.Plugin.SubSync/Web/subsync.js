@@ -972,6 +972,30 @@
         observer.observe(document.documentElement, { childList: true, subtree: true });
     }
 
+    // Jellyfin 12 injects the plugin page as markup, and a <script src> that arrives with injected
+    // markup is fetched but never executed here: the page rendered with every control in place, the
+    // status line stayed on "Checking status..." and the page made no request of any kind. The same
+    // script, attached from this file, runs and fills the page in (measured in a browser). So the page's
+    // script is attached here — this file is injected into the web client by SubSyncMiddleware, the path
+    // that already works — and re-attached whenever the web client replaces the page element.
+    function attachPluginPageScript() {
+        var pageEl = document.getElementById('subsyncMainPage');
+        if (!pageEl || pageEl.getAttribute('data-ss-script') === 'attached') {
+            return;
+        }
+        pageEl.setAttribute('data-ss-script', 'attached');
+        var script = document.createElement('script');
+        script.src = '/SubSync/MainScript';
+        document.head.appendChild(script);
+        log('Plugin page script attached');
+    }
+
+    var pageObserver = new MutationObserver(function () {
+        attachPluginPageScript();
+    });
+    pageObserver.observe(document.documentElement, { childList: true, subtree: true });
+    attachPluginPageScript();
+
     hookActionSheets();
     log('Client script loaded');
 })();
