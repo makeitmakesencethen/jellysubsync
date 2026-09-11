@@ -409,3 +409,143 @@ finish, and the blocker is now the reference path, not the subtitle path.
 7. F4 per-user scoping of `Jobs`/`Batches`/`InstallationStatus`, then D8/D9/D10 (batch validation,
    dedupe, one error shape), then D5/D6/D7/F27 (honest status), then D4/F15 (one settings surface),
    then the junk in §6.
+
+# Session 2 — 2026-09-11, evening (branch `fix/extraction-parity-and-backup`, DLL `f012766b…`, sha256)
+
+Same server, same media, same fixtures as the session above. **Every row here was measured with the
+plugin's own log lines or a file hash**; anything not measured says so. Builds: `954c7aa7…` is the
+pre-fix build of `b780573` (rebuilt in a worktree: same size, only path strings differ), `f012766b…`
+is this session's. `tests/backend/start-server.sh` is how the server was started.
+
+## 1. Coverage — what was run this session
+
+| Row | What | Result | Evidence |
+|---|---|---|---|
+| S11 repro | 8 embedded tracks of the 2.38 GB episode, `ParallelWorkers=4`, cold cache, fast profile | **1 of 8 Failed**, reference tree deleted while jobs ran | batch `f1612b8e…`; `s11-before.json` |
+| S11 fix verify | the same 8 tracks, same workers, cold cache | **8 of 8 Completed**, 0 demux fallbacks, tree removed with 0 jobs running | batch `f42a3cb6…`; `s11-after.json` |
+| **A4 (fast, 4 workers)** | **all 50 tracks of the episode, cold cache** | **50/50 Completed, 0 failures, 16.5 s** | batch `3fb88055…`; `acceptance-A4-fast.json` |
+| S3 | the forced eng track (index 8), aligned to sibling `s:1` at −59 080 ms | before: written (476 B); after: **Failed/Refused**, sidecar sha256 unchanged | job `047b4890…`; `s3s4-after.json` |
+| S4 | `Empty Track (2026).mkv` | **Failed before any copy**; fixture folder byte-identical, no 0-byte sidecar | job `0f490268…`; `s3s4-after.json` |
+| S11b | cancel with the engine's own child alive / `Kill` during a lane pass | **not measured** — the slow profile only became usable late in the session (S13) | `tests/backend/s11b_cancel.py`, untested |
+| A5/A6/A7/A8, C23a, D29–D37, E39–E45 | — | **not attempted this session** | see §8 |
+
+## 2. S11 — the reference a bulk run aligns against (fixed: `ac66249`)
+
+Three symptoms, one cause: `PumpAsync` released a file's reference as soon as no job of that file was
+**queued**, while up to `ParallelWorkers` jobs of it were still **running** with that path as an
+argument.
+
+* `ffsubsync exit=1 … unable to read reference … .ref.srt; try ensuring file exists` → 1 of 8 tasks
+  Failed (21:19:01Z, and 19:48, 19:50, 19:55, 21:05, 21:06Z earlier in the day).
+* `DirectoryNotFoundException … .ref.srt.part` (21:04:43Z was the *other* shape:
+  `FileNotFoundException: … .ref.srt` from `File.Move(part → target)`, 21:04:43 and 22:31:30Z).
+  Several jobs wrote the **same** `<target>.part`, so the losers could neither write nor move it.
+* Every one of those failures answered itself by handing ffsubsync the media file
+  (`reference=s:N args=/…/Helikopterrånet S01E01.mkv`), which demuxes 2.38 GB with the engine's own
+  ffmpeg — the 7- and 17-minute jobs in the session-1 report.
+
+After `ac66249`: the reference is built from text the process already has (memory → extracted cache →
+container index) and never by ffmpeg on the container; one job builds it while the others wait on a
+per-file gate; each writes its own `<target>.<jobId>.part`; the deletion counts queued **and** running
+jobs; and a reference that cannot be built at all falls back to the audio (the plugin still never
+refuses a job).
+
+**A4 on the fast profile is the acceptance number: 50 tracks, cold cache, 16.5 s wall clock, 0
+failures**, no job scratch dir, no reference file, no `.part` file left under the cache root, no
+ffsubsync/ffmpeg process alive afterwards, `/SubSync/Active` empty. Cue counts of the five outputs
+written (625, 774, 790, 812, plus the 8-cue forced track) are all values the plugin itself extracted
+for that file's tracks; no `Subtitle verification failed` line; no parity refusal.
+
+**The fast number is not comparable with session 1's slow-profile numbers** — the slow profile could
+not be used for most of this session (§S13), so A8 (the workers sweep on the slow profile) is still
+open and the "measured speed-up over the 2026-09-11 baseline" half of the acceptance criterion is
+**not yet met**.
+
+## 3. S3 — a reference-derived shift is refused (fixed: `9c9514e`)
+
+`AGENTS.md` has documented `MaxSubtitleReferenceOffsetSeconds` (default 30 s) as a refusal since the
+sibling-reference path was added; the setting did not exist in the code, and the old code only
+*annotated* a shift over 10 s. Measured twice, same file, same track, same profile:
+
+| | before (`954c7aa7`) | after (`f012766b`) |
+|---|---|---|
+| status | Completed | **Failed**, phase `Refused` |
+| what it wrote | `…SYNCED.eng.srt`, 476 B, `change=-59080 ms offset`, 8 cues | nothing |
+| sidecar in the library | rewritten | sha256 `8a76f2c5…f86d`, unchanged |
+| log | `note: aligned to the reference subtitle s:1 at -59080 ms - check the result` | `REFUSED: aligned to the reference subtitle s:1 at -59080 ms, over the 30 s limit for a subtitle reference — the reference track is probably not the same cut; nothing written, source untouched` |
+
+A result pinned to the `MaxOffsetSeconds` ceiling is refused the same way (previously annotated and
+written), which is what `AGENTS.md` asks for as well.
+
+**A conflict the user has to settle.** `GOAL_PROMPT`'s hard rules say *"the plugin never refuses a
+job — a bad reference means falling back to the audio"*, while `AGENTS.md` and this plan's S3 line ask
+for the refusal. The refusal is implemented; the alternative is to drop the reference and re-run the
+job against the audio (the job still finishes, the wrong file is still never written). Two checks in
+`tests/run_checks.py` pinned the old "written and annotated" behaviour and were rewritten to pin the
+refusal, with the conflict stated in the check comment, in `9c9514e` and here. Cheap to change: the
+refusal block is one `if` in `RunSyncJob` plus an engine run against the speech reference.
+
+## 4. S4 — nothing is written before the engine's output is verified (fixed: `0a2b23d`)
+
+`Empty Track (2026).mkv`: before, the engine's empty SRT was copied next to the media, the job then
+failed on verification, and a 0-byte `.SYNCED.eng.srt` stayed there for every later scan to fail on
+(`FfmpegException: ffprobe failed - streams and format are both null`). After: the job fails with
+`Subtitle verification failed — synced output is missing or empty. Nothing was written next to the
+media: the engine produced no subtitles for this track.` and the fixture folder is byte-identical
+before and after. The post-write verification also deletes what the job wrote if it turns out to hold
+nothing, and never touches the user's own file.
+
+## 5. Failure inventory (this session's runs)
+
+| Run | Failures | Library afterwards | Engine processes | Scratch |
+|---|---|---|---|---|
+| A4 (50 tracks) | 0 | 5 sidecars written, all non-empty | none alive | none left |
+| S11 after (8 tracks) | 0 | unchanged | none alive | none left |
+| S3 | 1, by design (Refused) | sidecar untouched (hash equal) | none alive | temp deleted |
+| S4 | 1, by design (no text) | folder byte-identical | none alive | temp deleted |
+
+## 6. Truthfulness and settings
+
+* `InstallationStatus` still reports `PluginVersion: 2.0.9.0` **and** a `PluginIdentity` path
+  containing `SubSync_2.0.9.0` — the same disagreement S9 recorded, in the other direction. **Open
+  (D12/F27).**
+* `WorkerSummary: "4 in use (setting 4)"` while nothing is running — still the D5 lie. **Open.**
+* New setting, read back from the page and from `GET /Plugins/{id}/Configuration`:
+  `MaxSubtitleReferenceOffsetSeconds` (30) — added to the model and to the main page's settings, and
+  the Max offset description now says a clamped result is refused. The legacy dashboard page still
+  shows its own subset (D4/F15, **user answered: merge** — not implemented).
+
+## 7. Junk and harness defects found
+
+* **S12 (new, medium)**: `/SubSync/Subtitles/{id}` hides the plugin's own `.SYNCED.` sidecars, but
+  `/Sync` accepted an index that resolved to one and synced it again into
+  `Helikopterrånet S01E01.SYNCED.ukr.SYNCED.srt` (69 602 B) from `…SYNCED.ukr.srt` (21:34:36Z). The
+  junk file was deleted; the listing/queueing mismatch is not fixed.
+* **S13 (new, high, harness)**: `tests/backend/slowread.so` did not exist, so the first "slow profile"
+  server started with `LD_PRELOAD` pointing at a missing file — the loader warns and continues, and
+  every read was fast (`extract: storage 0.01 ms per 16 KB read`). `start-server.sh` now builds it;
+  the slow profile must be proved from that line before any timing claim.
+* **S14 (new, medium, harness)**: `MediaStream.Index` is renumbered when an item's stream list
+  changes (this episode's subtitles moved from 4..54 to 8..57 after A4 wrote five sidecars), so a
+  hard-coded index measures a different track. A before/after pair must pin tracks by language/forced
+  flags or re-read the track list immediately before each run.
+* The two checks that failed after S3 were updated, not deleted, and they carry the reason.
+
+## 8. Not attempted, with the smallest next step
+
+| Item | Why not | Smallest step that finishes it |
+|---|---|---|
+| **S11b** | the slow profile only became usable late (S13), and the harness that measures it is untested | `SLOW=1 ./tests/backend/start-server.sh`, hardlink `Single Track (2026).mkv` into `media-slow` (done already), then `python3 tests/backend/s11b_cancel.py --mode engine-cancel` before and after a fix to the cancel path |
+| **A8 / the slow-profile speed-up** | ~35–40 min per run at 12.8 ms/16 KB, and the baseline it must be compared with was taken on the slow profile | one `acceptance.py --scope episode --workers 4 --no-clear` under `SLOW=1`, compared with session 1's 1 082.6 s |
+| **A5/A6/A7, C23a, D29–D37, E39–E45** | budget; the queue/failure surface was where the fixes were | `acceptance.py --scope series`, then `rows_d.py` for the settings rows |
+| **Matrix B (all of it)** | needs a real browser session; nothing this session touched the GUI beyond one settings field | see `knowledge/gui-test-report-2026-09-11.md` |
+| **S8, D1/F2+F29, D4/F15** | the user answered all three today; each is a separate change | S8: audio-only results report unverified and write no sidecar; F29: a confirmation before the global Kill; D4/F15: the dashboard page redirects to the main page's settings |
+| full disk / separate staging filesystem | needs root; both live on device `66306` | unchanged from session 1: **blocked** |
+
+## 9. Patching order, updated
+
+1. ~~S11~~ (`ac66249`), 2. S11b (harness ready), 3. A4 done on the fast profile / **A5 + A8 still
+open**, 4. ~~S3~~ (`9c9514e`), 5. ~~S4~~ (`0a2b23d`), 6. D13/D14 (browser), 7. the lies (D5, D12,
+F27, F28, D2, D6, D11), 8. stuck/destructive controls (F29, F24, D1/F2), 9. unusable paths (D18, D7,
+F4, S5, **S12 new**), 10. the settings surface (D4/F15 answered, D3/F10–F13, F14), 11. S8 + S12,
+12. layout, robustness, hygiene.

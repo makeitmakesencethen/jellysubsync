@@ -15,8 +15,8 @@ one-line note on each. **Never tick something you did not verify.**
 
 | state | id | sev | what | evidence / commit |
 |---|---|---|---|---|
-| open | **S11** | high | the reference derivation hands ffsubsync the video, so it demuxes the whole file and hangs |  |
-| open | **S11b** | high | cancelling a batch leaves the engine ffmpeg child alive |  |
+| done | **S11** | high | the reference derivation hands ffsubsync the video, so it demuxes the whole file and hangs | `ac66249` — before 7 Completed + 1 Failed (`unable to read reference`), after 8/8 Completed, 0 engine demuxes; A4 50/50, 16.5 s, no leftovers |
+| open | **S11b** | high | cancelling a batch leaves the engine ffmpeg child alive | not measured this session: `tests/backend/s11b_cancel.py` is written but untested; the slow-profile server must be started with `SLOW=1 ./start-server.sh` first |
 | done | **S6** | high | bulk ran one whole-file pass per worker | `a46c5cd` — 48/50 tracks in 18 min where 1/50 took 22 min |
 
 ## Tier 2 — nothing may write a wrong file, lie on screen, or leave junk behind (14 items)
@@ -35,14 +35,14 @@ one-line note on each. **Never tick something you did not verify.**
 | open | **F27** | ? | `/SubSync/Active` omits the worker fields the UI reads, and the worker count is expressed three ways |  |
 | open | **F28** | ? | Error shapes are inconsistent, so the UI shows whatever came back |  |
 | open | **F29** | ? | Kill has no confirmation |  |
-| open | **S3** | medium | a reference track aligned far off is written instead of refused |  |
-| open | **S4** | medium | a failed job leaves a 0-byte subtitle in the library |  |
+| done | **S3** | medium | a reference track aligned far off is written instead of refused | `9c9514e` — job 047b4890 Failed/Refused at -59080 ms, sidecar sha256 unchanged; setting + page field added |
+| done | **S4** | medium | a failed job leaves a 0-byte subtitle in the library | `0a2b23d` — job 0f490268 Failed before the copy; fixture folder byte-identical before/after, no 0-byte sidecar |
 
 ## Tier 3 — critical and high severity — the user feels these (2 items)
 
 | state | id | sev | what | evidence / commit |
 |---|---|---|---|---|
-| decision | **D1** | high | `POST /SubSync/Kill` is kill-everything; there is no per-job kill, and any authenticated user can call it | yours: keep it (now admin-only), scope it to the caller, or remove it |
+| decision | **D1** | high | `POST /SubSync/Kill` is kill-everything; there is no per-job kill, and any authenticated user can call it | answered 2026-09-11: keep it global and admin-only, add the confirmation the UI lacks (F29); not implemented yet |
 | open | **D3** | high | settings validation is partial: offset, paths, encoding and language tags accept nonsense and are saved silently |  |
 
 ## Tier 4 — the rest of both matrices, layout, hygiene, and the audit's unproven static leads (verify first: refuting one is a real result) (68 items)
@@ -84,7 +84,7 @@ one-line note on each. **Never tick something you did not verify.**
 | open | **D14** | unverified | the injected client script is delivered into the SPA shell (verified), but whether its hooks match the React item page i |  |
 | open | **D18** | medium | in Jellyfin Web 12 `EnableInMainMenu` produces no entry in the main app menu; the page is reachable from the dashboard's |  |
 | open | **D19** | low | the golden-section-search checkbox measures 1×1 px (styled input — verify visually before calling it broken) |  |
-| decision | **D4** | medium | the dashboard config page and the main page edit the same settings with different subsets — two sources of truth | yours: merge the two settings pages, or make both show the same fields |
+| decision | **D4** | medium | the dashboard config page and the main page edit the same settings with different subsets — two sources of truth | answered 2026-09-11: merge the two settings pages (the dashboard page redirects to the main page's settings); not implemented yet |
 | open | **D7** | medium | polling runs flat out (≈1.4 req/s) with nothing happening, including three duplicate calls at load |  |
 | open | **D8** | medium | a batch accepts a series `ItemId`, which single sync rejects outright |  |
 | open | **D9** | medium | duplicate jobs/tasks are accepted with no dedupe (same item+track twice → two jobs) |  |
@@ -116,7 +116,16 @@ one-line note on each. **Never tick something you did not verify.**
 | open | **F9** | ? | `POST /SubSync/Subtitles/Batch` bounds items but not the expansion |  |
 | open | **S5** | medium | a bitmap track is missing from the track list instead of refused with a reason |  |
 | open | **S7** | medium | queueing under load costs ~212 ms and each job re-probes the storage |  |
-| decision | **S8** | medium | an in-sync subtitle synced against the audio is moved and written as a success | yours: may a result based only on the audio be written at all? |
+| decision | **S8** | medium | an in-sync subtitle synced against the audio is moved and written as a success | answered 2026-09-11: an audio-only result is reported unverified and no sidecar is written unless the reference was a subtitle track; not implemented yet, and it needs the external-sidecar case settled first (see the report's §S8 note) |
+
+## New findings this session (2026-09-11, evening)
+
+| state | id | sev | what | evidence |
+|---|---|---|---|---|
+| open | **S12** | medium | `/SubSync/Subtitles/{id}` hides the plugin's own `.SYNCED.` sidecars, but `/Sync` accepts an index that resolves to one and syncs it again — it wrote `Helikopterrånet S01E01.SYNCED.ukr.SYNCED.srt` (69 602 B) from `…SYNCED.ukr.srt`. Listing and queueing disagree about what a track is | plugin log 21:34:36 `job 4e2a2674 … output=…SYNCED.ukr.SYNCED.srt … extraction=n/a`; the junk file was deleted |
+| open | **S13** | high | the change that makes a bulk run finish was itself blocked by a harness defect: `tests/backend/slowread.so` did not exist, so the first "slow profile" run of this session silently measured the fast path (the loader warns and continues) | `ld.so: object …/slowread.so cannot be preloaded`; plugin log `extract: storage 0.01 ms per 16 KB read`. Fixed in `start-server.sh`, which now builds it |
+| open | **S14** | medium | `MediaStream.Index` is not stable: adding a sidecar renumbered the episode's subtitles from 4..54 to 8..57, so any hard-coded track index measures or syncs a different track (my first S3 attempt hit an external sidecar and produced S12's junk file) | `/SubSync/Subtitles` before/after the A4 run |
+| answered | **S3-conflict** | high | the record contradicts itself: `GOAL_PROMPT`'s hard rule "the plugin never refuses a job" vs `AGENTS.md` + this plan's S3 line ("implement `MaxSubtitleReferenceOffsetSeconds` as a refusal"). The refusal is implemented (S3) because two documents ask for it; **the user must settle whether a reference that exists and is provably from another cut should refuse or re-run against the audio** | `9c9514e`; the two checks that pinned the opposite behaviour were rewritten and say so |
 
 ## Ask the user before coding these
 
