@@ -68,14 +68,17 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   Image-based embedded subs (PGS/DVD/VobSub) are rejected up front with a clear message.
 - **Video files are NEVER written**: only read (as ffsubsync reference audio) or analysed.
   Embedded tracks are extracted and saved as new external sidecars
-  (`{videoNameNoExt}-SYNCED.{lang}.srt`) — the remux path was deleted; do not restore it.
+  (`{videoNameNoExt}.SYNCED.{lang}.srt`) — the remux path was deleted; do not restore it.
 - **All process invocations use `ProcessStartInfo.ArgumentList`** (argv direct, no
   string escaping) — ffmpeg extraction and the ffsubsync engine included. Do not
   regress to hand-escaped argument strings.
-- **Copy mode (default)**: output goes to a NEW sidecar — `{lang}.SYNCED.srt` for
-  pure-language external originals (keeps Jellyfin's parser resolving the language),
-  `{stem}-SYNCED.srt` otherwise, `{videoNameNoExt}-SYNCED.{lang}.srt` for embedded
-  tracks. Replace mode overwrites the original external file with backup+rollback.
+- **Copy mode (default)**: output goes to a NEW sidecar whose name is the original filename
+  plus a DOT-separated `.SYNCED` field — `{stem}.SYNCED.srt`, or `{lang}.SYNCED.srt` when the
+  original filename is nothing but the language (`uzb.srt`), and
+  `{videoNameNoExt}.SYNCED.{lang}.srt` for embedded tracks. The marker is a FIELD, never a
+  hyphen glued to the name: Jellyfin only associates a sidecar whose first field is the exact
+  media filename (`Film.mkv` → `Film.en.sdh.srt`), so `Title-SYNCED.srt` is invisible in the
+  interface. Replace mode overwrites the original external file with backup+rollback.
 - **New sidecar discovery**: after a copy, the engine calls
   `ILibraryMonitor.ReportFileSystemChanged(dir)` (one-folder rescan) and refreshes the
   video item — no full library scan required.
