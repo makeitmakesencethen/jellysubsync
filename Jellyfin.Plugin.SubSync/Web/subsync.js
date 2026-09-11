@@ -1,320 +1,934 @@
 /**
- * SubSync — Jellyfin Client Injection Script
+ * SubSync — Jellyfin client injection script.
  *
- * Adds "Sync Subtitles" to the video detail page's "More" dropdown menu.
+ * Adds "Sync Subtitles" to the item menu of a movie/episode, and "Sync all episodes" to the menu of
+ * a series or season. The bulk dialog offers what the main SubSync page offers for the same scope:
+ * a choice of scope (whole series or one season), the languages that actually exist in it with
+ * track/episode counts, and a batch that runs through the server queue with the configured mode
+ * (so it runs in parallel exactly like a batch started from the main page).
+ *
+ * The menu item is injected wherever the item menu appears — the detail page's ⋮ button, the ⋮ on a
+ * card/row anywhere in the interface (home rows, library grids, "see all" lists, episode lists) —
+ * because the item id is taken from the card whose menu was opened and only falls back to the detail
+ * page's id from the URL.
  */
 (function () {
     'use strict';
 
     var SYNC_BASE = '/SubSync';
+    var BULK_TYPES = { Series: 1, Season: 1 };
+    var SINGLE_TYPES = { Movie: 1, Episode: 1, Video: 1, MusicVideo: 1, Trailer: 1 };
 
     function log(msg) {
         console.log('[SubSync] ' + msg);
     }
 
-    function getAccessToken() {
+    function token() {
         if (typeof ApiClient !== 'undefined' && ApiClient.accessToken) {
             return ApiClient.accessToken();
         }
         return '';
     }
 
-    function getItemIdFromHash() {
-        var hash = location.hash || '';
-        var match = hash.match(/[?&]id=([0-9a-fA-F-]+)/);
-        return match ? match[1] : null;
+    function apiUrl(path) {
+        if (typeof ApiClient !== 'undefined' && ApiClient.getUrl) {
+            return ApiClient.getUrl(path);
+        }
+        return '/' + path;
     }
 
-    function fetchSubtitles(itemId) {
-        return fetch(SYNC_BASE + '/Subtitles/' + itemId, {
-            headers: { 'X-Emby-Token': getAccessToken() }
-        }).then(function (r) {
-            if (!r.ok) throw new Error('Failed to fetch subtitles: ' + r.status);
-            return r.json();
+    function api(path, options) {
+        options = options || {};
+        var headers = options.headers || {};
+        headers['X-Emby-Token'] = token();
+        headers['Accept'] = 'application/json';
+        if (options.body) {
+            headers['Content-Type'] = 'application/json';
+        }
+        options.headers = headers;
+        return fetch(path.indexOf('://') > 0 || path.charAt(0) === '/' ? path : apiUrl(path), options)
+            .then(function (response) {
+                if (!response.ok) {
+                    return response.text().then(function (text) {
+                        throw new Error(response.status + (text ? ': ' + text.slice(0, 200) : ''));
+                    });
+                }
+                return response.status === 204 ? null : response.json();
+            });
+    }
+
+    // ---------------------------------------------------------------- item metadata
+
+    var metaCache = {};
+
+    function fetchMeta(itemId) {
+        if (metaCache[itemId]) {
+            return Promise.resolve(metaCache[itemId]);
+        }
+        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : '';
+        var fields = 'Fields=SeriesId,SeasonId,IndexNumber,ParentId,SeriesName,MediaSources';
+        var path = (uid ? 'Users/' + uid + '/Items/' + itemId + '?' : 'Items/' + itemId + '?') + fields;
+        return api(path).then(function (item) {
+            var meta = {
+                id: itemId,
+                type: item.Type || '',
+                mediaType: item.MediaType || '',
+                name: item.Name || '',
+                seriesId: item.SeriesId || null,
+                seriesName: item.SeriesName || null,
+                seasonId: item.SeasonId || null,
+                parentId: item.ParentId || null
+            };
+            metaCache[itemId] = meta;
+            return meta;
         });
     }
 
-    // Item id of the card/row whose menu button was last clicked (works on
-    // home rows, library rows and episode lists — not just detail pages).
+    function fetchEpisodes(parentId) {
+        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : '';
+        var collected = [];
+
+        // Paged explicitly: a series can run to hundreds of episodes and the endpoint's own default
+        // page size must not silently shorten the scope.
+        function page(startIndex) {
+            var params = [
+                'ParentId=' + encodeURIComponent(parentId),
+                'Recursive=true',
+                'IncludeItemTypes=Episode',
+                'SortBy=SortName',
+                'SortOrder=Ascending',
+                'Fields=SeasonId,IndexNumber,ParentId,SeriesId,SeriesName',
+                'StartIndex=' + startIndex,
+                'Limit=500'
+            ].join('&');
+            return api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params).then(function (data) {
+                var items = (data && data.Items) || [];
+                items.forEach(function (i) {
+                    collected.push({
+                        id: i.Id,
+                        name: i.Name || '',
+                        seasonId: i.SeasonId || i.ParentId || null,
+                        seriesId: i.SeriesId || null,
+                        seriesName: i.SeriesName || null,
+                        index: typeof i.IndexNumber === 'number' ? i.IndexNumber : null
+                    });
+                });
+                if (items.length >= 500 && collected.length < 20000) {
+                    return page(startIndex + items.length);
+                }
+                return collected;
+            });
+        }
+
+        return page(0);
+    }
+
+    function fetchSeasons(seriesId) {
+        if (!seriesId) {
+            return Promise.resolve([]);
+        }
+        var params = [
+            'ParentId=' + encodeURIComponent(seriesId),
+            'Recursive=false',
+            'IncludeItemTypes=Season',
+            'SortBy=SortName',
+            'SortOrder=Ascending'
+        ].join('&');
+        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : '';
+        return api((uid ? 'Users/' + uid + '/' : '') + 'Items?' + params).then(function (data) {
+            return ((data && data.Items) || []).map(function (i) {
+                return { id: i.Id, name: i.Name || 'Season' };
+            });
+        });
+    }
+
+    /**
+     * Subtitle tracks for many items at once. The bulk endpoint is what makes a whole-series
+     * language list cheap: one request per 500 episodes instead of one per episode.
+     */
+    function fetchTracks(itemIds, onProgress) {
+        var chunks = [];
+        for (var i = 0; i < itemIds.length; i += 500) {
+            chunks.push(itemIds.slice(i, i + 500));
+        }
+        var tracksById = {};
+        var done = 0;
+        var sequence = Promise.resolve();
+        chunks.forEach(function (chunk) {
+            sequence = sequence.then(function () {
+                return api(SYNC_BASE + '/Subtitles/Batch', {
+                    method: 'POST',
+                    body: JSON.stringify({ itemIds: chunk, expandSeries: false })
+                }).then(function (result) {
+                    var items = (result && (result.items || result.Items)) || [];
+                    items.forEach(function (entry) {
+                        var id = entry.Id || entry.id;
+                        var tracks = entry.Tracks || entry.tracks || [];
+                        tracksById[id] = tracks.filter(function (t) {
+                            return t && (typeof (t.Index !== undefined ? t.Index : t.index) === 'number');
+                        });
+                    });
+                    done += chunk.length;
+                    if (onProgress) {
+                        onProgress(Math.min(done, itemIds.length), itemIds.length);
+                    }
+                });
+            });
+        });
+        return sequence.then(function () { return tracksById; });
+    }
+
+    // ---------------------------------------------------------------- helpers
+
+    function trackIndex(t) {
+        return t.Index !== undefined ? t.Index : t.index;
+    }
+
+    function trackLanguage(t) {
+        var lang = t.Language || t.language;
+        return (lang && lang !== 'und') ? String(lang).toLowerCase() : 'und';
+    }
+
+    function trackTitle(t) {
+        return t.Title || t.title || '';
+    }
+
+    function trackIsExternal(t) {
+        return !!(t.IsExternal !== undefined ? t.IsExternal : t.isExternal);
+    }
+
+    function LANG_NAMES() {
+        return {
+            eng: 'English', swe: 'Swedish', nor: 'Norwegian', dan: 'Danish', fin: 'Finnish',
+            deu: 'German', fra: 'French', spa: 'Spanish', ita: 'Italian', nld: 'Dutch',
+            por: 'Portuguese', rus: 'Russian', pol: 'Polish', tur: 'Turkish', uzb: 'Uzbek',
+            ara: 'Arabic', heb: 'Hebrew', zho: 'Chinese', chi: 'Chinese', jpn: 'Japanese',
+            kor: 'Korean', ces: 'Czech', hun: 'Hungarian', srp: 'Serbian', hr: 'Croatian',
+            ell: 'Greek', rum: 'Romanian', ukr: 'Ukrainian', tha: 'Thai', hin: 'Hindi',
+            vie: 'Vietnamese', ind: 'Indonesian', bul: 'Bulgarian', slk: 'Slovak',
+            slv: 'Slovenian', lit: 'Lithuanian', lav: 'Latvian', est: 'Estonian',
+            isl: 'Icelandic', und: 'Unknown'
+        };
+    }
+
+    function languageLabel(code) {
+        if (!code || code === 'und') {
+            return 'Unknown language';
+        }
+        var names = LANG_NAMES();
+        return names[code] || code.toUpperCase();
+    }
+
+    function humanCount(n, one, many) {
+        return n + ' ' + (n === 1 ? one : (many || one + 's'));
+    }
+
+    function el(tag, className, text) {
+        var node = document.createElement(tag);
+        if (className) {
+            node.className = className;
+        }
+        if (text !== undefined && text !== null) {
+            node.textContent = text;
+        }
+        return node;
+    }
+
+    // ---------------------------------------------------------------- styles
+
+    function ensureStyles() {
+        if (document.getElementById('subsync-styles')) {
+            return;
+        }
+        var style = document.createElement('style');
+        style.id = 'subsync-styles';
+        style.textContent = [
+            '.ss-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px}',
+            '.ss-card{background:#202020;color:#eee;border-radius:10px;padding:20px 22px;width:100%;max-width:560px;max-height:86vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:.95em}',
+            '.ss-card h2{margin:0 0 2px;font-size:1.25em;font-weight:600}',
+            '.ss-sub{color:#9a9a9a;font-size:.85em;margin-bottom:16px}',
+            '.ss-field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}',
+            '.ss-field label{font-size:.82em;color:#b9b9b9;text-transform:uppercase;letter-spacing:.04em}',
+            '.ss-field select,.ss-field input{background:#2b2b2b;color:#eee;border:1px solid #3c3c3c;border-radius:6px;padding:8px 10px;font-size:.95em;width:100%}',
+            '.ss-field select:disabled{color:#777}',
+            '.ss-note{color:#8d8d8d;font-size:.82em;margin-top:-8px;margin-bottom:14px}',
+            '.ss-row{display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid #2e2e2e}',
+            '.ss-row:last-child{border-bottom:none}',
+            '.ss-row-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
+            '.ss-row-meta{color:#8d8d8d;font-size:.8em}',
+            '.ss-synced{color:#7fce8f}',
+            '.ss-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}',
+            '.ss-btn{border:none;border-radius:6px;padding:9px 18px;font-size:.95em;cursor:pointer;background:#3a3a3a;color:#eee}',
+            '.ss-btn:hover{background:#454545}',
+            '.ss-btn-primary{background:#3d7bd6;color:#fff}',
+            '.ss-btn-primary:hover{background:#4a8ae8}',
+            '.ss-btn:disabled{opacity:.55;cursor:default}',
+            '.ss-progress{margin-top:16px;display:none}',
+            '.ss-progress.is-visible{display:block}',
+            '.ss-bar{height:3px;border-radius:2px;background:#333;overflow:hidden}',
+            '.ss-bar > span{display:block;height:100%;width:0;background:#3d7bd6;transition:width .4s ease}',
+            '.ss-progress-line{margin-top:8px;font-size:.85em;color:#c7c7c7;display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}',
+            '.ss-progress-line .ss-muted{color:#8d8d8d}',
+            '.ss-error{color:#f08a8a;font-size:.85em;margin-top:10px}',
+            '.ss-spinner{width:12px;height:12px;border:2px solid #444;border-top-color:#3d7bd6;border-radius:50%;display:inline-block;animation:ss-spin .8s linear infinite}',
+            '@keyframes ss-spin{to{transform:rotate(360deg)}}'
+        ].join('\n');
+        document.head.appendChild(style);
+    }
+
+    // ---------------------------------------------------------------- dialog shell
+
+    function buildShell(title, subtitle) {
+        ensureStyles();
+        var overlay = el('div', 'ss-overlay');
+        var card = el('div', 'ss-card');
+        var heading = el('h2', null, title);
+        var sub = el('div', 'ss-sub', subtitle || '');
+        var body = el('div', 'ss-body');
+        var progress = el('div', 'ss-progress');
+        var bar = el('div', 'ss-bar');
+        var fill = el('span');
+        bar.appendChild(fill);
+        var line = el('div', 'ss-progress-line');
+        progress.appendChild(bar);
+        progress.appendChild(line);
+        var error = el('div', 'ss-error');
+        var actions = el('div', 'ss-actions');
+        var close = el('button', 'ss-btn', 'Close');
+        close.type = 'button';
+        actions.appendChild(close);
+
+        card.appendChild(heading);
+        card.appendChild(sub);
+        card.appendChild(body);
+        card.appendChild(progress);
+        card.appendChild(error);
+        card.appendChild(actions);
+        overlay.appendChild(card);
+        document.body.appendChild(overlay);
+
+        function dismiss() {
+            if (state.timer) {
+                clearInterval(state.timer);
+                state.timer = null;
+            }
+            overlay.remove();
+        }
+
+        overlay.addEventListener('click', function (e) {
+            if (e.target === overlay) {
+                dismiss();
+            }
+        });
+        close.addEventListener('click', dismiss);
+
+        var state = { timer: null, dismiss: dismiss };
+        return {
+            overlay: overlay,
+            card: card,
+            body: body,
+            sub: sub,
+            error: error,
+            actions: actions,
+            state: state,
+            setProgress: function (fraction, parts, muted) {
+                progress.classList.add('is-visible');
+                fill.style.width = Math.max(0, Math.min(100, Math.round((fraction || 0) * 100))) + '%';
+                line.innerHTML = '';
+                (parts || []).forEach(function (part, index) {
+                    if (index) {
+                        line.appendChild(el('span', 'ss-muted', '\u00b7'));
+                    }
+                    line.appendChild(el('span', index === 0 ? null : 'ss-muted', part));
+                });
+                if (muted) {
+                    line.appendChild(el('span', 'ss-muted', muted));
+                }
+            },
+            hideProgress: function () { progress.classList.remove('is-visible'); },
+            showError: function (message) { error.textContent = message || ''; }
+        };
+    }
+
+    function primaryButton(label) {
+        var btn = el('button', 'ss-btn ss-btn-primary', label);
+        btn.type = 'button';
+        return btn;
+    }
+
+    // ---------------------------------------------------------------- bulk dialog (series / season)
+
+    function openBulkDialog(meta) {
+        var shell = buildShell('Sync all episodes', 'Reading the episodes\u2026');
+        var scopeField = el('div', 'ss-field');
+        var scopeLabel = el('label', null, 'Scope');
+        var scopeSelect = el('select');
+        scopeSelect.disabled = true;
+        scopeField.appendChild(scopeLabel);
+        scopeField.appendChild(scopeSelect);
+        var langField = el('div', 'ss-field');
+        var langLabel = el('label', null, 'Subtitles to sync');
+        var langSelect = el('select');
+        langSelect.disabled = true;
+        langField.appendChild(langLabel);
+        langField.appendChild(langSelect);
+        var note = el('div', 'ss-note', '');
+        var startBtn = primaryButton('Sync');
+        startBtn.disabled = true;
+        shell.body.appendChild(scopeField);
+        shell.body.appendChild(langField);
+        shell.body.appendChild(note);
+        shell.actions.insertBefore(startBtn, shell.actions.firstChild);
+
+        var seriesId = meta.type === 'Series' ? meta.id : (meta.seriesId || null);
+        var entrySeasonId = meta.type === 'Season' ? meta.id : null;
+
+        function buildScopes(seriesEpisodes, seasons, fallbackEpisodes, fallbackName) {
+            var options = [];
+            if (seriesEpisodes && seriesEpisodes.length) {
+                options.push({
+                    id: seriesId,
+                    label: 'Whole series \u2014 ' + humanCount(seriesEpisodes.length, 'episode'),
+                    episodes: seriesEpisodes
+                });
+                var bySeason = {};
+                seriesEpisodes.forEach(function (ep) {
+                    var key = ep.seasonId || 'unknown';
+                    (bySeason[key] = bySeason[key] || []).push(ep);
+                });
+                (seasons || []).forEach(function (season) {
+                    var group = bySeason[season.id];
+                    if (group && group.length) {
+                        options.push({
+                            id: season.id,
+                            label: season.name + ' \u2014 ' + humanCount(group.length, 'episode'),
+                            episodes: group
+                        });
+                    }
+                });
+                // Seasons the server did not name (or returned without a Season item).
+                Object.keys(bySeason).forEach(function (key) {
+                    if (key === 'unknown') {
+                        return;
+                    }
+                    var already = (seasons || []).some(function (s) { return s.id === key; });
+                    if (!already) {
+                        options.push({
+                            id: key,
+                            label: 'Season \u2014 ' + humanCount(bySeason[key].length, 'episode'),
+                            episodes: bySeason[key]
+                        });
+                    }
+                });
+            } else if (fallbackEpisodes && fallbackEpisodes.length) {
+                options.push({
+                    id: meta.id,
+                    label: (fallbackName || meta.name) + ' \u2014 ' + humanCount(fallbackEpisodes.length, 'episode'),
+                    episodes: fallbackEpisodes
+                });
+            }
+            return options;
+        }
+
+        var scopes = [];
+        var languageCounts = {};
+
+        function scopeById(id) {
+            for (var i = 0; i < scopes.length; i++) {
+                if (scopes[i].id === id) {
+                    return scopes[i];
+                }
+            }
+            return scopes[0];
+        }
+
+        function selectedScope() {
+            return scopeById(scopeSelect.value);
+        }
+
+        /** One task per language per episode, external file preferred over an embedded track. */
+        function buildTasks(episodes, tracksById, language) {
+            var tasks = [];
+            episodes.forEach(function (ep) {
+                var tracks = tracksById[ep.id] || [];
+                var byLanguage = {};
+                tracks.forEach(function (t) {
+                    var code = trackLanguage(t);
+                    var current = byLanguage[code];
+                    if (!current || (!trackIsExternal(current) && trackIsExternal(t))) {
+                        byLanguage[code] = t;
+                    }
+                });
+                Object.keys(byLanguage).sort().forEach(function (code) {
+                    if (language && language !== '*' && code !== language) {
+                        return;
+                    }
+                    var t = byLanguage[code];
+                    var label = (ep.name || 'Episode') + ' \u2014 ' + (trackTitle(t) || languageLabel(code));
+                    tasks.push({ itemId: ep.id, subtitleIndex: trackIndex(t), title: label, language: code, episode: ep.name || '' });
+                });
+            });
+            return tasks;
+        }
+
+        function fillLanguages(tracksById, episodes) {
+            languageCounts = {};
+            var episodeCounts = {};
+            episodes.forEach(function (ep) {
+                var tracks = tracksById[ep.id] || [];
+                var seen = {};
+                tracks.forEach(function (t) {
+                    var code = trackLanguage(t);
+                    languageCounts[code] = (languageCounts[code] || 0) + 1;
+                    if (!seen[code]) {
+                        seen[code] = true;
+                        episodeCounts[code] = (episodeCounts[code] || 0) + 1;
+                    }
+                });
+            });
+            var codes = Object.keys(languageCounts).sort();
+            langSelect.innerHTML = '';
+            var total = 0;
+            codes.forEach(function (code) { total += languageCounts[code]; });
+            var all = el('option', null, 'All languages \u2014 ' + humanCount(total, 'track'));
+            all.value = '*';
+            langSelect.appendChild(all);
+            codes.forEach(function (code) {
+                var option = el('option', null, languageLabel(code) + ' \u2014 '
+                    + humanCount(episodeCounts[code], 'episode') + ', ' + humanCount(languageCounts[code], 'track'));
+                option.value = code;
+                langSelect.appendChild(option);
+            });
+            // Keep the Swedish/English order familiar: most episodes first, then alphabetically.
+            langSelect.disabled = codes.length === 0;
+            return codes.length;
+        }
+
+        function summarise() {
+            var scope = selectedScope();
+            if (!scope) {
+                return;
+            }
+            var lang = langSelect.value || '*';
+            var tracks = tracksCache[scope.id] || {};
+            var tasks = buildTasks(scope.episodes, tracks, lang);
+            var episodes = {};
+            tasks.forEach(function (t) { episodes[t.itemId] = 1; });
+            if (!tasks.length) {
+                note.textContent = 'No subtitle tracks found in this scope.';
+                startBtn.disabled = true;
+                return;
+            }
+            note.textContent = humanCount(tasks.length, 'track') + ' across '
+                + humanCount(Object.keys(episodes).length, 'episode')
+                + (lang === '*' ? '' : ' (' + languageLabel(lang) + ' only)')
+                + ' \u2014 runs through the server queue with the mode configured in Settings.';
+            startBtn.disabled = false;
+        }
+
+        var tracksCache = {};
+        var scanToken = 0;
+
+        function scan() {
+            var scope = selectedScope();
+            if (!scope) {
+                return;
+            }
+            var myToken = ++scanToken;
+            startBtn.disabled = true;
+            langSelect.disabled = true;
+            if (tracksCache[scope.id]) {
+                fillLanguages(tracksCache[scope.id], scope.episodes);
+                summarise();
+                return;
+            }
+            var ids = scope.episodes.map(function (ep) { return ep.id; });
+            shell.setProgress(0, ['Reading subtitles\u2026'], humanCount(ids.length, 'episode'));
+            fetchTracks(ids, function (done, total) {
+                if (myToken !== scanToken) {
+                    return;
+                }
+                shell.setProgress(total ? done / total : 0, ['Reading subtitles\u2026', done + '/' + total]);
+            }).then(function (tracksById) {
+                if (myToken !== scanToken) {
+                    return;
+                }
+                tracksCache[scope.id] = tracksById;
+                shell.hideProgress();
+                fillLanguages(tracksById, scope.episodes);
+                summarise();
+            }).catch(function (err) {
+                if (myToken !== scanToken) {
+                    return;
+                }
+                shell.hideProgress();
+                shell.showError('Could not read the subtitles: ' + (err.message || err));
+            });
+        }
+
+        function start() {
+            var scope = selectedScope();
+            var lang = langSelect.value || '*';
+            var tasks = buildTasks(scope.episodes, tracksCache[scope.id] || {}, lang);
+            if (!tasks.length) {
+                return;
+            }
+            startBtn.disabled = true;
+            startBtn.textContent = 'Starting\u2026';
+            var payload = {
+                label: meta.name + (scope.id === seriesId ? '' : ' \u2014 ' + scope.label.split(' \u2014 ')[0]),
+                tasks: tasks.map(function (t) {
+                    return { itemId: t.itemId, subtitleIndex: t.subtitleIndex, title: t.title };
+                })
+            };
+            api(SYNC_BASE + '/Batch', {
+                method: 'POST',
+                body: JSON.stringify(payload)
+            }).then(function (view) {
+                var batchId = (view && (view.Id || view.id)) || '';
+                if (!batchId) {
+                    throw new Error('the server did not return a batch id');
+                }
+                shell.setProgress(0, ['Queued', humanCount(tasks.length, 'track')]);
+                watchBatch(batchId, tasks);
+            }).catch(function (err) {
+                startBtn.disabled = false;
+                startBtn.textContent = 'Sync';
+                shell.showError('Could not start: ' + (err.message || err));
+            });
+        }
+
+        function watchBatch(batchId, tasks) {
+            var titles = {};
+            tasks.forEach(function (t) { titles[t.itemId] = t.episode; });
+            function poll() {
+                api(SYNC_BASE + '/Batch/' + batchId).then(function (view) {
+                    var total = (view.Total !== undefined ? view.Total : view.total) || tasks.length;
+                    var ok = (view.Ok !== undefined ? view.Ok : view.ok) || 0;
+                    var failed = (view.Failed !== undefined ? view.Failed : view.failed) || 0;
+                    var cancelled = (view.Cancelled !== undefined ? view.Cancelled : view.cancelled) || 0;
+                    var completed = (view.Completed !== undefined ? view.Completed : view.completed) || 0;
+                    var status = view.Status || view.status || '';
+                    var running = (view.RunningTasks || view.runningTasks || []).length;
+                    var limit = view.WorkerLimit || view.workerLimit || 0;
+                    var mode = (view.Mode || view.mode || '').toLowerCase();
+
+                    var terminal = status === 'Completed' || status === 'Failed' || status === 'Cancelled' || status === 'Partial';
+                    var parts;
+                    if (status === 'Queued' && running === 0) {
+                        parts = ['Waiting for the queue\u2026', humanCount(completed, 'track') + ' of ' + total + ' done'];
+                    } else if (terminal) {
+                        parts = [humanCount(ok, 'track') + ' synced'];
+                        if (failed) {
+                            parts.push(failed + ' failed');
+                        }
+                        if (cancelled) {
+                            parts.push(cancelled + ' cancelled');
+                        }
+                        if (mode && limit > 1) {
+                            parts.push(limit + ' at a time');
+                        }
+                    } else {
+                        parts = [completed + '/' + total, running + (limit > 1 ? '/' + limit : '') + ' running'];
+                        var current = view.CurrentTask || view.currentTask;
+                        if (current) {
+                            var currentTitle = current.Title || current.title || '';
+                            parts.push(currentTitle.length > 46 ? currentTitle.slice(0, 46) + '\u2026' : currentTitle);
+                        }
+                    }
+                    shell.setProgress(total ? completed / total : 0, parts);
+
+                    if (terminal) {
+                        clearInterval(shell.state.timer);
+                        shell.state.timer = null;
+                        startBtn.disabled = false;
+                        startBtn.textContent = 'Sync again';
+                        shell.sub.textContent = failed
+                            ? 'Finished with ' + humanCount(failed, 'failure')
+                            : 'Finished \u2014 the library is refreshed for the folders that changed.';
+                    }
+                }).catch(function (err) {
+                    clearInterval(shell.state.timer);
+                    shell.state.timer = null;
+                    shell.showError('Lost contact with the batch: ' + (err.message || err));
+                    startBtn.disabled = false;
+                    startBtn.textContent = 'Sync';
+                });
+            }
+            poll();
+            shell.state.timer = setInterval(poll, 1500);
+        }
+
+        startBtn.addEventListener('click', start);
+        scopeSelect.addEventListener('change', function () {
+            scan();
+        });
+        langSelect.addEventListener('change', summarise);
+
+        // Load the scope list: the whole series (so every season can be chosen) plus this season.
+        var menuTarget = seriesId || meta.id;
+        Promise.all([
+            fetchEpisodes(menuTarget),
+            fetchSeasons(seriesId && seriesId !== meta.id ? seriesId : (meta.type === 'Series' ? meta.id : null))
+        ]).then(function (results) {
+            var episodes = results[0] || [];
+            var seasons = results[1] || [];
+            scopes = buildScopes(episodes, seasons, episodes, meta.name);
+            if (!scopes.length) {
+                // A season inside a series whose episodes could not be listed by series id: use its own.
+                return fetchEpisodes(meta.id).then(function (own) {
+                    scopes = buildScopes(null, null, own, meta.name);
+                    return null;
+                });
+            }
+            return null;
+        }).then(function () {
+            if (!scopes.length) {
+                shell.sub.textContent = 'No episodes found in this item.';
+                return;
+            }
+            scopeSelect.innerHTML = '';
+            scopes.forEach(function (scope) {
+                var option = el('option', null, scope.label);
+                option.value = scope.id;
+                scopeSelect.appendChild(option);
+            });
+            // Default to the item the menu was opened on.
+            if (entrySeasonId) {
+                scopeSelect.value = entrySeasonId;
+                if (scopeSelect.value !== entrySeasonId) {
+                    scopeSelect.value = scopes[0].id;
+                }
+            }
+            scopeSelect.disabled = scopes.length < 2;
+            if (scopeField) {
+                scopeField.style.display = scopes.length > 1 ? '' : 'none';
+            }
+            var total = scopes.reduce(function (sum, scope) { return sum + scope.episodes.length; }, 0);
+            shell.sub.textContent = meta.name + ' \u2014 ' + humanCount(scopes[0].episodes.length, 'episode')
+                + (scopes.length > 1 ? ', ' + humanCount(scopes.length - 1, 'season') : '');
+            log('Bulk dialog ready for ' + meta.type + ' ' + meta.name + ' (' + total + ' episodes total)');
+            scan();
+        }).catch(function (err) {
+            shell.sub.textContent = 'Could not read the episodes.';
+            shell.showError(err.message || String(err));
+        });
+    }
+
+    // ---------------------------------------------------------------- single-item dialog
+
+    function openSingleDialog(meta) {
+        var shell = buildShell('Sync Subtitles', meta.name || '');
+        shell.sub.textContent = 'Reading subtitles\u2026';
+        api(SYNC_BASE + '/Subtitles/' + meta.id).then(function (tracks) {
+            tracks = (tracks || []).filter(function (t) { return typeof trackIndex(t) === 'number'; });
+            if (!tracks.length) {
+                shell.sub.textContent = 'No text subtitles found for this video.';
+                return;
+            }
+            shell.sub.textContent = 'Pick the subtitle to synchronize. The original is never modified.';
+            tracks.forEach(function (track) {
+                var row = el('div', 'ss-row');
+                var name = el('div', 'ss-row-name');
+                var isExternal = trackIsExternal(track);
+                name.appendChild(el('span', null, trackTitle(track) || languageLabel(trackLanguage(track))));
+                var meta2 = el('div', 'ss-row-meta', (isExternal ? 'external file' : 'embedded')
+                    + ' \u00b7 ' + languageLabel(trackLanguage(track)));
+                if (track.HasSyncedVersion !== undefined ? track.HasSyncedVersion : track.hasSyncedVersion) {
+                    meta2.appendChild(el('span', 'ss-synced', '  \u2713 synced before'));
+                }
+                name.appendChild(meta2);
+                var button = primaryButton('Sync');
+                button.addEventListener('click', function () {
+                    button.disabled = true;
+                    button.textContent = 'Starting\u2026';
+                    api(SYNC_BASE + '/Sync', {
+                        method: 'POST',
+                        body: JSON.stringify({ itemId: meta.id, subtitleIndex: trackIndex(track) })
+                    }).then(function (job) {
+                        var jobId = job.Id || job.id;
+                        button.textContent = 'Syncing\u2026';
+                        var started = Date.now();
+                        shell.state.timer = setInterval(function () {
+                            api(SYNC_BASE + '/Jobs/' + jobId).then(function (status) {
+                                var state = status.Status || status.status;
+                                var progress = status.Progress !== undefined ? status.Progress : (status.progress || 0);
+                                var phase = status.Phase || status.phase || 'Working';
+                                var elapsed = Math.round((Date.now() - started) / 1000);
+                                var minutes = Math.floor(elapsed / 60);
+                                var seconds = elapsed % 60;
+                                shell.setProgress(progress, [phase], minutes + ':' + (seconds < 10 ? '0' : '') + seconds);
+                                button.textContent = Math.round(progress * 100) + '%';
+                                if (state === 'Completed' || state === 'Failed' || state === 'Cancelled') {
+                                    clearInterval(shell.state.timer);
+                                    shell.state.timer = null;
+                                    button.textContent = state === 'Completed' ? 'Synced' : state;
+                                    button.disabled = state !== 'Completed';
+                                    var outcome = status.Outcome || status.outcome;
+                                    if (state === 'Completed') {
+                                        shell.setProgress(1, ['Synced', outcome || 'done']);
+                                    } else {
+                                        shell.showError(status.Error || status.error || 'The sync did not finish.');
+                                    }
+                                }
+                            }).catch(function (err) {
+                                clearInterval(shell.state.timer);
+                                shell.state.timer = null;
+                                shell.showError('Lost contact with the job: ' + (err.message || err));
+                                button.disabled = false;
+                                button.textContent = 'Sync';
+                            });
+                        }, 1500);
+                    }).catch(function (err) {
+                        button.disabled = false;
+                        button.textContent = 'Sync';
+                        shell.showError('Could not start: ' + (err.message || err));
+                    });
+                });
+                row.appendChild(name);
+                row.appendChild(button);
+                shell.body.appendChild(row);
+            });
+        }).catch(function (err) {
+            shell.sub.textContent = 'Could not read the subtitles.';
+            shell.showError(err.message || String(err));
+        });
+    }
+
+    // ---------------------------------------------------------------- menu injection
+
     var lastMenuCardId = null;
     var lastMenuCardTime = 0;
-    var itemTypeCache = {};
 
     document.addEventListener('click', function (e) {
         var target = e.target;
-        if (!target || !target.closest) return;
-        var btn = target.closest('[data-action="menu"], [data-action="openmenu"], .itemActionButton, button[data-role="menu"]');
-        if (!btn) return;
-        var holder = btn.closest('[data-id]');
+        if (!target || !target.closest) {
+            return;
+        }
+        var button = target.closest('[data-action="menu"], [data-action="openmenu"], .itemActionButton, button[data-role="menu"]');
+        if (!button) {
+            return;
+        }
+        var holder = button.closest('[data-id]');
         if (holder) {
             lastMenuCardId = holder.getAttribute('data-id');
             lastMenuCardTime = Date.now();
         }
     }, true);
 
-    // True → video (movie/episode); False → container (series/season/folder);
-    // null → couldn't determine (e.g. offline). Cached per item for the session.
-    function canSyncItem(itemId) {
-        if (Object.prototype.hasOwnProperty.call(itemTypeCache, itemId)) {
-            return Promise.resolve(itemTypeCache[itemId]);
-        }
-        var uid = (typeof ApiClient !== 'undefined' && ApiClient.getCurrentUserId) ? ApiClient.getCurrentUserId() : '';
-        var path = uid ? 'Users/' + uid + '/Items/' + itemId : 'Items/' + itemId;
-        var url = (typeof ApiClient !== 'undefined' && ApiClient.getUrl) ? ApiClient.getUrl(path) : path;
-        return fetch(url, {
-            headers: { 'X-Emby-Token': getAccessToken(), 'Accept': 'application/json' }
-        }).then(function (r) {
-            if (!r.ok) throw new Error('item lookup failed');
-            return r.json();
-        }).then(function (item) {
-            var ok = (item.MediaType === 'Video') || (item.Type === 'Movie') || (item.Type === 'Episode') || (item.Type === 'Video');
-            itemTypeCache[itemId] = ok;
-            if (Object.keys(itemTypeCache).length > 300) itemTypeCache = {};
-            return ok;
-        }).catch(function () {
-            return null; // cannot determine — caller decides fallback
-        });
+    function getItemIdFromHash() {
+        var hash = location.hash || '';
+        var match = hash.match(/[?&]id=([0-9a-fA-F-]{32,36})/);
+        return match ? match[1] : null;
     }
 
-    function startSync(itemId, subtitleIndex) {
-        return fetch(SYNC_BASE + '/Sync', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'X-Emby-Token': getAccessToken()
-            },
-            body: JSON.stringify({ ItemId: itemId, SubtitleIndex: subtitleIndex })
-        }).then(function (r) {
-            if (!r.ok) throw new Error('Sync request failed: ' + r.status);
-            return r.json();
-        });
-    }
-
-    function pollJobStatus(jobId, onProgress, onComplete, onError) {
-        var pollInterval = setInterval(function () {
-            fetch(SYNC_BASE + '/Jobs/' + jobId, {
-                headers: { 'X-Emby-Token': getAccessToken() }
-            }).then(function (r) { return r.json(); }).then(function (job) {
-                if (job.Status === 'Completed') {
-                    clearInterval(pollInterval);
-                    onComplete(job);
-                } else if (job.Status === 'Failed') {
-                    clearInterval(pollInterval);
-                    onError(job.Error || 'Sync failed');
-                } else {
-                    onProgress(job.Progress || 0, job.Phase || null);
-                }
-            }).catch(function (err) {
-                clearInterval(pollInterval);
-                onError(err.message);
-            });
-        }, 2000);
-    }
-
-    function formatTime(totalSeconds) {
-        var m = Math.floor(totalSeconds / 60);
-        var s = totalSeconds % 60;
-        return m + ':' + (s < 10 ? '0' : '') + s;
-    }
-
-    function showSyncDialog(itemId) {
-        var overlay = document.createElement('div');
-        overlay.id = 'subsync-dialog';
-        overlay.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);z-index:99999;display:flex;align-items:center;justify-content:center;';
-
-        var dialog = document.createElement('div');
-        dialog.style.cssText = 'background:#222;color:#eee;border-radius:12px;padding:24px;max-width:500px;width:90%;max-height:80vh;overflow-y:auto;';
-
-        dialog.innerHTML = '<h2 style="margin:0 0 16px">Sync Subtitles</h2>' +
-            '<p id="subsync-status">Loading subtitles...</p>' +
-            '<div id="subsync-list"></div>' +
-            '<div style="margin-top:16px;text-align:right">' +
-            '<button id="subsync-close" style="padding:8px 20px;border:none;border-radius:4px;background:#555;color:#fff;cursor:pointer;margin-right:8px">Close</button>' +
-            '</div>';
-
-        overlay.appendChild(dialog);
-        document.body.appendChild(overlay);
-
-        overlay.addEventListener('click', function (e) {
-            if (e.target === overlay) overlay.remove();
-        });
-        dialog.querySelector('#subsync-close').addEventListener('click', function () {
-            overlay.remove();
-        });
-
-        fetchSubtitles(itemId).then(function (subtitles) {
-            if (!subtitles || subtitles.length === 0) {
-                dialog.querySelector('#subsync-status').textContent = 'No subtitles found for this video.';
+    function openDialog(itemId) {
+        fetchMeta(itemId).then(function (meta) {
+            if (BULK_TYPES[meta.type]) {
+                openBulkDialog(meta);
                 return;
             }
-
-            dialog.querySelector('#subsync-status').textContent = 'Select a subtitle to synchronize:';
-
-            var list = dialog.querySelector('#subsync-list');
-            list.innerHTML = '';
-
-            subtitles.forEach(function (sub) {
-                var row = document.createElement('div');
-                row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:8px 12px;margin:4px 0;background:#333;border-radius:6px;';
-
-                var label = document.createElement('span');
-                label.textContent = sub.Title + (sub.IsExternal ? ' (external)' : ' (embedded)');
-                if (sub.HasSyncedVersion) {
-                    label.textContent += ' \u2713 synced';
-                    label.style.color = '#8f8';
-                }
-
-                var btn = document.createElement('button');
-                btn.textContent = 'Sync';
-                btn.style.cssText = 'padding:6px 16px;border:none;border-radius:4px;background:#48c;color:#fff;cursor:pointer;';
-                btn.addEventListener('click', function () {
-                    btn.disabled = true;
-                    btn.textContent = 'Starting...';
-
-                    var startTime = Date.now();
-
-                    startSync(itemId, sub.Index).then(function (job) {
-                        btn.textContent = 'Syncing...';
-                        row.style.background = '#335';
-
-                        // Add progress detail under the button row
-                        var detailRow = document.createElement('div');
-                        detailRow.style.cssText = 'padding:4px 12px 8px;font-size:12px;color:#aaa;display:flex;align-items:center;gap:8px;';
-                        detailRow.innerHTML = '<span class="subsync-spinner" style="display:inline-block;width:14px;height:14px;border:2px solid #555;border-top-color:#48c;border-radius:50%;animation:subsync-spin 0.8s linear infinite"></span>' +
-                            '<span class="subsync-phase">Preparing...</span>' +
-                            '<span class="subsync-time" style="margin-left:auto"></span>';
-                        row.parentNode.insertBefore(detailRow, row.nextSibling);
-
-                        // Inject spinner keyframes once
-                        if (!document.getElementById('subsync-spin-style')) {
-                            var style = document.createElement('style');
-                            style.id = 'subsync-spin-style';
-                            style.textContent = '@keyframes subsync-spin { to { transform: rotate(360deg) } }';
-                            document.head.appendChild(style);
-                        }
-
-                        pollJobStatus(job.Id,
-                            function (progress, phase) {
-                                var pct = Math.round(progress * 100);
-                                btn.textContent = pct + '%';
-                                var phaseEl = detailRow.querySelector('.subsync-phase');
-                                if (phaseEl && phase) phaseEl.textContent = phase;
-                                // Update elapsed time
-                                var elapsed = Math.round((Date.now() - startTime) / 1000);
-                                var timeEl = detailRow.querySelector('.subsync-time');
-                                if (timeEl) timeEl.textContent = formatTime(elapsed);
-                            },
-                            function () {
-                                btn.textContent = 'Done!';
-                                btn.style.background = '#4a4';
-                                row.style.background = '#243';
-                                label.textContent = label.textContent.replace(' \u2713 synced', '') + ' \u2713 synced';
-                                label.style.color = '#8f8';
-                                // Remove detail row
-                                if (detailRow.parentNode) detailRow.remove();
-                            },
-                            function (error) {
-                                btn.textContent = 'Failed';
-                                btn.style.background = '#a44';
-                                row.style.background = '#433';
-                                // Show error in detail row
-                                var spinnerEl = detailRow.querySelector('.subsync-spinner');
-                                if (spinnerEl) spinnerEl.style.display = 'none';
-                                var phaseEl = detailRow.querySelector('.subsync-phase');
-                                if (phaseEl) {
-                                    phaseEl.textContent = 'Error: ' + error;
-                                    phaseEl.style.color = '#f66';
-                                }
-                            }
-                        );
-                    }).catch(function (err) {
-                        btn.textContent = 'Error';
-                        btn.style.background = '#a44';
-                        alert('Failed to start sync: ' + err.message);
-                    });
-                });
-
-                row.appendChild(label);
-                row.appendChild(btn);
-                list.appendChild(row);
-            });
+            if (SINGLE_TYPES[meta.type] || meta.mediaType === 'Video') {
+                openSingleDialog(meta);
+                return;
+            }
+            // A container that is neither a series nor a season (folder, collection, playlist):
+            // say so instead of opening a dialog that would fail later.
+            var shell = buildShell('Nothing to sync here', meta.name || '');
+            shell.sub.textContent = 'This item is a ' + (meta.type || 'container').toLowerCase()
+                + '. Use the menu on a series, a season, or a single video.';
         }).catch(function (err) {
-            dialog.querySelector('#subsync-status').textContent = 'Error: ' + err.message;
+            log('Could not read the item: ' + (err.message || err));
         });
     }
 
-    /**
-     * Watch for the item context menu (action sheet) appearing and inject the
-     * "Sync Subtitles" item into it. A MutationObserver is used instead of
-     * hooking the More button's click: the button markup differs across
-     * jellyfin-web versions, but the sheet element is stable.
-     *
-     * The item id comes from the card/row that was actually clicked (works on
-     * home rows, library rows and episode lists inside a series page), falling
-     * back to the detail-page id from the URL hash. The item type is checked
-     * first: containers (series, seasons, folders) never get the menu item,
-     * which is what caused the "Failed to fetch subtitles: 404" error.
-     */
     function hookActionSheets() {
         var injectPending = false;
 
         function maybeInject() {
-            if (injectPending) return;
-            if (document.querySelector('.actionSheetContent [data-id="subsync"]')) return;
-
+            if (injectPending) {
+                return;
+            }
+            if (document.querySelector('.actionSheetContent [data-id="subsync"]')) {
+                return;
+            }
             var sheet = document.querySelector('.actionSheetContent');
-            if (!sheet) return;
+            if (!sheet) {
+                return;
+            }
 
-            // Prefer the just-clicked card/row item; fall back to the detail page id.
             var cardFresh = lastMenuCardId && (Date.now() - lastMenuCardTime < 3000);
             var itemId = cardFresh ? lastMenuCardId : getItemIdFromHash();
-            if (!itemId) return;
+            if (!itemId) {
+                return;
+            }
             lastMenuCardId = null;
             lastMenuCardTime = 0;
 
             injectPending = true;
-            canSyncItem(itemId).then(function (canSync) {
+            fetchMeta(itemId).then(function (meta) {
                 injectPending = false;
-                if (canSync === false) return;          // series/season/folder — no menu item
-                if (canSync === null && !getItemIdFromHash()) return; // unknown + not a detail page — stay quiet
+                var isBulk = !!BULK_TYPES[meta.type];
+                var isSingle = !!SINGLE_TYPES[meta.type] || meta.mediaType === 'Video';
+                if (!isBulk && !isSingle) {
+                    return; // folders, collections, playlists: no subtitle sync of their own
+                }
 
                 var scroller = sheet.querySelector('.actionSheetScroller') || sheet;
-
-                // Create the menu item matching Jellyfin's actionSheet style
                 var menuItem = document.createElement('button');
                 menuItem.setAttribute('is', 'emby-button');
                 menuItem.setAttribute('type', 'button');
                 menuItem.setAttribute('data-id', 'subsync');
                 menuItem.className = 'listItem listItem-button actionSheetMenuItem emby-button';
-
                 menuItem.innerHTML =
                     '<span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons subtitles" aria-hidden="true"></span>' +
                     '<div class="listItemBody actionsheetListItemBody">' +
-                    '<div class="listItemBodyText actionSheetItemText">Sync Subtitles</div>' +
+                    '<div class="listItemBodyText actionSheetItemText">' + (isBulk ? 'Sync all episodes' : 'Sync Subtitles') + '</div>' +
                     '</div>';
-
                 menuItem.addEventListener('click', function () {
-                    showSyncDialog(itemId);
+                    openDialog(itemId);
                 });
 
-                // Insert after "Edit subtitles" if it exists, otherwise append
                 var editSubs = sheet.querySelector('[data-id="editsubtitles"]');
                 if (editSubs && editSubs.nextSibling && scroller.contains(editSubs)) {
                     scroller.insertBefore(menuItem, editSubs.nextSibling);
                 } else {
                     scroller.appendChild(menuItem);
                 }
-
-                log('Injected Sync Subtitles menu item (item ' + itemId + ')');
+                log('Injected "' + (isBulk ? 'Sync all episodes' : 'Sync Subtitles') + '" for ' + meta.type + ' ' + (meta.name || itemId));
+            }).catch(function () {
+                injectPending = false;
+                // Could not read the item (offline, or a container the API would not answer for):
+                // keep the menu item on a detail page so the dialog can explain itself.
+                if (!getItemIdFromHash()) {
+                    return;
+                }
+                var scroller = sheet.querySelector('.actionSheetScroller') || sheet;
+                if (scroller.querySelector('[data-id="subsync"]')) {
+                    return;
+                }
+                var fallback = document.createElement('button');
+                fallback.setAttribute('is', 'emby-button');
+                fallback.setAttribute('type', 'button');
+                fallback.setAttribute('data-id', 'subsync');
+                fallback.className = 'listItem listItem-button actionSheetMenuItem emby-button';
+                fallback.innerHTML =
+                    '<span class="actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons subtitles" aria-hidden="true"></span>' +
+                    '<div class="listItemBody actionsheetListItemBody">' +
+                    '<div class="listItemBodyText actionSheetItemText">Sync Subtitles</div>' +
+                    '</div>';
+                var hashItemId = getItemIdFromHash();
+                fallback.addEventListener('click', function () { openDialog(hashItemId); });
+                scroller.appendChild(fallback);
             });
         }
 
         var observer = new MutationObserver(function () {
-            // Only act when a context menu is actually open.
-            if (!document.querySelector('.actionSheetContent')) return;
+            if (!document.querySelector('.actionSheetContent')) {
+                return;
+            }
             maybeInject();
         });
-
         observer.observe(document.documentElement, { childList: true, subtree: true });
     }
 

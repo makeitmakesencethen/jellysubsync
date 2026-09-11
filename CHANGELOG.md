@@ -191,7 +191,30 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.42]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.43]
+
+### Added
+- **"Sync all episodes" in the item menu of a series or a season.** The detail-view side used to
+  offer a single subtitle of a single video and deliberately hid itself for containers, so a series
+  or a season could only be queued from the main SubSync page. The menu item now covers both:
+
+  - **Scope** - the whole series or one season, with the episode count next to each choice.
+  - **Smart language selection** - only the languages that actually exist in that scope, each with
+    its episode and track count ("Swedish - 24 episodes, 26 tracks"), because the list is built from
+    the bulk subtitle endpoint rather than guessed.
+  - **The same batch queue as the main page** - so the configured mode applies: a parallel setting
+    runs the episodes in parallel here too, shown live as `12/40 - 8/8 running - <episode>`.
+
+  It appears wherever the item menu does, which is several different paths: the detail page's more
+  button, the menu on a card or row in a library grid, a home row, an episode list, or a "see all"
+  list. The item id comes from the card whose menu was opened and only falls back to the detail
+  page's id from the URL.
+
+- The single-item dialog was rebuilt on the same layout, so a movie and an episode now show the same
+  compact rows with the track's language, whether it is an external file, and whether it has been
+  synced before.
+
+## [1.1.0.42]
 
 ### Changed
 - **The extraction switch is gone: the container index is always used.** The Settings page carried a

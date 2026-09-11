@@ -903,6 +903,21 @@ def run_page_checks():
                               for name in files if name.endswith(('.cs', '.html', '.js')))
     report('no dead extraction setting is left in the plugin sources',
            not any('FastIndexedExtraction' in text for text in plugin_sources))
+
+    # The detail-view client (jellyfin-web injection) must offer the same bulk flow as the main page
+    # for a series or a season, and route it through the same server batch queue so the configured
+    # parallel mode applies there too.
+    client_path = os.path.join(web, 'subsync.js')
+    client = open(client_path, encoding='utf-8').read()
+    report('the item menu offers a bulk sync for series and seasons', 'Sync all episodes' in client)
+    report('series and seasons are the bulk scopes', 'Series: 1' in client and 'Season: 1' in client)
+    report('the bulk flow uses the server batch queue', '/Batch' in client)
+    report('the language list comes from the bulk subtitle endpoint', 'Subtitles/Batch' in client)
+    report('the bulk dialog shows the configured parallel width', 'WorkerLimit' in client or 'workerLimit' in client)
+    node = shutil.which('node')
+    if node:
+        parsed = subprocess.run([node, '--check', client_path], capture_output=True, text=True)
+        report('subsync.js is valid JavaScript', parsed.returncode == 0, (parsed.stderr or '')[-200:])
     return failures
 
 
