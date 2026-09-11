@@ -87,11 +87,16 @@ public static class ReferenceStore
 
     /// <summary>
     /// Ends one job's use of this file's reference. The files are removed only when nothing else is
-    /// using them: not this job, and no further job of the same media file still queued.
+    /// using them: not this job, and no other job of the same media file that is still queued *or
+    /// running*.
     /// </summary>
     /// <param name="videoPath">Path of the media file.</param>
-    /// <param name="moreQueuedForThisFile">True when another queued job still needs this reference.</param>
-    public static void EndJob(string? videoPath, bool moreQueuedForThisFile)
+    /// <param name="stillInUse">
+    /// True when another job of this file — queued or already running — still needs this reference.
+    /// A running job counts: it is handed the reference file as an argument, so removing it mid-run
+    /// makes ffsubsync fail with "unable to read reference".
+    /// </param>
+    public static void EndJob(string? videoPath, bool stillInUse)
     {
         if (videoPath is null)
         {
@@ -107,7 +112,7 @@ public static class ReferenceStore
                 return;
             }
 
-            if (moreQueuedForThisFile)
+            if (stillInUse)
             {
                 return;
             }

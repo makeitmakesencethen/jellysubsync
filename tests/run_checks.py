@@ -1193,6 +1193,33 @@ def run_page_checks():
     report('the extraction note reaches the log line',
            'ExtractionNote' in main_html and 'ExtractionNote' in '\n'.join(plugin_sources))
 
+    # S11: the reference a job is aligned against may only ever be the file's own audio or a sibling
+    # track's *text*. Handing ffsubsync the media file makes the engine demux the whole container with
+    # its own ffmpeg, once per job: measured on the 2.38 GB fixture, two jobs sat in that demux for 7
+    # and 17 minutes and never finished, so a bulk run could not reach its end.
+    report('the engine is never handed the container as a reference',
+           'TryReadReferenceTextAsync' in service_text
+           and 'No usable reference subtitle for' in service_text
+           and 'allowFfmpegFallback' not in service_text)
+    report('a reference that cannot be built falls back to the audio',
+           'aligning against the audio instead' in service_text
+           and 'PrepareAudioReferenceAsync' in service_text)
+    # The other builders of the same file's reference wait for the one that builds it, and each writes
+    # a name of its own: one shared "<target>.part" meant the loser failed to write it or failed to
+    # move it into place, and that failure used to be answered by letting ffsubsync demux the file.
+    report('only one job builds a file\'s reference at a time',
+           '_referenceGates' in service_text and 'referenceGate.WaitAsync' in service_text
+           and 'referenceGate.Release()' in service_text)
+    report('the reference is written under this job\'s own temporary name',
+           'referenceTarget + "." + job.Id + ".part"' in service_text)
+    # Reference lifetime: the deletion counts running jobs as well as queued ones, or the last dispatch
+    # of a batch removes the file the other workers are reading.
+    report('a running job keeps its file\'s reference alive',
+           re.search(r'var stillNeeded = finishedPath is not null.{0,500}SyncJobStatus\.Running',
+                     service_text, re.S) is not None)
+    report('ReferenceStore only releases a reference nothing is using',
+           'stillInUse' in '\n'.join(plugin_sources))
+
     # Jellyfin 12 disables the legacy authorization mechanisms by default, so the header this
     # plugin used for years (X-Emby-Token) and the ?api_key= query parameter are ignored there:
     # every call answers 401, the settings tab and the history come up empty, and nothing in the
@@ -1284,7 +1311,7 @@ def run_page_checks():
            'track {Reference}, {Cues} cues' in service
            and 'public static int CueCount' in store)
     report('a closed run drops the file rather than deleting it while others still need it',
-           'ReferenceStore.EndJob' in service and 'moreQueuedForThisFile' in store)
+           'ReferenceStore.EndJob' in service and 'stillInUse' in store)
     report('an interrupted run cannot leave a reference behind',
            'ReferenceStore.SweepLeftovers' in plugin_source and 'SweepLeftovers' in store)
     report('a run releases its reference when it closes',
@@ -1440,7 +1467,7 @@ def run_page_checks():
            and 'reference subtitle' in pages['subsyncMain.html'].lower())
 
     report('a reference with too few cues is dropped and the audio used instead',
-           'LooksLikeSignsTrack(referenceCues' in service
+           'LooksLikeSignsTrack(reuseCues' in service
            and 'falling back to the audio for this job' in service
            and 'ReferenceStore.Discard' in service and 'public static void Discard' in store)
     report('the answer the scheduler keys on is memoised, not read per planning pass',

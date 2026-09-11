@@ -306,6 +306,12 @@ public class SubSyncService : IDisposable
     private readonly ConcurrentDictionary<string, string> _extractedText = new(StringComparer.Ordinal);
     private readonly ConcurrentQueue<string> _extractedOrder = new();
     private const int ExtractedCacheLimit = 256;
+
+    // One gate per media file: only one job builds that file's reference subtitle, the others wait
+    // for it and then reuse the file. Two builders raced on a single shared "<target>.part" and the
+    // loser either failed to write it or failed to move it into place, which used to end in the
+    // engine being handed the whole container to demux.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _referenceGates = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, (Video Video, MediaBrowser.Model.Entities.MediaStream Stream, int Ordinal, Configuration.PluginConfiguration Config)> _jobContexts = new();
 
     // Per-job cancellation. Cancelling a batch only drops queued work; killing running
@@ -2242,7 +2248,7 @@ public class SubSyncService : IDisposable
             List<SyncJob> toStart;
             var limit = 1;
             var running = 0;
-            List<(string? VideoPath, bool MoreQueued)> finishedVideos;
+            List<(string? VideoPath, bool StillNeeded)> finishedVideos;
 
             LogWorkerLimit();
 
@@ -2260,14 +2266,20 @@ public class SubSyncService : IDisposable
                         : null;
 
                     // A reference is only worth keeping while another subtitle of that same media file
-                    // is still queued behind it. Once the file is done, this run's copy goes: a wrong
-                    // reference must not be able to poison a later run of the same file.
-                    var stillQueued = finishedPath is not null
-                        && _runOrder.Any(j => j.Status == SyncJobStatus.Queued
+                    // is still going to use it — queued *or* already running. Counting only the queued
+                    // jobs deleted the tree out from under the running ones: the last queued task of a
+                    // batch is dispatched while up to `ParallelWorkers` jobs of that very file sit in
+                    // ffsubsync reading the reference it just removed, and the losers of that race
+                    // either failed ("unable to read reference") or were handed the whole container to
+                    // demux instead. Once no job of the file is queued or running, this run's copy
+                    // goes: a wrong reference must not be able to poison a later run of the file.
+                    var stillNeeded = finishedPath is not null
+                        && _runOrder.Any(j => (j.Status == SyncJobStatus.Queued
+                                || j.Status == SyncJobStatus.Running)
                             && _jobContexts.TryGetValue(j.Id, out var queuedContext)
                             && string.Equals(queuedContext.Video.Path, finishedPath, StringComparison.Ordinal));
 
-                    finishedVideos.Add((finishedPath, stillQueued));
+                    finishedVideos.Add((finishedPath, stillNeeded));
                 }
 
                 running = inFlight.Count;
@@ -2313,9 +2325,16 @@ public class SubSyncService : IDisposable
 
             // Filesystem work stays outside the queue lock: releasing a reference may delete a whole
             // directory, and this lock is what the enqueue path waits on.
-            foreach (var (finishedVideo, moreQueuedForIt) in finishedVideos)
+            foreach (var (finishedVideo, stillNeededForIt) in finishedVideos)
             {
-                ReferenceStore.EndJob(finishedVideo, moreQueuedForIt);
+                ReferenceStore.EndJob(finishedVideo, stillNeededForIt);
+
+                // The file is done: nothing of this run will need its reference gate again, so it
+                // does not sit in the dictionary until the next restart.
+                if (!stillNeededForIt && finishedVideo is not null)
+                {
+                    _referenceGates.TryRemove(finishedVideo, out _);
+                }
             }
 
             if (toStart.Count == 0)
@@ -3200,13 +3219,23 @@ public class SubSyncService : IDisposable
             string? speechKey = null;
             var usingCachedSpeech = false;
 
+            // The reference this job is aligned against is one of exactly two things: the file's own
+            // audio (analysed once, reused through the speech cache) or a sibling subtitle track that
+            // our own reader produced. What it must never be is the media file itself: passing the
+            // container to ffsubsync makes the engine demux the whole thing with its own ffmpeg, once
+            // per job. Measured on this fixture — a 2.38 GB episode — two jobs sat in that demux for 7
+            // and 17 minutes and never finished, and on a bulk run that is what stops the batch ever
+            // reaching the end (S11).
+            var usesAudioReference = referenceStream is null
+                || referenceStream.StartsWith("a:", StringComparison.Ordinal);
+
             // The speech signal depends on the media file, the VAD method and the engine
             // build — never on the subtitle, its language or the mode. Analysing it is work
             // that happens anyway, so it is always kept: the other subtitles of that file and
-            // any later run then skip the audio pass entirely.
-            var usesAudioReference = referenceStream is null
-                || referenceStream.StartsWith("a:", StringComparison.Ordinal);
-            if (usesAudioReference)
+            // any later run then skip the audio pass entirely. This is also the fallback whenever a
+            // subtitle reference cannot be built — the plugin never refuses a job, it changes the
+            // ruler it measures against.
+            async Task<string> PrepareAudioReferenceAsync(string why)
             {
                 // Identity of everything that shapes the speech signal: the binary in use,
                 // the bundled engine version and this plugin's own version. A path alone is
@@ -3223,25 +3252,30 @@ public class SubSyncService : IDisposable
                 var cached = SpeechCache.TryGet(speechKey);
                 if (cached is not null)
                 {
-                    referencePath = cached;
                     usingCachedSpeech = true;
                     job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
-                    _logger.LogInformation("Reusing the stored audio analysis for {Video}", videoPath);
+                    _logger.LogInformation("Reusing the stored audio analysis for {Video} ({Why})", videoPath, why);
+                    PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why}");
+                    return cached;
                 }
-                else
-                {
-                    referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
-                    serializeSpeech = true;
-                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
-                }
+
+                serializeSpeech = true;
+                job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
+                PluginLog.Info($"[{job.Id}] reference: method=audio why={why}");
+                return SpeechCache.CreateReferenceLink(videoPath, speechKey);
+            }
+
+            if (usesAudioReference)
+            {
+                referencePath = await PrepareAudioReferenceAsync("the audio is this job's own reference")
+                    .ConfigureAwait(false);
             }
             else
             {
-                // The reference is a sibling subtitle track. That comparison is cheap, but letting
-                // ffsubsync pull the stream out of the video itself is not: it demuxes the whole
-                // file. Measured on an 8.2 GB episode: 12.5 s and 8218 MB read, repeated for every
-                // subtitle. So the reference subtitle is extracted once by our own reader, cached,
-                // and handed over as a small SRT - 0.6 s and 6.5 MB, identical output.
+                // The reference is a sibling subtitle track, and it is built here from text this
+                // process already has. Letting ffsubsync pull the stream out of the video instead is
+                // not: it demuxes the whole file. Measured on an 8.2 GB episode: 12.5 s and 8218 MB
+                // read, repeated for every subtitle.
                 var referenceIdentity = string.Join(
                     "|",
                     ResolveFfSubSyncPath(),
@@ -3251,93 +3285,134 @@ public class SubSyncService : IDisposable
                 referenceSpec = referenceStream;
 
                 // The reference lives in this run's own directory and is shared with the other
-                // subtitles of this file while they are still queued. It is deliberately never carried
-                // over from an earlier run: a reference taken from a sibling subtitle inherits that
-                // track's own error, and every other track of the file then inherits it in turn.
+                // subtitles of this file while they are still going to use it. It is deliberately
+                // never carried over from an earlier run: a reference taken from a sibling subtitle
+                // inherits that track's own error, and every other track of the file then inherits it
+                // in turn.
                 var referenceTarget = referenceOrdinal >= 0
                     ? ReferenceStore.Reserve(videoPath, referenceStream!, referenceIdentity)
                     : null;
 
-                // A reference with a handful of cues over a whole episode is a signs/forced track: it
-                // cannot align anything. Take it out of the running and let this job use the audio
-                // instead - the sync still happens, it just stops being built on a bad ruler.
-                var referenceCues = referenceTarget is not null && File.Exists(referenceTarget)
-                    ? ReferenceStore.CueCount(referenceTarget)
-                    : -1;
-                if (referenceTarget is not null
-                    && LooksLikeSignsTrack(referenceCues, videoDurationForReference))
-                {
-                    _logger.LogWarning(
-                        "The reference subtitle {Track} for {Video} holds only {Cues} cue(s) - a signs track, not usable as a reference; syncing against the audio instead",
-                        referenceSpec,
-                        videoPath,
-                        referenceCues);
-                    PluginLog.Info(
-                        $"[{job.Id}] reference {referenceSpec} has only {referenceCues} cue(s) (a signs/forced track), "
-                        + "so it is not usable as a ruler - falling back to the audio for this job");
-                    ReferenceStore.Discard(videoPath, referenceSpec!);
-                    referenceStream = null;
-                    referenceTarget = null;
-                    referenceSpec = null;
-                }
+                // One job at a time builds this file's reference; the ones that follow reuse the file
+                // it wrote. Two builders used to race on one shared "<target>.part", and the loser
+                // either failed to write it or failed to move it into place — a race that ended in
+                // "let ffsubsync demux the file instead", the very thing this block exists to avoid.
+                var referenceGate = _referenceGates.GetOrAdd(videoPath, _ => new SemaphoreSlim(1, 1));
+                string? referenceWhy = null;
 
-                if (referenceTarget is not null && File.Exists(referenceTarget))
+                if (referenceTarget is not null)
                 {
-                    referencePath = referenceTarget;
-                    referenceStream = null;
-                    usedSubtitleReference = true;
-                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: false);
-                    _logger.LogInformation(
-                        "Reusing this run's reference subtitle for {Video}: track {Reference}, {Cues} cues",
-                        videoPath,
-                        referenceSpec,
-                        ReferenceStore.CueCount(referenceTarget));
-                }
-                else if (referenceTarget is not null)
-                {
-                    var referencePart = referenceTarget + ".part";
+                    await referenceGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                     try
                     {
-                        Directory.CreateDirectory(Path.GetDirectoryName(referenceTarget)!);
+                        if (File.Exists(referenceTarget))
+                        {
+                            var reuseCues = ReferenceStore.CueCount(referenceTarget);
+                            if (LooksLikeSignsTrack(reuseCues, videoDurationForReference))
+                            {
+                                // A reference with a handful of cues over a whole episode is a
+                                // signs/forced track: it cannot align anything. Take it out of the
+                                // running and let this job use the audio instead - the sync still
+                                // happens, it just stops being built on a bad ruler.
+                                _logger.LogWarning(
+                                    "The reference subtitle {Track} for {Video} holds only {Cues} cue(s) - a signs track, not usable as a reference; syncing against the audio instead",
+                                    referenceSpec,
+                                    videoPath,
+                                    reuseCues);
+                                PluginLog.Info(
+                                    $"[{job.Id}] reference {referenceSpec} has only {reuseCues} cue(s) (a signs/forced track), "
+                                    + "so it is not usable as a ruler - falling back to the audio for this job");
+                                ReferenceStore.Discard(videoPath, referenceSpec!);
+                                referenceTarget = null;
+                                referenceWhy = $"only {reuseCues} cue(s): a signs/forced track";
+                            }
+                            else
+                            {
+                                referencePath = referenceTarget;
+                                referenceStream = null;
+                                usedSubtitleReference = true;
+                                job.Phase = SyncPhaseLabel(fromCache: true, audioReference: false);
+                                _logger.LogInformation(
+                                    "Reusing this run's reference subtitle for {Video}: track {Reference}, {Cues} cues",
+                                    videoPath,
+                                    referenceSpec,
+                                    reuseCues);
+                            }
+                        }
 
-                        // Written to a temporary name and moved into place: two subtitles of the
-                        // same file may extract the reference at the same time, and a reader must
-                        // never see a half-written file.
-                        await ExtractEmbeddedAsync(
-                            videoPath,
-                            referenceOrdinal,
-                            -1,
-                            referencePart,
-                            config,
-                            job,
-                            video.RunTimeTicks,
-                            cancellationToken,
-                            allowFfmpegFallback: false).ConfigureAwait(false);
-                        File.Move(referencePart, referenceTarget, overwrite: true);
-                        ReferenceStore.MarkReady(videoPath);
-                        referencePath = referenceTarget;
-                        referenceStream = null;
-                        usedSubtitleReference = true;
-                        _logger.LogInformation(
-                            "Extracted this run's reference subtitle for {Video}: track {Reference}, {Cues} cues (deleted once this file's subtitles are done)",
-                            videoPath,
-                            referenceSpec,
-                            ReferenceStore.CueCount(referenceTarget));
+                        if (referenceTarget is not null && !File.Exists(referenceTarget))
+                        {
+                            // The track's text, taken from wherever it already is: this run's memory,
+                            // the extracted-subtitle cache, or the container's own index. Never a
+                            // whole-file ffmpeg read — that is the cost this whole block exists to
+                            // avoid.
+                            var referenceText = await TryReadReferenceTextAsync(
+                                videoPath, referenceOrdinal, job, cancellationToken).ConfigureAwait(false);
+
+                            if (string.IsNullOrWhiteSpace(referenceText))
+                            {
+                                referenceWhy = "the track's text could not be read from the container index";
+                            }
+                            else
+                            {
+                                // Written under a name of this job's own and moved into place: the
+                                // reference is handed to ffsubsync as a path, and a reader must never
+                                // see a half-written file.
+                                var referencePart = referenceTarget + "." + job.Id + ".part";
+                                try
+                                {
+                                    Directory.CreateDirectory(Path.GetDirectoryName(referenceTarget)!);
+                                    await File.WriteAllTextAsync(
+                                        referencePart, referenceText, new System.Text.UTF8Encoding(false), cancellationToken)
+                                        .ConfigureAwait(false);
+                                    File.Move(referencePart, referenceTarget, overwrite: true);
+                                    ReferenceStore.MarkReady(videoPath);
+                                    referencePath = referenceTarget;
+                                    referenceStream = null;
+                                    usedSubtitleReference = true;
+                                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);
+                                    _logger.LogInformation(
+                                        "Built this run's reference subtitle for {Video} from track {Reference}: {Cues} cues (deleted once this file's subtitles are done)",
+                                        videoPath,
+                                        referenceSpec,
+                                        SrtWriter.CountCues(referenceText));
+                                    PluginLog.Info(
+                                        $"[{job.Id}] reference: method=subtitle cues={SrtWriter.CountCues(referenceText)} "
+                                        + $"track={referenceSpec} file={videoPath}");
+                                }
+                                catch (Exception ex) when (ex is not OperationCanceledException)
+                                {
+                                    try { File.Delete(referencePart); } catch (IOException) { /* best effort */ }
+                                    referenceWhy = ex.Message;
+                                    _logger.LogWarning(ex, "Could not write the reference subtitle for {Video}", videoPath);
+                                }
+                            }
+                        }
                     }
-                    catch (Exception ex) when (ex is not OperationCanceledException)
+                    finally
                     {
-                        try { File.Delete(referencePart); } catch (IOException) { /* best effort */ }
-
-                        // Fall back to the previous behaviour: let ffsubsync pull the stream. Slow,
-                        // but better than failing the sync.
-                        _logger.LogWarning(
-                            ex,
-                            "Could not extract the reference subtitle from {Video}; ffsubsync will demux the file instead",
-                            videoPath);
+                        referenceGate.Release();
                     }
                 }
 
-                job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);
+                if (!usedSubtitleReference)
+                {
+                    // No usable subtitle reference for this job. The audio is analysed instead —
+                    // through the speech cache, so that a file's other subtitles pay for it once —
+                    // and the container is never handed over: that demux is what left a bulk run
+                    // unable to finish.
+                    PluginLog.Info(
+                        $"[{job.Id}] reference {referenceSpec ?? "(none)"} unusable ({referenceWhy ?? "not available"}) "
+                        + "- aligning against the audio instead");
+                    _logger.LogWarning(
+                        "No usable reference subtitle for {Video} ({Why}); syncing against the audio instead",
+                        videoPath,
+                        referenceWhy ?? "not available");
+                    referenceSpec = null;
+                    referenceStream = null;
+                    referencePath = await PrepareAudioReferenceAsync(
+                        "no reference subtitle could be built for this job").ConfigureAwait(false);
+                }
             }
 
             var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
@@ -4131,6 +4206,133 @@ public class SubSyncService : IDisposable
     private bool TryTakeExtracted(string videoPath, int ordinal, out string text) =>
         _extractedText.TryRemove(ExtractedKey(videoPath, ordinal), out text!);
 
+    /// <summary>Looks up an already extracted track without consuming it.</summary>
+    /// <remarks>
+    /// The reference track is not the job's own subtitle: two jobs of the same file may need the same
+    /// text, so this one peeks instead of taking. Taking it (as the job's own extraction does) makes
+    /// the second reader fall through to the container index for text this process already holds.
+    /// </remarks>
+    /// <param name="videoPath">The media file.</param>
+    /// <param name="ordinal">Subtitle ordinal within the file.</param>
+    /// <param name="text">The extracted SRT, when it was cached.</param>
+    /// <returns>True when it was found.</returns>
+    private bool TryPeekExtracted(string videoPath, int ordinal, out string text) =>
+        _extractedText.TryGetValue(ExtractedKey(videoPath, ordinal), out text!);
+
+    /// <summary>
+    /// Reads the text of the track a job will align against, from the cheapest source that has it.
+    /// </summary>
+    /// <remarks>
+    /// The order is deliberate and ends without a whole-file ffmpeg read: this run's memory (the lane
+    /// or a sibling job already produced the track), the extracted-subtitle cache (an earlier run
+    /// did), then the container's own index. Anything that is not already text is therefore read
+    /// through the index, never by demuxing the container with ffmpeg — that cost, per job, is what
+    /// stops a bulk run finishing. Returning null is a legitimate answer: the caller then aligns
+    /// against the audio instead.
+    /// </remarks>
+    /// <param name="videoPath">The media file.</param>
+    /// <param name="ordinal">0-based subtitle ordinal of the reference track.</param>
+    /// <param name="job">Job whose phase is updated while reading.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>The SRT text, or null when no reader could produce it.</returns>
+    private async Task<string?> TryReadReferenceTextAsync(
+        string videoPath,
+        int ordinal,
+        SyncJob job,
+        CancellationToken cancellationToken)
+    {
+        if (TryPeekExtracted(videoPath, ordinal, out var inMemory) && !string.IsNullOrWhiteSpace(inMemory))
+        {
+            PluginLog.Info(
+                $"reference: method=reused cues={SrtWriter.CountCues(inMemory)} file={videoPath} stream={ordinal}");
+            return inMemory;
+        }
+
+        if (SubtitleCache.TryGet(videoPath, ordinal.ToString(CultureInfo.InvariantCulture), out var onDisk)
+            && !string.IsNullOrWhiteSpace(onDisk))
+        {
+            PluginLog.Info(
+                $"reference: method=cache cues={SrtWriter.CountCues(onDisk)} file={videoPath} stream={ordinal}");
+            return onDisk;
+        }
+
+        var reason = string.Empty;
+        string? text = null;
+        var stats = new MkvExtractionStats();
+
+        try
+        {
+            if (MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
+            {
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var progress = new Action<string>(line =>
+                {
+                    job.Phase = "Reading the reference subtitle: " + line;
+                });
+                var ok = await Task.Factory.StartNew(
+                    () => MkvSubtitleExtractor.TryExtract(
+                        videoPath,
+                        ordinal,
+                        out text,
+                        out reason,
+                        progress,
+                        out stats,
+                        null,
+                        null,
+                        cancellationToken),
+                    cancellationToken,
+                    TaskCreationOptions.LongRunning,
+                    TaskScheduler.Default).ConfigureAwait(false);
+                watch.Stop();
+
+                if (!ok || string.IsNullOrWhiteSpace(text))
+                {
+                    PluginLog.Warn(
+                        $"reference: method=index-none ms={watch.ElapsedMilliseconds} stream={ordinal} "
+                        + $"reason={reason} file={videoPath}");
+                    return null;
+                }
+
+                PluginLog.Info(
+                    $"reference: method={stats.Method} ms={watch.ElapsedMilliseconds} cues={SrtWriter.CountCues(text)} "
+                    + $"bytesRead={stats.BytesRead} readCalls={stats.ReadCalls} file={videoPath} stream={ordinal}");
+            }
+            else if (Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
+            {
+                if (!Mp4SubtitleExtractor.TryExtract(videoPath, ordinal, out var mp4Text, out reason)
+                    || string.IsNullOrWhiteSpace(mp4Text))
+                {
+                    PluginLog.Warn(
+                        $"reference: method=mp4-none stream={ordinal} reason={reason} file={videoPath}");
+                    return null;
+                }
+
+                text = mp4Text;
+                PluginLog.Info(
+                    $"reference: method=mp4-sample-table cues={SrtWriter.CountCues(text)} file={videoPath} stream={ordinal}");
+            }
+            else
+            {
+                PluginLog.Warn($"reference: method=none stream={ordinal} reason=no index reader matched this container");
+                return null;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Warn($"reference: method=index-error stream={ordinal} reason={ex.Message} file={videoPath}");
+            return null;
+        }
+
+        // Keep it for the other subtitles of this file (and the next run): the reference is read once.
+        CacheExtracted(videoPath, ordinal, text!);
+        SubtitleCache.Store(videoPath, ordinal.ToString(CultureInfo.InvariantCulture), text!);
+        return text;
+    }
+
     /// <summary>Remembers an extracted track for the jobs that follow it.</summary>
     /// <param name="videoPath">The media file.</param>
     /// <param name="ordinal">Subtitle ordinal within the file.</param>
@@ -4167,11 +4369,6 @@ public class SubSyncService : IDisposable
     /// <param name="job">Job whose phase/progress is updated while extracting.</param>
     /// <param name="runTimeTicks">Total runtime from Jellyfin, used to turn ffmpeg's timestamps into progress.</param>
     /// <param name="cancellationToken">Cancellation token.</param>
-    /// <param name="allowFfmpegFallback">
-    /// Whether to fall back to a whole-file ffmpeg demux. False when extracting a *reference*
-    /// subtitle, where that fallback would undo the saving it exists for; the caller then lets
-    /// ffsubsync pull the stream instead.
-    /// </param>
     /// <returns>The method that produced the subtitle ("matroska-cues", "mp4-sample-table" or "ffmpeg").</returns>
     private async Task<string> ExtractEmbeddedAsync(
         string videoPath,
@@ -4181,8 +4378,7 @@ public class SubSyncService : IDisposable
         Configuration.PluginConfiguration config,
         SyncJob job,
         long? runTimeTicks,
-        CancellationToken cancellationToken,
-        bool allowFfmpegFallback = true)
+        CancellationToken cancellationToken)
     {
         var utf8 = new System.Text.UTF8Encoding(false);
         var skipped = new List<string>();
@@ -4341,15 +4537,6 @@ public class SubSyncService : IDisposable
         if (skipped.Count == 0)
         {
             skipped.Add("no index reader matched this container");
-        }
-
-        if (!allowFfmpegFallback)
-        {
-            // A reference subtitle: a whole-file demux here would cost exactly what this call
-            // exists to avoid. Let the caller keep ffsubsync's own (slower) way.
-            throw new InvalidOperationException(
-                "the subtitle could not be read from the container index: "
-                + (skipped.Count == 0 ? "no index reader matched this container" : string.Join("; ", skipped)));
         }
 
         double sizeMb = 0;
