@@ -427,6 +427,15 @@ foreach (var scenario in mkvScenarios)
         // track it does not want would read the whole file here.
         Check("cue-index extraction stays under 1 MB", mkvStats.BytesRead < 1_000_000,
             $"{mkvStats.BytesRead / 1e6:0.000} MB in {mkvStats.ReadCalls} reads");
+
+        // A cue costs at most two reads: the cluster header that locates the block (the index
+        // stores the block's offset relative to the cluster's data) and the block itself. Anything
+        // beyond that means the walk re-reads, and on a high-latency share that is the whole cost of
+        // an extraction - a real run showed 456 reads for 224 cues at ~100 ms each, 50 s per file.
+        var overhead = 12;
+        Check($"at most two reads per cue ({scenario.Name})",
+            mkvStats.ReadCalls <= (found * 2) + overhead,
+            $"{mkvStats.ReadCalls} reads for {found} cues ({(double)mkvStats.ReadCalls / Math.Max(1, found):0.00} per cue)");
     }
 }
 
