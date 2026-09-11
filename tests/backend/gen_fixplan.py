@@ -83,7 +83,9 @@ out = [
 ]
 for t, desc in ((1, "the run has to finish — a bulk run must neither hang nor fail"),
                 (2, "nothing may write a wrong file, lie on screen, or leave junk behind"),
-                (3, "what the user actually touches, the rest of both test matrices, layout, hygiene")):
+                (3, "critical and high severity — the user feels these"),
+                (4, "the rest of both matrices, layout, hygiene, and the audit's unproven static leads "
+                    "(verify first: refuting one is a real result)")):
     sel = [r for r in rows if r['tier'] == t]
     out.append("## Tier %d — %s (%d items)\n" % (t, desc, len(sel)))
     out.append("| state | id | sev | what | evidence / commit |")
