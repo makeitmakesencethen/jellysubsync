@@ -72,6 +72,8 @@
             .ss-worker-idx { font-size: .72rem; opacity: .5; text-align: right; }
             .ss-worker-name { font-size: .82rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .ss-worker-phase { font-size: .72rem; opacity: .55; margin-left: 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .ss-worker-idle { opacity: .45; background: rgba(255,255,255,.02); }
+            .ss-worker-idle .ss-worker-name { font-style: italic; }
             .ss-worker-pct { font-size: .76rem; opacity: .8; font-variant-numeric: tabular-nums; }
             .ss-worker-bar-wrap { grid-column: 2 / 4; background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin-top: 3px; overflow: hidden; }
             .ss-worker-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
@@ -457,7 +459,8 @@
                     var error = t.Error || t.error;
                     var outPath = t.OutputPath || t.outputPath;
                     var outcome = t.Outcome || t.outcome || '';
-                    if (status === 'Completed') lines.push('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome ? ' (' + outcome + ')' : ''));
+                    var extractNote = t.ExtractionNote || t.extractionNote || '';
+                    if (status === 'Completed') lines.push('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
                     else if (status === 'Cancelled') lines.push('SKIP ' + title + ' \u2014 cancelled');
                     else lines.push('FAIL ' + title + ' \u2014 ' + (error || status));
                 });
@@ -478,34 +481,69 @@
                 }
             }
 
+            // Every worker slot is drawn, busy or not, so the panel answers "how much of the
+            // configured parallelism is actually in use" at a glance. A batch waiting behind another
+            // one shows nothing of its own - so the slots are filled from whatever is running on the
+            // server, which is what the user is waiting for.
+            var lastActive = { running: [], queued: 0 };
+
+            function refreshActive() {
+                return api('SubSync/Active').then(function (active) {
+                    lastActive = active || { running: [], queued: 0 };
+                }).catch(function () { /* keep the last known state */ });
+            }
+
+            function normalizeRunning(t) {
+                return {
+                    Title: t.Title || t.title || '',
+                    Phase: t.Phase || t.phase || 'working',
+                    Progress: (t.Progress != null) ? t.Progress : (t.progress || 0)
+                };
+            }
+
             function renderWorkerRows(view) {
                 var box = $('ss-workers');
                 if (!box) return;
-                var running = (view && (view.RunningTasks || view.runningTasks)) || [];
-                if (running.length === 0) {
+
+                var mine = ((view && (view.RunningTasks || view.runningTasks)) || []).map(normalizeRunning);
+                var elsewhere = (lastActive.running || []).map(normalizeRunning);
+                var busy = mine.length ? mine : elsewhere;
+
+                var limit = (view && (view.WorkerLimit || view.workerLimit)) || 0;
+                if (!limit) {
+                    limit = (view && (view.WorkerSetting || view.workerSetting)) || 0;
+                }
+                if (!limit && busy.length) {
+                    limit = busy.length;
+                }
+
+                if (!busy.length && limit <= 1) {
                     box.classList.add('ss-hidden');
                     box.innerHTML = '';
                     return;
                 }
 
+                var slots = Math.max(limit, busy.length);
                 var html = '';
-                running.forEach(function (t, i) {
-                    var title = t.Title || t.title || ('task ' + (t.BatchIndex != null ? t.BatchIndex : ''));
-                    var phase = t.Phase || t.phase || 'working';
-                    var prog = (t.Progress != null) ? t.Progress : (t.progress || 0);
-                    var pct = Math.round(Math.max(0, Math.min(1, prog)) * 100);
-                    // One line per worker: name, then the phase dimmed beside it, then the number.
-                    // The elapsed time and the full phase text used to repeat on every row and made
-                    // eight workers read as a wall of text; the phase detail is in the log, and the
-                    // phase is only worth showing on its own line when no rows are drawn.
-                    html += '<div class="ss-worker">' +
-                        '<div class="ss-worker-idx">' + (i + 1) + '</div>' +
-                        '<div class="ss-worker-name">' + esc(title) +
-                        '<span class="ss-worker-phase">' + esc(phase) + '</span></div>' +
-                        '<div class="ss-worker-pct">' + pct + '%</div>' +
+                for (var slot = 0; slot < slots; slot++) {
+                    var task = busy[slot];
+                    var pct = 0;
+                    var name = 'idle';
+                    var phase = '';
+                    if (task) {
+                        var prog = Math.max(0, Math.min(1, task.Progress || 0));
+                        pct = Math.round(prog * 100);
+                        name = task.Title || ('task ' + (slot + 1));
+                        phase = task.Phase || '';
+                    }
+                    html += '<div class="ss-worker' + (task ? '' : ' ss-worker-idle') + '">' +
+                        '<div class="ss-worker-idx">' + (slot + 1) + '</div>' +
+                        '<div class="ss-worker-name">' + esc(name) +
+                        (phase ? '<span class="ss-worker-phase">' + esc(phase) + '</span>' : '') + '</div>' +
+                        '<div class="ss-worker-pct">' + (task ? pct + '%' : '\u2014') + '</div>' +
                         '<div class="ss-worker-bar-wrap"><div class="ss-worker-bar" style="width:' + pct + '%"></div></div>' +
                         '</div>';
-                });
+                }
                 box.innerHTML = html;
                 box.classList.remove('ss-hidden');
             }
@@ -1633,7 +1671,10 @@
                     var error = t.Error || t.error;
                     var outPath = t.OutputPath || t.outputPath;
                     var outcome = t.Outcome || t.outcome || '';
-                    if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome ? ' (' + outcome + ')' : ''));
+                    var extractNote = t.ExtractionNote || t.extractionNote || '';
+                    // The reader and its cost travel with the result: a subtitle that took two minutes
+                    // to extract is otherwise indistinguishable from one that took 30 ms.
+                    if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
                     else if (status === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
                     else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
                     taskLines[idx] = true;
@@ -1645,6 +1686,10 @@
                 watchedBatchId = batchId;
                 var lastFinished = -1;
                 var timer = setInterval(function () {
+                    // Fetch what the whole server is running as well: a batch queued behind another one
+                    // has no running tasks of its own, and the panel must still show the work in
+                    // progress (with every slot drawn) instead of a bare "Queued…" line.
+                    refreshActive().then(function () {
                     api('SubSync/Batch/' + batchId).then(function (view) {
                         if (!view) return;
                         var tasks = (view.Tasks) || (view.tasks) || [];
@@ -1665,7 +1710,8 @@
                                 var error = t.Error || t.error;
                                 var outPath = t.OutputPath || t.outputPath;
                                 var outcome = t.Outcome || t.outcome || '';
-                                if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome ? ' (' + outcome + ')' : ''));
+                                var extractNote = t.ExtractionNote || t.extractionNote || '';
+                                if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
                                 else if (st === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
                                 else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
                                 taskLines[idx] = true;
@@ -1702,7 +1748,6 @@
                             }
                         }
                         if (current) {
-                            var cTitle = current.Title || current.title || '';
                             var phase = current.Phase || current.phase || '';
                             var curIid = current.ItemId || current.itemId;
                             var epPos = episodeIds.indexOf(curIid) + 1;
@@ -1718,7 +1763,10 @@
                             $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';
                         } else {
                             if (status === 'Queued') {
-                                $('ss-run-label').textContent = 'Queued \u2014 waiting for earlier runs to finish\u2026';
+                                var elsewhereBusy = (lastActive.running || []).length;
+                                $('ss-run-label').textContent = elsewhereBusy
+                                    ? 'Queued \u2014 ' + elsewhereBusy + ' task' + (elsewhereBusy === 1 ? '' : 's') + ' still running from an earlier run'
+                                    : 'Queued \u2014 waiting for earlier runs to finish\u2026';
                             } else {
                                 $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
                                 $('ss-phase').textContent = '';
@@ -1737,6 +1785,7 @@
                             advanceToNextBatch();
                         }
                     }).catch(function () { /* transient poll error — keep trying */ });
+                    });
                 }, 1000);
                 watchedBatchTimer = timer;
             }

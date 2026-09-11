@@ -99,6 +99,14 @@ public class SyncJob
     /// (e.g. "offset −1250 ms", "framerate ratio 1.0004×"), for History.</summary>
     public string? Outcome { get; set; }
 
+    /// <summary>
+    /// Gets or sets how the embedded subtitle was obtained and what it cost, e.g. "read through the
+    /// container index (matroska-cues), 31 ms" or "demuxed with ffmpeg, 96000 ms". A subtitle that
+    /// took two minutes to extract is otherwise indistinguishable from one that took thirty
+    /// milliseconds, in the interface and in the history alike.
+    /// </summary>
+    public string? ExtractionNote { get; set; }
+
     /// <summary>Gets or sets when the job was created (queue order).</summary>
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
@@ -2316,6 +2324,7 @@ public class SubSyncService : IDisposable
                     "Embedded sync of {Video}: deriving the speech signal from '{Reference}'",
                     videoPath, referenceStream);
 
+                var extractionWatch = System.Diagnostics.Stopwatch.StartNew();
                 var extractionMethod = await ExtractEmbeddedAsync(
                     videoPath,
                     subtitleStreamOrdinal,
@@ -2325,6 +2334,15 @@ public class SubSyncService : IDisposable
                     job,
                     video.RunTimeTicks,
                     cancellationToken).ConfigureAwait(false);
+                extractionWatch.Stop();
+
+                // Say which reader produced the subtitle and what it cost. The indexed reader touches
+                // kilobytes and finishes in milliseconds; the ffmpeg fallback demuxes the whole file,
+                // which on a NAS is the difference between a second and minutes per subtitle. Putting
+                // it in the task result means the difference is visible without the server log.
+                job.ExtractionNote = extractionMethod == "ffmpeg"
+                    ? $"demuxed with ffmpeg, {extractionWatch.ElapsedMilliseconds} ms"
+                    : $"read through the container index ({extractionMethod}), {extractionWatch.ElapsedMilliseconds} ms";
 
                 // A kill during extraction must not turn into "try the next method".
                 cancellationToken.ThrowIfCancellationRequested();

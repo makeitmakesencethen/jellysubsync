@@ -191,7 +191,31 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.45]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.46]
+
+### Fixed
+- **WebVTT tracks no longer go through ffmpeg.** The container reader's text-codec list was missing
+  the codec IDs WebVTT actually uses - ffmpeg writes `D_WEBVTT/SUBTITLES`, mkvmerge writes
+  `S_TEXT/WEBVTT` - so every VTT track was rejected by the index reader and demuxed instead: a
+  whole-file read per subtitle. WebVTT in Matroska is stored text-per-block exactly like
+  `S_TEXT/UTF8` (the timing is in the block header, not the payload), so it is read through the
+  index now. Measured on a muxed fixture, same 40 cues: **58 ms, 0.26 MB, 67 reads** through the
+  index versus a full demux. VTT markup is handled too: voice/class spans, inline cue timestamps and
+  HTML entities are stripped, and a payload that carries its own timing line keeps only the text.
+
+### Added
+- **Every worker slot is drawn, busy or idle.** The panel showed nothing while a batch waited behind
+  another run, which read as "nothing is happening". It now shows one row per slot (up to the
+  configured count) filled from whatever the server is running, so the busy ones have their own bar
+  and phase and the rest are visibly idle - the answer to "is it actually running in parallel". The
+  queued line names what it is waiting for (`Queued - 5 tasks still running from an earlier run`).
+
+- **The extraction cost travels with the result.** Each completed task now states how its subtitle was
+  obtained: `read through the container index (matroska-cues), 31 ms` or `demuxed with ffmpeg,
+  96000 ms`. Which reader ran and what it cost is the difference between a fast sync and a slow one,
+  and it was previously only in the server log.
+
+## [1.1.0.45]
 
 ### Fixed
 - **A forced (signs/text) track is never picked automatically any more.** Reported from real use: a

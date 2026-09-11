@@ -295,7 +295,8 @@ public class SubSyncController : ControllerBase
                 Phase = j.Phase,
                 Error = j.Error,
                 OutputPath = j.OutputPath,
-                Outcome = j.Outcome
+                Outcome = j.Outcome,
+                ExtractionNote = j.ExtractionNote
             }).ToList()
         };
     }
@@ -554,6 +555,13 @@ public class BatchTask
 
     /// <summary>Gets or sets what the sync changed (e.g. "−1250 ms offset"), set on success.</summary>
     public string? Outcome { get; set; }
+
+    /// <summary>
+    /// Gets or sets how the embedded subtitle was obtained and what it cost (e.g. "read through the
+    /// container index (matroska-cues), 31 ms" or "demuxed with ffmpeg, 96000 ms"). Shown with the
+    /// task result so a slow run can be traced to the reader that did it instead of the server log.
+    /// </summary>
+    public string? ExtractionNote { get; set; }
 }
 
 /// <summary>

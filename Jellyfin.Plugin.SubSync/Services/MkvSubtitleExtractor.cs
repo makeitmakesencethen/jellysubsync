@@ -1077,7 +1077,7 @@ public static class MkvSubtitleExtractor
         }
 
         var text = Encoding.UTF8.GetString(payload);
-        AddCue(cues, clusterTimecode, relative, text, hasDuration, durationTicks, track.IsAss);
+        AddCue(cues, clusterTimecode, relative, text, hasDuration, durationTicks, track);
         return true;
     }
 
@@ -1088,9 +1088,9 @@ public static class MkvSubtitleExtractor
         string rawText,
         bool hasDuration,
         long durationTicks,
-        bool isAssTrack)
+        SubtitleTrack track)
     {
-        var text = NormalizeText(rawText, isAssTrack);
+        var text = NormalizeText(rawText, track);
         if (string.IsNullOrWhiteSpace(text))
         {
             return;
@@ -1393,10 +1393,16 @@ public static class MkvSubtitleExtractor
     /// <summary>
     /// Turns one subtitle block into plain text. Matroska's S_TEXT/ASS blocks hold the ASS
     /// payload (layer, style, margins… then the text) rather than a "Dialogue:" line, and
-    /// Comment blocks carry no viewable subtitle.
+    /// Comment blocks carry no viewable subtitle. WebVTT blocks hold the cue text with the
+    /// timing in the block header, like S_TEXT/UTF8, but can carry WebVTT markup.
     /// </summary>
-    private static string NormalizeText(string raw, bool isAssTrack)
+    private static string NormalizeText(string raw, SubtitleTrack track)
     {
+        if (track.IsWebVtt)
+        {
+            return CleanWebVttText(raw);
+        }
+
         var text = raw.Replace("\r\n", "\n").Trim('\n', '\r', ' ', '\t');
         if (text.Length == 0)
         {
@@ -1413,7 +1419,7 @@ public static class MkvSubtitleExtractor
             var colon = text.IndexOf(':');
             text = SkipAssFields(text[(colon + 1)..], 9);
         }
-        else if (isAssTrack)
+        else if (track.IsAss)
         {
             // Matroska ASS payload: ReadOrder,Layer,Style,Name,MarginL,MarginR,MarginV,
             // Effect then the text — one field fewer than a "Dialogue:" line.
@@ -1447,6 +1453,121 @@ public static class MkvSubtitleExtractor
                 builder.Append('\n');
                 i++;
                 continue;
+            }
+
+            builder.Append(c);
+        }
+
+        return builder.ToString().Trim();
+    }
+
+    /// <summary>
+    /// Whether a Matroska subtitle codec ID holds text that can be read through the container index.
+    ///
+    /// The WebVTT IDs are the important part of this list. A muxer picks the ID - ffmpeg writes
+    /// <c>D_WEBVTT/SUBTITLES</c>, mkvmerge writes <c>S_TEXT/WEBVTT</c> (both measured) - and when they
+    /// were missing, every WebVTT track was rejected by the index reader and demuxed by ffmpeg instead:
+    /// a whole-file read per subtitle, which on a NAS-hosted episode is minutes rather than the
+    /// milliseconds an indexed read costs. WebVTT in Matroska is stored text-per-block exactly like
+    /// S_TEXT/UTF8 (the timing is in the block header, not the payload), so it needs no ffmpeg.
+    /// </summary>
+    /// <param name="codecId">Matroska codec ID (e.g. "S_TEXT/UTF8").</param>
+    /// <returns>True when the codec is text.</returns>
+    public static bool IsTextSubtitleCodecId(string codecId)
+        => codecId is "S_TEXT/UTF8" or "S_TEXT/ASS" or "S_TEXT/SSA" or "S_SSA/ASS"
+            or "S_TEXT/WEBVTT" or "D_WEBVTT/SUBTITLES" or "D_WEBVTT/CAPTIONS";
+
+    /// <summary>
+    /// Whether a Matroska codec ID is WebVTT.
+    /// </summary>
+    /// <param name="codecId">Matroska codec ID.</param>
+    /// <returns>True when the track holds WebVTT cues.</returns>
+    public static bool IsWebVttCodecId(string codecId)
+        => codecId is "S_TEXT/WEBVTT" or "D_WEBVTT/SUBTITLES" or "D_WEBVTT/CAPTIONS";
+
+    /// <summary>
+    /// Cleans one WebVTT cue payload for an SRT file.
+    ///
+    /// Matroska stores a WebVTT track with the same text-per-block layout as S_TEXT/UTF8: the timing
+    /// lives in the block header, not the payload (checked against a muxed fixture, where each block's
+    /// data is only the cue text). What the payload can still carry is WebVTT markup — voice spans
+    /// (<c>&lt;v Name&gt;</c>), class spans, inline cue timestamps — and HTML entities, plus its own
+    /// timing line if a muxer kept it. The block header stays the timing authority either way.
+    /// </summary>
+    /// <param name="raw">Cue payload read from the block.</param>
+    /// <returns>The cue text without markup.</returns>
+    public static string CleanWebVttText(string raw)
+    {
+        var text = (raw ?? string.Empty).Replace("\r\n", "\n").Trim();
+        if (text.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        // Any cue timing line inside the payload is dropped: the block header says when the cue plays,
+        // and a muxer that kept the line would otherwise inject it into the SRT text.
+        var lines = text.Split('\n');
+        var kept = new List<string>(lines.Length);
+        foreach (var line in lines)
+        {
+            if (line.Contains("-->", StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            kept.Add(line);
+        }
+
+        text = string.Join('\n', kept).Trim();
+        if (text.Length == 0)
+        {
+            return string.Empty;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        for (var i = 0; i < text.Length; i++)
+        {
+            var c = text[i];
+
+            if (c == '<')
+            {
+                var close = text.IndexOf('>', i + 1);
+                if (close > i)
+                {
+                    i = close;
+                    continue;
+                }
+            }
+
+            if (c == '&')
+            {
+                if (text.AsSpan(i).StartsWith("&amp;", StringComparison.Ordinal))
+                {
+                    builder.Append('&');
+                    i += 4;
+                    continue;
+                }
+
+                if (text.AsSpan(i).StartsWith("&lt;", StringComparison.Ordinal))
+                {
+                    builder.Append('<');
+                    i += 3;
+                    continue;
+                }
+
+                if (text.AsSpan(i).StartsWith("&gt;", StringComparison.Ordinal))
+                {
+                    builder.Append('>');
+                    i += 3;
+                    continue;
+                }
+
+                if (text.AsSpan(i).StartsWith("&nbsp;", StringComparison.Ordinal))
+                {
+                    builder.Append(' ');
+                    i += 5;
+                    continue;
+                }
             }
 
             builder.Append(c);
@@ -1597,7 +1718,14 @@ public static class MkvSubtitleExtractor
 
         public bool IsSubtitle => TrackType == 17;
 
-        public bool IsText => CodecId is "S_TEXT/UTF8" or "S_TEXT/ASS" or "S_TEXT/SSA" or "S_SSA/ASS";
+        public bool IsText => IsTextSubtitleCodecId(CodecId);
+
+        /// <summary>
+        /// Whether this track is WebVTT. See <see cref="IsWebVttCodecId"/> for why the codec ID
+        /// matters.
+        /// </summary>
+        public bool IsWebVtt => IsWebVttCodecId(CodecId);
+
 
         public bool IsAss => CodecId is "S_TEXT/ASS" or "S_SSA/ASS";
     }

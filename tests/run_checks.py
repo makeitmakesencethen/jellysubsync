@@ -809,6 +809,40 @@ Check("the boundary is twelve cues over a long video",
     SubSyncService.LooksLikeSignsTrack(11, TimeSpan.FromMinutes(45))
     && !SubSyncService.LooksLikeSignsTrack(12, TimeSpan.FromMinutes(45)));
 
+// ---------------- WebVTT tracks are readable without ffmpeg ----------------
+// A WebVTT track was rejected by the index reader because its codec ID was missing from the text
+// list, so every one of them was demuxed by ffmpeg: a whole-file read per subtitle. ffmpeg writes
+// D_WEBVTT/SUBTITLES, mkvmerge writes S_TEXT/WEBVTT, and both hold the cue text with the timing in
+// the block header, exactly like S_TEXT/UTF8.
+Check("the codec ID ffmpeg writes for WebVTT is text",
+    MkvSubtitleExtractor.IsTextSubtitleCodecId("D_WEBVTT/SUBTITLES"));
+Check("the codec ID mkvmerge writes for WebVTT is text",
+    MkvSubtitleExtractor.IsTextSubtitleCodecId("S_TEXT/WEBVTT"));
+Check("WebVTT is recognised as WebVTT, not as ASS or UTF8",
+    MkvSubtitleExtractor.IsWebVttCodecId("D_WEBVTT/SUBTITLES")
+    && !MkvSubtitleExtractor.IsWebVttCodecId("S_TEXT/UTF8")
+    && !MkvSubtitleExtractor.IsWebVttCodecId("S_TEXT/ASS"));
+Check("subrip and ASS stay text", MkvSubtitleExtractor.IsTextSubtitleCodecId("S_TEXT/UTF8")
+    && MkvSubtitleExtractor.IsTextSubtitleCodecId("S_TEXT/ASS"));
+Check("image tracks are still refused", !MkvSubtitleExtractor.IsTextSubtitleCodecId("S_HDMV/PGS"));
+
+Check("WebVTT voice and class spans are stripped",
+    MkvSubtitleExtractor.CleanWebVttText("<v Speaker>Hei</v> <c.yellow>der</c>") == "Hei der",
+    MkvSubtitleExtractor.CleanWebVttText("<v Speaker>Hei</v> <c.yellow>der</c>"));
+Check("WebVTT entities are decoded",
+    MkvSubtitleExtractor.CleanWebVttText("A &amp; B &lt;x&gt;") == "A & B <x>",
+    MkvSubtitleExtractor.CleanWebVttText("A &amp; B &lt;x&gt;"));
+Check("an inline cue timestamp is dropped",
+    MkvSubtitleExtractor.CleanWebVttText("first<00:00:02.000>second") == "firstsecond",
+    MkvSubtitleExtractor.CleanWebVttText("first<00:00:02.000>second"));
+Check("a payload carrying its own timing line keeps only the text",
+    MkvSubtitleExtractor.CleanWebVttText("00:00:01.000 --> 00:00:02.000\nHei") == "Hei",
+    MkvSubtitleExtractor.CleanWebVttText("00:00:01.000 --> 00:00:02.000\nHei"));
+Check("a cue that is only a timing line becomes empty",
+    MkvSubtitleExtractor.CleanWebVttText("00:00:01.000 --> 00:00:02.000") == string.Empty);
+Check("line breaks inside a VTT cue are kept",
+    MkvSubtitleExtractor.CleanWebVttText("linje en\nlinje to") == "linje en\nlinje to");
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 
@@ -956,6 +990,14 @@ def run_page_checks():
     report('forced tracks are counted in the language list',
            'forcedCounts' in main_html and 'forcedCounts' in client)
     report('the server exposes the forced flag', any('IsForced' in text for text in plugin_sources))
+
+    # Every worker slot is drawn, so the panel answers how much of the configured parallelism is
+    # actually in use; and the reader that extracted a subtitle travels with the result.
+    report('idle worker slots are drawn', 'ss-worker-idle' in main_html)
+    report('the worker panel falls back to what the server is running',
+           'SubSync/Active' in main_html and 'lastActive' in main_html)
+    report('the extraction note reaches the log line',
+           'ExtractionNote' in main_html and 'ExtractionNote' in '\n'.join(plugin_sources))
     return failures
 
 
