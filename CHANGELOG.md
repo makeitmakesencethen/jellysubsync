@@ -4,6 +4,23 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.7 (beta)
+
+- **A shared pass now serves the tracks it used to skip.** Tracks whose index names the cluster but not
+  the block's position inside it were left out of the pass, and their jobs then read the file again on
+  their own - one episode cost two full passes, which is what `tracks=24/30` in the log meant. Those
+  tracks are now collected by walking the cluster the pass is already holding, so their cost is parsing
+  rather than reading. (Tracks with no index entry at all still fall back to their own extraction.)
+- **One read per cluster instead of five.** The pass reads the byte range its wanted blocks actually
+  occupy - computed from the positions the index gives - rather than hunting through the cluster in
+  fixed windows. Same bytes, a fifth of the reads, which on a share that answers a read in milliseconds
+  is most of the time.
+- **Fixed the storage probe again.** 2.0.6 read the same offset three times to time the storage, which
+  measures the page cache (the second and third reads come out of RAM) and reported 0.00 ms per read on
+  a share that answers a real read in milliseconds - so that server chose 4 KB pieces and read 611 MB in
+  10,782 reads for 42 s a pass. It now steps forward at three distinct offsets, which is the pattern a
+  walk uses.
+
 ## 2.0.6 (beta)
 
 2.0.5 made extraction slower on a real server, and this puts that right and adds the thing that

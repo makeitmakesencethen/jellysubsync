@@ -1368,8 +1368,8 @@ def run_page_checks():
     report('the shared pass reads a cluster-sized region, never the whole file',
            'Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024)' in extractor_source
            and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
-    report('the storage probe reads sequentially, like the walk it is sizing',
-           'foreach (var fraction in new[] { 0.5, 0.5, 0.5 })' in extractor_source)
+    report('the storage probe steps forward at distinct offsets, not on one cached block',
+           'foreach (var step in new[] { 0L, 64 * 1024, 128 * 1024 })' in extractor_source)
 
     report('clear cache empties the extracted-subtitle cache too',
            'SubtitleCache.Clear()' in controller and 'removedSubtitles' in controller)

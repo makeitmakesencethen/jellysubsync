@@ -48,6 +48,9 @@ public sealed class MkvExtractionStats
     /// <summary>Window the walk used, in bytes, chosen from <see cref="StorageProbeMs"/>.</summary>
     public int WalkWindow { get; set; }
 
+    /// <summary>Tracks a shared pass served by walking a cluster, because their index gave no block position.</summary>
+    public int WalkedTracks { get; set; }
+
     /// <summary>Gets or sets how many cue points the index held (all tracks).</summary>
     public long CuePoints { get; set; }
 
@@ -726,7 +729,14 @@ public static class MkvSubtitleExtractor
             reader.WindowSize = Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024);
 
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
+
+            // Clusters to visit because a wanted block sits in them (with a known position), and
+            // clusters to visit because a wanted track has a cue in them but the index does not say
+            // where its block is. The second kind used to be left out of the pass entirely - the job
+            // then read the file again on its own, which is how one episode cost two full passes
+            // (logged as tracks=24/30).
             var byCluster = new SortedDictionary<long, List<(int Index, CueRef Ref)>>();
+            var walkInCluster = new SortedDictionary<long, List<int>>();
 
             foreach (var ordinal in alsoExtract)
             {
@@ -749,14 +759,32 @@ public static class MkvSubtitleExtractor
 
                 var index = wanted.Count;
                 wanted.Add((ordinal, extra, new List<Cue>()));
+
+                var needsWalk = extraRefs.All(r => r.RelativePosition < 0);
                 foreach (var reference in extraRefs)
                 {
+                    var clusterPosition = segmentDataStart + reference.ClusterOffset;
+
                     if (reference.RelativePosition < 0)
                     {
-                        continue; // index without block offsets: not usable in a shared pass
-                    }
+                        // This track's index names the cluster but not the block, so the block has to be
+                        // found by reading the cluster - which this pass is about to read anyway.
+                        if (needsWalk && clusterPosition >= 0 && clusterPosition < reader.Length)
+                        {
+                            if (!walkInCluster.TryGetValue(clusterPosition, out var walkers))
+                            {
+                                walkers = new List<int>();
+                                walkInCluster[clusterPosition] = walkers;
+                            }
 
-                    var clusterPosition = segmentDataStart + reference.ClusterOffset;
+                            if (!walkers.Contains(index))
+                            {
+                                walkers.Add(index);
+                            }
+                        }
+
+                        continue;
+                    }
                     if (clusterPosition < 0 || clusterPosition >= reader.Length)
                     {
                         continue;
@@ -784,6 +812,41 @@ public static class MkvSubtitleExtractor
                     || !TryReadClusterTimecode(reader, extraDataStart, extraDataEnd, out var extraTimecode))
                 {
                     continue;
+                }
+
+                // The cue index says where every wanted block sits, so the blocks in this cluster are a
+                // known byte range. Reading that range once covers all of them; hunting through the
+                // cluster in fixed windows reads the same bytes several times over (measured: 10,782
+                // reads for 2,069 clusters, 42 s on a share where a read costs milliseconds).
+                var lowest = long.MaxValue;
+                var highest = 0L;
+                foreach (var (_, reference) in bucket)
+                {
+                    lowest = Math.Min(lowest, reference.RelativePosition);
+                    highest = Math.Max(highest, reference.RelativePosition);
+                }
+
+                if (lowest != long.MaxValue)
+                {
+                    // Plus room for the last block's own header and payload (a subtitle block is a few
+                    // hundred bytes; 8 KB is generous) and never more than the file itself.
+                    var span = (highest - lowest) + (8 * 1024);
+                    reader.WindowSize = (int)Math.Clamp(span, 4 * 1024, BlobReader.MaxWindowSize);
+                }
+
+                if (walkInCluster.TryGetValue(clusterPosition, out var walkers))
+                {
+                    // A track here can only be found by reading the cluster, so the window has to cover
+                    // it; the walk below then costs parsing, not further reads.
+                    reader.WindowSize = (int)Math.Clamp(extraDataEnd - extraDataStart, 4 * 1024, BlobReader.MaxWindowSize);
+                    foreach (var index in walkers)
+                    {
+                        var walked = wanted[index];
+                        if (ReadClusterChildren(reader, extraDataStart, extraDataEnd, walked.Track, walked.Cues, stats))
+                        {
+                            stats.WalkedTracks++;
+                        }
+                    }
                 }
 
                 foreach (var (index, reference) in bucket)
@@ -925,14 +988,15 @@ public static class MkvSubtitleExtractor
         Span<byte> probe = stackalloc byte[16 * 1024];
         var fastest = double.MaxValue;
         var got = 0;
-        // Three reads in a row from one place, not three random jabs: a walk reads forward, and a
-        // share answers a sequential read far faster than a scattered one. Probing at random spots
-        // measured 11 ms per 16 KB on a share whose own walk was running at ~4 ms per read, which
-        // talked the walker into the wrong choice.
-        foreach (var fraction in new[] { 0.5, 0.5, 0.5 })
+        // Three reads stepping forward from one place, which is the pattern a walk uses. Reading the
+        // *same* offset three times measures the page cache - the second and third reads come out of
+        // RAM - and reported 0.00 ms on a share that answers a real read in milliseconds, which is
+        // how the walker ended up reading in 4 KB pieces there.
+        var probeStart = reader.Length / 2;
+        foreach (var step in new[] { 0L, 64 * 1024, 128 * 1024 })
         {
             var watch = Stopwatch.StartNew();
-            var read = reader.ReadAt((long)(reader.Length * fraction), probe);
+            var read = reader.ReadAt(Math.Min(probeStart + step, reader.Length - probe.Length), probe);
             watch.Stop();
             if (read <= 0)
             {
