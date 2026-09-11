@@ -30,6 +30,14 @@
         return '';
     }
 
+    // Jellyfin 12 disables the legacy authorization mechanisms by default, so the old
+    // `X-Emby-Token` header is ignored there and every call comes back 401. The
+    // `Authorization: MediaBrowser Token="..."` form is what jellyfin-web itself sends and
+    // is accepted by 10.11 as well, so one form works on both server generations.
+    function authHeader() {
+        return 'MediaBrowser Token="' + token().replace(/"/g, '') + '"';
+    }
+
     function apiUrl(path) {
         if (typeof ApiClient !== 'undefined' && ApiClient.getUrl) {
             return ApiClient.getUrl(path);
@@ -40,7 +48,7 @@
     function api(path, options) {
         options = options || {};
         var headers = options.headers || {};
-        headers['X-Emby-Token'] = token();
+        headers['Authorization'] = authHeader();
         headers['Accept'] = 'application/json';
         if (options.body) {
             headers['Content-Type'] = 'application/json';

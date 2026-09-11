@@ -4,13 +4,13 @@
 
 Jellyfin plugin (C# / .NET 9) that synchronizes subtitles with video audio using a
 **bundled** self-contained ffsubsync binary (linux-x64, PyInstaller). Runs on
-Jellyfin 10.11+. No Python/venv provisioning, no root, no container rebuilds.
+Jellyfin 12.0+ (.NET 10). No Python/venv provisioning, no root, no container rebuilds.
 
 ## Build & Run
 
 ```bash
 dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj -c Release
-# Output: Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll
+# Output: Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.dll
 ```
 
 Tests: `python3 tests/run_checks.py` (regression checks for extraction cost, scheduling, language
@@ -96,6 +96,12 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   XML doc comment; all warnings are build errors.
 - **Jellyfin NuGet packages use `<ExcludeAssets>runtime</ExcludeAssets>`** — compile-time
   only; at runtime the plugin resolves against Jellyfin's own assemblies.
+- **Every HTTP call from the pages must use `Authorization: MediaBrowser Token="…"`.**
+  Jellyfin 12 disables the legacy `X-Emby-Token` header and `?api_key=`, so those return
+  401. The modern form is accepted by 10.11 too — never reintroduce the legacy ones.
+- **Helpers used by the pages must be defined in that page.** The injected client script
+  is an IIFE, so nothing it defines is visible to `subsyncMain.html`/`configPage.html`.
+- Upgrading to a new Jellyfin server major: see `knowledge/jellyfin-12-migration.md`.
 
 ## UI conventions
 

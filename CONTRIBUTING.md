@@ -38,7 +38,7 @@ Jellyfin, without any GitHub round-trip:
 ```bash
 dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj -c Release
 # docker: copy the DLL over the installed plugin and restart Jellyfin
-docker cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll \
+docker cp Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.dll \
   jellyfin:/config/plugins/SubSync_<installed-version>/Jellyfin.Plugin.SubSync.dll
 docker restart jellyfin
 ```
@@ -87,8 +87,13 @@ per fix. Weekly-ish, or when a fix matters to users.
 
 ## Compatibility
 
-- Current target: Jellyfin **10.11** (`targetAbi 10.11.0.0`).
-- A future Jellyfin major needs its own build/branch; don't mix ABIs in one release.
+- Current target: Jellyfin **12.0** (`targetAbi 12.0.0.0`, .NET 10).
+- Each Jellyfin major needs its own build: retarget the framework, bump the Jellyfin package
+  versions, raise `targetAbi`, and cut a new version line (see `knowledge/jellyfin-12-migration.md`).
+  The catalog serves one ABI per version, and a server only offers entries whose `targetAbi`
+  is at or below its own, so older servers simply stop seeing updates.
+- Versioning across an ABI change: `MAJOR` (dropping a server generation is a breaking change),
+  which is why this line is 2.0 and the 10.11 line stays at 1.1.x.
 
 ## Principles that keep this project safe to run
 

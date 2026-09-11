@@ -36,7 +36,8 @@ No further setup — the bundled sync engine is ready after restart.
 
 ## Requirements
 
-- Jellyfin 10.11+ on **linux-x64** (the bundled binary is platform-specific)
+- Jellyfin **12.0+** on **linux-x64** (the bundled binary is platform-specific).
+  The 1.x line is the last build for Jellyfin 10.11 — plugin builds are per server major.
 - ffmpeg is expected to be present; Jellyfin ships its own, which the plugin detects automatically
 
 ## Building from source

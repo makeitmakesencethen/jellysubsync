@@ -4033,14 +4033,18 @@ public class SubSyncService : IDisposable
         var stderrTask = Task.Run(async () =>
         {
             using var reader = process.StandardError;
-            while (!reader.EndOfStream)
+            while (true)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                if (line is not null && onStderrLine is not null)
+                if (line is null)
                 {
-                    onStderrLine(line);
+                    // End of the stream is the loop's own exit; EndOfStream is sync-over-async on
+                    // .NET 10 (CA2024) and blocks a thread of the pool while we await a line.
+                    break;
                 }
+
+                onStderrLine?.Invoke(line);
             }
         }, cancellationToken);
 

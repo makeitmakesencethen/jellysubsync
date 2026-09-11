@@ -23,7 +23,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
         with:
-          dotnet-version: '9.0.x'
+          dotnet-version: '10.0.x'
 
       - name: Refuse to republish an already-published beta version
         shell: bash
@@ -65,7 +65,7 @@ jobs:
           set -euo pipefail
           VER="$(sed -n 's:.*<Version>\([^<]*\)</Version>.*:\1:p' Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj | head -1)"
           mkdir -p staging dist/beta
-          cp Jellyfin.Plugin.SubSync/bin/Release/net9.0/Jellyfin.Plugin.SubSync.dll staging/
+          cp Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.dll staging/
           cp Jellyfin.Plugin.SubSync/meta.json staging/
           mkdir -p "staging/ffsubsync/linux-x64"
           cp -r /tmp/ffbin/ffsubsync/ffsubsync "staging/ffsubsync/linux-x64/ffsubsync"

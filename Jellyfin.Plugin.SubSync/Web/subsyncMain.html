@@ -374,9 +374,25 @@
                 el.classList.toggle('err', !!isErr);
             }
 
+            // Jellyfin 12 disables the legacy authorization mechanisms by default: the old
+            // `X-Emby-Token` header and the `?api_key=` query parameter are ignored there. The
+            // `Authorization: MediaBrowser Token="..."` header and `?ApiKey=` are what
+            // jellyfin-web sends and both are accepted by 10.11 as well.
+            function token() {
+                return (typeof ApiClient !== 'undefined' && ApiClient.accessToken) ? ApiClient.accessToken() : '';
+            }
+
+            function authHeader() {
+                return 'MediaBrowser Token="' + token().replace(/"/g, '') + '"';
+            }
+
+            function apiUrl(path) {
+                return (typeof ApiClient !== 'undefined' && ApiClient.getUrl) ? ApiClient.getUrl(path) : '/' + path;
+            }
+
             function api(path, options) {
                 options = options || {};
-                var headers = { 'Accept': 'application/json', 'X-Emby-Token': ApiClient.accessToken() };
+                var headers = { 'Accept': 'application/json', 'Authorization': authHeader() };
                 if (options.body) headers['Content-Type'] = 'application/json';
                 return fetch(ApiClient.getUrl(path), {
                     method: options.method || 'GET',
@@ -734,7 +750,7 @@
                         if (logPath) {
                             logEl.appendChild(document.createTextNode('Debug log: ' + logPath + ' '));
                             var logLink = document.createElement('a');
-                            logLink.href = apiUrl('SubSync/Log') + '?api_key=' + encodeURIComponent(token());
+                            logLink.href = apiUrl('SubSync/Log') + '?ApiKey=' + encodeURIComponent(token());
                             logLink.target = '_blank';
                             logLink.rel = 'noopener';
                             logLink.textContent = 'open';

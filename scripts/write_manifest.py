@@ -9,14 +9,14 @@ Usage:
     write_manifest.py <manifest.json> <plugin.zip> <checksum> <base-url> <changelog-url> <output.json> <owner>
 
 The checksum argument is the hex digest Jellyfin expects for downloads: MD5
-of the zip (10.11 InstallationManager uses MD5.HashDataAsync).
+of the zip (InstallationManager uses MD5.HashDataAsync, unchanged in 12.0).
 """
 
 import json
 import sys
 from pathlib import Path
 
-TARGET_ABI = "10.11.0.0"
+TARGET_ABI = "12.0.0.0"
 OWNER_PLACEHOLDER = "YOUR_GITHUB_USERNAME"
 
 

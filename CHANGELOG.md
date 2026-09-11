@@ -4,6 +4,29 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.0 (beta)
+
+**Jellyfin 12.0 support.** The plugin is rebuilt for the new server generation; it is the
+2.x line from here on. Jellyfin 12.0 removed the ability to load plugins built for 10.11,
+so this is a replacement build, not an in-place update.
+
+- **Jellyfin 12.0 / .NET 10.** Retargeted to `net10.0` and built against Jellyfin 12.0
+  (`targetAbi 12.0.0.0`). Jellyfin 12 refuses to load a 10.11 build, so nothing carries
+  over from the old zip.
+- **Fixed: the plugin's own API calls were rejected on Jellyfin 12.** 12.0 disables the
+  legacy authorization mechanisms, which means the `X-Emby-Token` header the pages used is
+  no longer read: every call came back **401** and the Settings tab, the history and the
+  detail-page dialog showed nothing. All calls now use the same
+  `Authorization: MediaBrowser Token="…"` header jellyfin-web sends, and the debug-log
+  link uses `?ApiKey=`. Both forms are also accepted by 10.11, so one implementation covers
+  both.
+- **Fixed: the debug-log link on the main page never rendered.** `subsyncMain.html` called
+  two helpers that only existed inside the injected client script, so the line threw and the
+  rest of that status update (speech-cache line and the engine badge) never ran.
+- **Note for Jellyfin 10.11 users:** 1.1.x is the last build for 10.11. The new version
+  declares `targetAbi 12.0.0.0`, so a 10.11 server does not see it and is not offered a
+  broken update — it keeps working on the installed 1.1.x.
+
 ## 1.1.0 (beta)
 
 - Added: multi-select in the library browser without checkboxes — click one movie or

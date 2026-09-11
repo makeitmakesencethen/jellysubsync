@@ -157,7 +157,11 @@
             function apiFetch(url, options) {
                 options = options || {};
                 options.headers = options.headers || {};
-                options.headers['X-Emby-Token'] = ApiClient.accessToken();
+                // Jellyfin 12 disables the legacy authorization mechanisms by default, so
+                // `X-Emby-Token` is ignored there; this form is what jellyfin-web sends and
+                // 10.11 accepts it too.
+                options.headers['Authorization'] =
+                    'MediaBrowser Token="' + String(ApiClient.accessToken() || '').replace(/"/g, '') + '"';
                 return fetch(url, options).then(function (r) {
                     if (!r.ok) {
                         // Surface the server's actual error message instead of a

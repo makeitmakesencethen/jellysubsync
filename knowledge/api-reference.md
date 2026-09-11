@@ -3,6 +3,14 @@
 All endpoints are under the `SubSync` route prefix, require `[Authorize]`, and live in
 `SubSyncController.cs` (`Jellyfin.Plugin.SubSync/Api/SubSyncController.cs`).
 
+Two exceptions to note:
+
+- `GET /SubSync/ClientScript` is `[AllowAnonymous]` — the injected script has to load on the
+  sign-in page too. It is the only endpoint that answers without a token.
+- Clients must authenticate with `Authorization: MediaBrowser Token="…"` or `?ApiKey=…`.
+  Jellyfin 12 disables the legacy `X-Emby-Token` header and `?api_key=` by default, so those
+  two return 401 even with a valid token (see `jellyfin-12-migration.md`).
+
 ## Endpoints
 
 | Method | Path | Handler | Request | Response | Notes |

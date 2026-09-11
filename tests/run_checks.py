@@ -34,7 +34,7 @@ def _find_dotnet():
     for root in roots:
         if root and os.path.isfile(os.path.join(root, 'dotnet')):
             return os.path.join(root, 'dotnet')
-    raise SystemExit('dotnet not found: install the .NET 9 SDK, put it on PATH, or set DOTNET=/path/to/dotnet')
+    raise SystemExit('dotnet not found: install the .NET 10 SDK, put it on PATH, or set DOTNET=/path/to/dotnet')
 
 
 DOTNET = _find_dotnet()
@@ -1187,6 +1187,76 @@ def run_page_checks():
            'SubSync/Active' in main_html and 'lastActive' in main_html)
     report('the extraction note reaches the log line',
            'ExtractionNote' in main_html and 'ExtractionNote' in '\n'.join(plugin_sources))
+
+    # Jellyfin 12 disables the legacy authorization mechanisms by default, so the header this
+    # plugin used for years (X-Emby-Token) and the ?api_key= query parameter are ignored there:
+    # every call answers 401, the settings tab and the history come up empty, and nothing in the
+    # build says so. `Authorization: MediaBrowser Token="..."` and ?ApiKey= are the modern forms
+    # and are accepted by 10.11 as well, so the legacy ones must not come back.
+    pages = {name: open(os.path.join(web, name), encoding='utf-8').read()
+             for name in ('subsync.js', 'subsyncMain.html', 'configPage.html')}
+    legacy_header = [name for name, text in pages.items()
+                     if re.search(r'''\[\s*['"]X-Emby-Token['"]\s*\]\s*=''', text)]
+    report('no page sends the legacy X-Emby-Token header', not legacy_header,
+           ', '.join(legacy_header))
+    legacy_param = [name for name, text in pages.items() if "'?api_key='" in text]
+    report('no page builds a ?api_key= url', not legacy_param, ', '.join(legacy_param))
+    for name in ('subsync.js', 'subsyncMain.html'):
+        report(f'{name} authenticates with the Authorization header',
+               'MediaBrowser Token=' in pages[name])
+    report('the settings page authenticates with the Authorization header',
+           "options.headers['Authorization']" in pages['configPage.html'])
+
+    # The injected client script is an IIFE, so nothing it defines reaches the pages: a page that
+    # calls one of its helpers throws a ReferenceError and the rest of that render never runs
+    # (the debug-log link took the speech-cache line and the engine badge down with it).
+    main_page = pages['subsyncMain.html']
+    for helper in ('function token()', 'function authHeader()', 'function apiUrl(path)'):
+        report(f'the main page defines {helper[len("function "):].removesuffix("()")} itself',
+               helper in main_page)
+    report('the main page no longer calls an undefined token()/apiUrl()',
+           'authHeader()' in main_page and "'?ApiKey='" in main_page)
+
+    # One ABI per build, and every file that states it has to agree: Jellyfin reads targetAbi
+    # back out of the shipped meta.json, filters catalog entries by it, and refuses to load a
+    # plugin built against a different server generation.
+    import json as _json
+    csproj = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync',
+                               'Jellyfin.Plugin.SubSync.csproj'), encoding='utf-8').read()
+    meta = _json.load(open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'meta.json'),
+                           encoding='utf-8'))
+    build_yaml = open(os.path.join(REPO, 'build.yaml'), encoding='utf-8').read()
+    manifest_script = open(os.path.join(REPO, 'scripts', 'write_manifest.py'),
+                           encoding='utf-8').read()
+
+    def _yaml_value(key):
+        match = re.search(rf'^{key}:\s*"?([^"\n]+)"?$', build_yaml, flags=re.M)
+        return match.group(1).strip() if match else None
+
+    abi = meta.get('targetAbi')
+    report('meta.json declares the Jellyfin 12 ABI', abi == '12.0.0.0', str(abi))
+    report('build.yaml agrees with meta.json on the ABI', _yaml_value('targetAbi') == abi,
+           f'{_yaml_value("targetAbi")} vs {abi}')
+    report('the catalog manifest is published for the same ABI',
+           f'TARGET_ABI = "{abi}"' in manifest_script)
+    report('the plugin targets .NET 10', '<TargetFramework>net10.0</TargetFramework>' in csproj)
+    report('build.yaml agrees with the project on the framework',
+           _yaml_value('framework') == 'net10.0', str(_yaml_value('framework')))
+    report('the plugin builds against the Jellyfin 12 assemblies',
+           'Include="Jellyfin.Controller" Version="12.0.0"' in csproj
+           and 'Include="Jellyfin.Model" Version="12.0.0"' in csproj)
+    csproj_version = re.search(r'<Version>([^<]+)</Version>', csproj)
+    report('the shipped meta.json carries the built version',
+           csproj_version is not None and meta.get('version') == csproj_version.group(1),
+           f'{meta.get("version")} vs {csproj_version and csproj_version.group(1)}')
+
+    # A workflow that still copies from net9.0 or installs the .NET 9 SDK fails at release time,
+    # after the tag is pushed.
+    for workflow in ('beta.yml', 'release.yml', 'tests.yml'):
+        text = open(os.path.join(REPO, '.github', 'workflows', workflow), encoding='utf-8').read()
+        report(f'{workflow} builds on .NET 10', "dotnet-version: '10.0.x'" in text)
+        report(f'{workflow} does not reference a net9.0 output path', 'net9.0' not in text)
+
     return failures
 
 
@@ -1197,7 +1267,7 @@ def main():
         f.write(f"""<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <AssemblyName>logictest</AssemblyName>
@@ -1205,8 +1275,8 @@ def main():
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="{REPO}/Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj" />
-    <PackageReference Include="Jellyfin.Controller" Version="10.11.10" />
-    <PackageReference Include="Jellyfin.Model" Version="10.11.10" />
+    <PackageReference Include="Jellyfin.Controller" Version="12.0.0" />
+    <PackageReference Include="Jellyfin.Model" Version="12.0.0" />
   </ItemGroup>
 </Project>
 """)
@@ -1251,7 +1321,7 @@ def main():
         print(build.stdout[-1500:], build.stderr[-1500:])
         return 1
 
-    run = subprocess.run([DOTNET, f'{WORK}/bin/Release/net9.0/logictest.dll'], cwd=WORK, capture_output=True, text=True, env=ENV)
+    run = subprocess.run([DOTNET, f'{WORK}/bin/Release/net10.0/logictest.dll'], cwd=WORK, capture_output=True, text=True, env=ENV)
     print(run.stdout or run.stderr)
     page_failures = run_page_checks()
     if page_failures:
