@@ -1021,14 +1021,46 @@ public class SubSyncService : IDisposable
     /// <param name="batchId">The batch identifier.</param>
     public void CancelBatch(string batchId)
     {
+        var queuedCancelled = 0;
         lock (_queueLock)
         {
             foreach (var job in _runOrder.Where(j => j.BatchId == batchId && j.Status == SyncJobStatus.Queued))
             {
                 job.Status = SyncJobStatus.Cancelled;
                 job.FinishedAtUtc = DateTime.UtcNow;
+                queuedCancelled++;
                 _logger.LogInformation("Cancelled queued job {JobId} of batch {BatchId}", job.Id, batchId);
             }
+        }
+
+        // A cancel that leaves the batch running is the complaint it always produces ("I pressed it and
+        // it kept going"). The jobs of this batch that are already running are stopped too, and the
+        // plugin log records which phases they were in, because a kill that silently misses a job in
+        // "Analyzing speech" is indistinguishable from a kill that never arrived.
+        var stopped = 0;
+        var phases = new List<string>();
+        foreach (var job in _jobs.Values.Where(j => j.BatchId == batchId && j.Status == SyncJobStatus.Running))
+        {
+            phases.Add($"{job.Id[..8]}={job.Phase}");
+            if (_jobCancellation.TryGetValue(job.Id, out var cts))
+            {
+                try
+                {
+                    cts.Cancel();
+                    stopped++;
+                }
+                catch (ObjectDisposedException)
+                {
+                    // Finished between the check and the cancel.
+                }
+            }
+        }
+
+        if (queuedCancelled > 0 || stopped > 0)
+        {
+            PluginLog.Info(
+                $"cancel batch {batchId}: {queuedCancelled} queued cancelled, {stopped} running stopped"
+                + (phases.Count == 0 ? string.Empty : $" (phases: {string.Join(", ", phases)})"));
         }
     }
 
@@ -1097,6 +1129,18 @@ public class SubSyncService : IDisposable
         _logger.LogInformation(
             "Kill requested: {Queued} queued task(s) cancelled, {Running} run token(s) cancelled, {Killed} process tree(s) killed, {Survivors} still alive",
             queuedCancelled, runningKilled, processesKilled, survivors);
+
+        // The plugin's own log, so a kill is verifiable from the one file that gets handed over for
+        // debugging. Which phases the jobs were in matters: a job killed while extracting a subtitle
+        // and a job killed while analysing speech fail in the same place otherwise.
+        var runningPhases = _jobs.Values
+            .Where(j => j.Status == SyncJobStatus.Running)
+            .Select(j => $"{j.Id[..8]}={j.Phase} ({j.Label ?? j.BatchLabel ?? j.ItemId.ToString()[..8]})")
+            .ToList();
+        PluginLog.Info(
+            $"KILL requested: {queuedCancelled} queued cancelled, {runningKilled} run token(s), "
+            + $"{processesKilled} process tree(s) killed, {survivors} survivor(s)"
+            + (runningPhases.Count == 0 ? string.Empty : " \u00b7 still reporting: " + string.Join(", ", runningPhases)));
 
         return (queuedCancelled, processesKilled > 0 ? Math.Max(processesKilled, runningKilled) : runningKilled);
     }
@@ -2292,6 +2336,55 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Framerate pairs ffsubsync can legitimately be correcting: 25/23.976 (PAL film speedup),
+    /// 25/24, 24/23.976, their inverses, and the half/double cases.
+    /// </summary>
+    internal static readonly double[] KnownFramerateRatios =
+    {
+        1.04271, 1.04167, 1.00100, 0.99900, 0.96000, 0.95904, 1.25, 0.8, 2.0, 0.5
+    };
+
+    /// <summary>
+    /// Decides whether a measured sync is safe to write.
+    /// </summary>
+    /// <remarks>
+    /// A rescale is not a correction that can be partly right: every cue after the first moves by a
+    /// growing amount, so a wrong ratio ruins a whole file rather than leaving it slightly off. With
+    /// framerate correction switched off, any ratio away from 1.0 means the engine rescaled timings
+    /// anyway - the failure this guard exists for - so the result is refused. With it switched on, a
+    /// ratio is expected but has to be a real framerate pair. The shift bound catches the rest: a
+    /// single offset is what <c>--max-offset-seconds</c> asked for, so a shift beyond double that
+    /// bound means the timings moved for some other reason.
+    /// </remarks>
+    /// <param name="ratio">Measured time ratio between input and synced output (1.0 = no rescale).</param>
+    /// <param name="shiftMs">Measured offset in milliseconds.</param>
+    /// <param name="maxOffsetSeconds">The configured offset bound handed to ffsubsync.</param>
+    /// <param name="framerateCorrectionEnabled">Whether rescaling was requested.</param>
+    /// <returns>True when the output may be written.</returns>
+    internal static bool IsRescaleAcceptable(double ratio, long shiftMs, int maxOffsetSeconds, bool framerateCorrectionEnabled)
+    {
+        if (framerateCorrectionEnabled)
+        {
+            foreach (var known in KnownFramerateRatios)
+            {
+                if (Math.Abs(ratio - known) <= 0.003)
+                {
+                    return Math.Abs(shiftMs) <= Math.Max(maxOffsetSeconds, 60) * 1000L * 20;
+                }
+            }
+
+            return Math.Abs(ratio - 1.0) <= 0.005;
+        }
+
+        if (Math.Abs(ratio - 1.0) > 0.005)
+        {
+            return false;
+        }
+
+        return Math.Abs(shiftMs) <= Math.Max(maxOffsetSeconds, 60) * 1000L * 2;
+    }
+
+    /// <summary>
     /// Measures what a sync changed, by comparing cue timings of the original and the synced file.
     /// </summary>
     /// <param name="inputPath">Subtitle handed to ffsubsync.</param>
@@ -2644,7 +2737,7 @@ public class SubSyncService : IDisposable
             var args = BuildFfSubSyncArgs(config, referencePath, subtitleInputPath, tempOutput, tempDir, serializeSpeech, referenceStream);
 
             _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
-            PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={args}");
+            PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={string.Join(' ', args)}");
 
             // Parse ffsubsync stderr in real-time for progress updates.
             // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
@@ -2716,6 +2809,40 @@ public class SubSyncService : IDisposable
             // a ".SYNCED" sidecar with the same timing as its source: no benefit, one more subtitle
             // track in the library. Measured before anything is written, so nothing is touched.
             var measured = MeasureSyncChange(subtitleInputPath, tempOutput);
+
+            // Nothing destructive is ever written: a measured rescale that was not asked for (or that
+            // is not a real framerate pair) means the engine moved the timeline, and the source
+            // subtitle stays untouched while the job says exactly why.
+            if (measured is { } scaled
+                && !IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, config.MaxOffsetSeconds, config.FixFramerate))
+            {
+                var span = videoDuration > TimeSpan.Zero
+                    ? videoDuration.TotalSeconds
+                    : (double?)null;
+                var detail = span is null
+                    ? scaled.Describe()
+                    : $"{scaled.Describe()} over a {span.Value / 60.0:0.0}-minute file";
+                _logger.LogWarning(
+                    "Sync job {JobId}: refusing a rescaled result ({Detail}) \u2014 nothing written",
+                    job.Id,
+                    detail);
+                PluginLog.Info(
+                    $"job {job.Id} REFUSED: measured {detail} \u2014 framerate correction is "
+                    + (config.FixFramerate ? "on but this is not a framerate pair" : "off")
+                    + $"; nothing written, source untouched, file={video.Path}");
+                job.Status = SyncJobStatus.Failed;
+                job.Phase = "Refused";
+                job.Error = $"refused: the engine rescaled the timings ({detail}) and nothing was written. "
+                    + (config.FixFramerate
+                        ? "This is not a framerate pair a release could really have."
+                        : "Turn on \"Correct framerate mismatch\" only for subtitles from a different framerate.");
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
+
             if (measured is { IsNoChange: true } noChange)
             {
                 _logger.LogInformation(
@@ -3134,6 +3261,37 @@ public class SubSyncService : IDisposable
         }
     }
 
+    /// <summary>
+    /// The ffsubsync flags that decide whether subtitle timings may be rescaled.
+    /// </summary>
+    /// <remarks>
+    /// ffsubsync 0.5.1 corrects a framerate mismatch by default and infers the ratio from the ratio
+    /// between the reference duration and the subtitle's own span, so a subtitle whose last cue sits a
+    /// few percent outside the video is read as a framerate mismatch and the whole file is time-scaled
+    /// to fit. Measured against the bundled engine with a 4.17% longer span: the default, and either
+    /// opt-out flag on its own, all produced a 0.960x scale with a -51.9 s shift and -104 s of drift;
+    /// only both flags together left the timings alone (ratio 1.0000x, offset only). Correction is
+    /// therefore opt-in, and when it is on, the measured result still has to be a real framerate pair.
+    /// </remarks>
+    /// <param name="fixFramerate">Whether the user asked for framerate correction.</param>
+    /// <param name="goldenSection">Whether the user asked for golden-section ratio search.</param>
+    /// <returns>The flags to pass, possibly none.</returns>
+    internal static IEnumerable<string> FramerateArgs(bool fixFramerate, bool goldenSection)
+    {
+        if (fixFramerate)
+        {
+            if (goldenSection)
+            {
+                yield return "--gss";
+            }
+
+            yield break;
+        }
+
+        yield return "--no-fix-framerate";
+        yield return "--skip-infer-framerate-ratio";
+    }
+
     private List<string> BuildFfSubSyncArgs(
         Configuration.PluginConfiguration config,
         string videoPath,
@@ -3165,9 +3323,9 @@ public class SubSyncService : IDisposable
             "--ffmpeg-path", ResolveFfmpegPath()
         };
 
-        if (config.UseGoldenSectionSearch)
+        foreach (var flag in FramerateArgs(config.FixFramerate, config.UseGoldenSectionSearch))
         {
-            args.Add("--gss");
+            args.Add(flag);
         }
 
         if (!string.IsNullOrWhiteSpace(referenceStream))

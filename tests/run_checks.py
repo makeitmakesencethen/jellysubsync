@@ -516,6 +516,37 @@ foreach (var (name, expected) in new (string Name, bool Expected)[]
     Check($"sidecar name '{name}' is {(expected ? "ours" : "not ours")}", got == expected, got.ToString());
 }
 
+// Framerate correction is opt-in, and opting out needs BOTH flags: measured against the bundled
+// engine, the default and either flag alone still rescaled a 4.17% longer span to 0.960x.
+Check("opt-in framerate: the engine is told to leave timings alone",
+    string.Join(" ", SubSyncService.FramerateArgs(false, false)) == "--no-fix-framerate --skip-infer-framerate-ratio",
+    string.Join(" ", SubSyncService.FramerateArgs(false, false)));
+Check("opt-in framerate: asking for correction passes no opt-out flags",
+    !SubSyncService.FramerateArgs(true, false).Any(),
+    string.Join(" ", SubSyncService.FramerateArgs(true, false)));
+Check("opt-in framerate: golden section is only passed with correction on",
+    string.Join(" ", SubSyncService.FramerateArgs(true, true)) == "--gss"
+    && !SubSyncService.FramerateArgs(false, true).Contains("--gss"),
+    string.Join(" ", SubSyncService.FramerateArgs(false, true)));
+
+// The guard that decides whether a measured result may be written. Without correction asked for, any
+// rescale is the failure this exists for: a 4% scale ruins a whole file rather than a few seconds.
+foreach (var (ratio, shiftMs, fix, expected, why) in new (double, long, bool, bool, string)[]
+{
+    (1.0000, 120, false, true, "a normal offset passes"),
+    (0.9600, -51900, false, false, "a 4% rescale nobody asked for is refused"),
+    (1.0427, 65579, false, false, "a PAL-sized rescale nobody asked for is refused"),
+    (0.6163, -365926, false, false, "a 38% compression is refused"),
+    (1.0000, 216000, false, false, "an offset beyond double the bound is refused"),
+    (1.0427, 65579, true, true, "a real framerate pair is allowed when asked for"),
+    (0.8056, -220187, true, false, "an invented ratio is refused even when asked for"),
+    (1.0004, 400, true, true, "a sub-1% fit is tolerated when correction is on"),
+})
+{
+    var got = SubSyncService.IsRescaleAcceptable(ratio, shiftMs, 60, fix);
+    Check($"rescale guard: {why}", got == expected, $"ratio={ratio} shift={shiftMs} fix={fix} -> {got}");
+}
+
 // ---------------- Worker pool: slots, not groups ----------------
 // The failure this guards against: three jobs finished, the fourth kept running, and the three
 // idle workers waited for it instead of taking the next jobs from the queue.

@@ -47,7 +47,7 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 $"startup: version={GetType().Assembly.GetName().Version?.ToString() ?? "unknown"} "
                 + $"assembly={AssemblyLocation} settings={SettingsFilePath} "
                 + $"workers={Configuration?.ParallelWorkers} mode={Configuration?.MultiSyncMode} "
-                + $"vad={Configuration?.VadMethod} log={PluginLog.FilePath}");
+                + $"vad={Configuration?.VadMethod} fixFramerate={Configuration?.FixFramerate} log={PluginLog.FilePath}");
         }
         catch (Exception ex)
         {

@@ -258,6 +258,15 @@
                                 <div class="ss-field">
                                     <div class="checkboxContainer checkboxContainer-withDescription">
                                         <label class="emby-checkbox-label">
+                                            <input is="emby-checkbox" type="checkbox" id="ss-fixfps" />
+                                            <span>Correct framerate mismatch (advanced)</span>
+                                        </label>
+                                        <div class="fieldDescription checkboxFieldDescription">Off by default, and that is the safe setting: the engine infers a framerate ratio from the subtitle's own span, so a release with a slightly longer runtime gets time-scaled and the whole file drifts. Only enable this for subtitles you know come from a different framerate.</div>
+                                    </div>
+                                </div>
+                                <div class="ss-field">
+                                    <div class="checkboxContainer checkboxContainer-withDescription">
+                                        <label class="emby-checkbox-label">
                                             <input is="emby-checkbox" type="checkbox" id="ss-gss" />
                                             <span>Use golden-section search for framerate ratio</span>
                                         </label>
@@ -560,6 +569,7 @@
                     $('ss-ffmpeg').value = c.FfmpegPath || '';
                     $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
+                    $('ss-fixfps').checked = !!c.FixFramerate;
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
                     $('ss-multimode').value = c.MultiSyncMode || 'auto';
                     // The settings input has its own id: it used to share "ss-workers" with the
@@ -585,6 +595,7 @@
                     c.FfmpegPath = $('ss-ffmpeg').value;
                     c.FfSubSyncPath = $('ss-ffsubsync').value || 'ffsubsync';
                     c.SyncModeCopy = $('ss-mode').value === 'copy';
+                    c.FixFramerate = $('ss-fixfps').checked;
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'auto';

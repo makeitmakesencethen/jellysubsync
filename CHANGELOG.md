@@ -191,7 +191,68 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.53]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.54]
+
+### Fixed
+- **Subtitles are no longer time-scaled to fit, which was the de-sync.** ffsubsync corrects a framerate
+  mismatch by default on the bundled 0.5.1 engine, and it infers the ratio from the ratio between the
+  reference duration and the subtitle's own span. A subtitle whose last cue sits a few percent outside
+  the video - an extra scene, a different credits roll, a longer release - therefore reads as a framerate
+  mismatch, and the whole file is rescaled. Because the error grows with every cue, it is not a small
+  miss near the start: it is a few seconds in and minutes at the end.
+
+  Measured with the bundled engine, input span 4.17% longer than the reference:
+
+  ```
+  default (what the plugin did until now):           0.960x scale, -51.9 s shift, -104 s of drift
+  --skip-infer-framerate-ratio alone:                0.960x scale, -51.9 s shift, -104 s of drift
+  --no-fix-framerate alone:                          0.960x scale, -51.9 s shift, -104 s of drift
+  --no-fix-framerate + --skip-infer-framerate-ratio: ratio 1.0000x, offset only
+  ```
+
+  Both flags are needed - either one alone still rescaled. They are now always passed unless framerate
+  correction is explicitly switched on, and `--gss` only accompanies that switch (it used to be a
+  separate tick box that could pass `--gss` on its own).
+
+- **A rescaled result is refused instead of written.** Even with correction on, the measured ratio has
+  to be a real framerate pair (25/23.976, 25/24, 24/23.976, their inverses, half/double) and the shift
+  has to stay within the offset bound handed to the engine. With correction off, any ratio away from
+  1.0 is refused outright. Nothing destructive reaches the library: the output is discarded, the source
+  subtitle is untouched, and the job says exactly what it measured and why it stopped.
+
+  ```
+  job <id> REFUSED: measured +65579 ms offset at start · framerate ratio 1.0427×
+    (≈+117408 ms cumulative drift) over a 44.0-minute file — framerate correction is off;
+    nothing written, source untouched, file=/media/...
+  ```
+
+- **Cancel batch now stops the running jobs of that batch, not only the queued ones.** Pressing it
+  while eight runs were analysing speech left them all running, which reads as a cancel that does
+  nothing. Those jobs are cancelled too, and the phase each was in is recorded.
+
+### Added
+- **The engine command line is logged as it was passed.** It logged
+  `args=System.Collections.Generic.List\`1[System.String]` - the *type* of the argument list, never its
+  contents - so nothing in the log could prove which flags were in force. It now writes the argv, which
+  is also how the flags above can be verified on a real run.
+- **Cancel and Kill write to the plugin log.** Both only logged through Jellyfin's own logger, so the
+  file handed over for debugging could not show whether a kill had arrived, what it cancelled or what
+  survived it:
+
+  ```
+  KILL requested: 59 queued cancelled, 8 run token(s), 8 process tree(s) killed, 0 survivor(s)
+    · still reporting: 1a2b3c4d=Analyzing speech (The Helicopter Heist - S01E01)
+  cancel batch <id>: 61 queued cancelled, 8 running stopped (phases: 1a2b3c4d=Extracting subtitle)
+  ```
+
+- **`fixFramerate` is in the startup line**, so a log says whether correction was on for the run that
+  wrote it.
+
+### Settings
+- **Correct framerate mismatch (advanced)** - off by default, in the Settings tab. Only for subtitles
+  known to come from a different framerate; leave it off otherwise.
+
+## [1.1.0.53]
 
 ### Fixed
 - **A queued task is no longer shown as a failure.** Opening a batch while it was still being queued

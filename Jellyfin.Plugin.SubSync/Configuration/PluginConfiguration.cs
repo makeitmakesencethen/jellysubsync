@@ -77,6 +77,23 @@ public class PluginConfiguration : BasePluginConfiguration
     public double MaxSubtitleSeconds { get; set; } = 10.0;
 
     /// <summary>
+    /// Gets or sets a value indicating whether ffsubsync may rescale subtitle timings to correct a
+    /// framerate mismatch between the video and the subtitles.
+    /// </summary>
+    /// <remarks>
+    /// Off by default, deliberately. ffsubsync 0.5.1 infers a framerate ratio from the ratio between
+    /// the reference duration and the subtitle's own span, and rescales the whole file unless it is
+    /// told not to. A subtitle whose last cue sits a few percent outside the video - very common, from
+    /// a release with a longer credits roll, or an extra scene - therefore reads as a framerate
+    /// mismatch. Measured with the bundled engine on a 45-minute file: a span 4.17% too long became a
+    /// 0.960x scale, a -51.9 s shift and -104 s of drift, and the log called it "framerate ratio
+    /// 1.0427x" rather than saying the subtitle had been time-scaled. Off means offsets only, bounded
+    /// by <see cref="MaxOffsetSeconds"/>. Turn it on only for subtitles known to come from a different
+    /// framerate; results that are not a real framerate pair are then refused rather than written.
+    /// </remarks>
+    public bool FixFramerate { get; set; } = false;
+
+    /// <summary>
     /// Gets or sets whether to use golden-section search for optimal framerate ratio.
     /// </summary>
     public bool UseGoldenSectionSearch { get; set; } = false;
