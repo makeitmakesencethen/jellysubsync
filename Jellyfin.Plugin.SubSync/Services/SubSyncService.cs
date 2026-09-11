@@ -44,6 +44,17 @@ public class SubtitleInfo
     /// <summary>Gets or sets whether this subtitle is external (sidecar file).</summary>
     public bool IsExternal { get; set; }
 
+    /// <summary>
+    /// Gets or sets whether this track is flagged forced.
+    ///
+    /// A forced track usually carries only on-screen signs and text for a language that is otherwise
+    /// dubbed — a handful of cues over a whole episode. Reported from real use: a Norwegian track that
+    /// was synced turned out to be the two-cue forced track while the file also carried a full WebVTT
+    /// track in the same language, so the interface has to be able to tell them apart and the
+    /// automatic pick must not prefer the forced one.
+    /// </summary>
+    public bool IsForced { get; set; }
+
     /// <summary>Gets or sets the path to the external subtitle file (not serialized in API responses).</summary>
     [JsonIgnore]
     public string? ExternalPath { get; set; }
@@ -636,6 +647,7 @@ public class SubSyncService : IDisposable
                     Title = s.DisplayTitle ?? s.Language ?? $"Track {s.Index}",
                     Language = s.Language ?? "und",
                     IsExternal = s.IsExternal,
+                    IsForced = s.IsForced,
                     ExternalPath = s.Path,
                     HasSyncedVersion = HasCompletedSync(itemId, s.Index)
                 };
@@ -2169,6 +2181,43 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Whether a subtitle looks like a forced/signs track rather than the full one: very few cues for
+    /// a long video.
+    ///
+    /// A full episode subtitle carries hundreds of cues (roughly one every few seconds), so a handful
+    /// over more than ten minutes is a track that only translates on-screen text. Nothing else about
+    /// the output shows it - the synced sidecar is perfectly valid, it just contains two lines - which
+    /// is why this is stated in the log and in the job's outcome.
+    /// </summary>
+    /// <param name="cueCount">Number of cues in the subtitle that was synced.</param>
+    /// <param name="duration">Runtime of the video.</param>
+    /// <returns>True when the track is suspiciously sparse.</returns>
+    public static bool LooksLikeSignsTrack(int cueCount, TimeSpan duration)
+        => cueCount > 0 && cueCount < 12 && duration > TimeSpan.FromMinutes(10);
+
+    /// <summary>
+    /// Counts the cues in a subtitle file. Returns -1 when it cannot be read, which is treated as
+    /// "unknown" rather than as zero cues.
+    /// </summary>
+    /// <param name="path">Subtitle path.</param>
+    /// <returns>Cue count, or -1.</returns>
+    internal static int CountSubtitleCues(string path)
+    {
+        try
+        {
+            return SrtWriter.CountCues(File.ReadAllText(path));
+        }
+        catch (IOException)
+        {
+            return -1;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// Describes what a successful sync actually changed, by comparing cue
     /// timings of the original and the synced file: the applied offset in
     /// milliseconds (signed; + = subtitles moved later) and, when ffsubsync
@@ -2205,6 +2254,7 @@ public class SubSyncService : IDisposable
         string? backupPath = null;   // .bak of original subtitle file (replace mode only)
         string? tempOutput = null;   // ffsubsync output in temp dir
         string? changedDir = null;   // folder touched by this job (for the targeted library rescan)
+        string? cuesNote = null;     // set when the subtitle looks like a signs/forced track
 
         try
         {
@@ -2284,6 +2334,23 @@ public class SubSyncService : IDisposable
             // Step 2: Run ffsubsync → temp output
             job.Phase = "Analyzing speech";
             job.Progress = 0.1;
+
+            // A full episode subtitle carries hundreds of cues. A handful over a long video is a
+            // forced/signs track, and nothing else in the output shows it: the synced sidecar looks
+            // perfectly normal, it just contains two lines. Reported from real use after a two-cue
+            // Norwegian track was synced while the same file also carried a full WebVTT track in that
+            // language, so it is logged and stated in the outcome rather than left to be discovered.
+            var inputCues = CountSubtitleCues(subtitleInputPath);
+            var videoDuration = video.RunTimeTicks is { } ticks && ticks > 0
+                ? TimeSpan.FromTicks(ticks)
+                : TimeSpan.Zero;
+            if (LooksLikeSignsTrack(inputCues, videoDuration))
+            {
+                cuesNote = $"only {inputCues} cue{(inputCues == 1 ? "" : "s")} in a "
+                    + $"{(int)videoDuration.TotalMinutes}-minute file \u2014 looks like a forced/signs track, "
+                    + "not the full subtitle";
+                _logger.LogWarning("Sync job {JobId}: {Note}", job.Id, cuesNote);
+            }
 
             tempOutput = Path.Combine(tempDir, "synced.srt");
 
@@ -2456,7 +2523,8 @@ public class SubSyncService : IDisposable
                 // ffsubsync suppresses writing when the detected shift is below
                 // its threshold (default 3 s) — the subtitle is effectively
                 // already in sync, so this is a success, not a failure.
-                job.Outcome = "already in sync (shift under 3 s) \u2014 no change needed";
+                job.Outcome = "already in sync (shift under 3 s) \u2014 no change needed"
+                    + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
                 job.Phase = "Complete";
                 job.Status = SyncJobStatus.Completed;
                 job.Progress = 1.0;
@@ -2476,7 +2544,8 @@ public class SubSyncService : IDisposable
                     "Sync job {JobId}: the sync changed nothing ({Change}) \u2014 no sidecar written",
                     job.Id,
                     noChange.Describe());
-                job.Outcome = $"already in sync ({noChange.Describe()}) \u2014 nothing written";
+                job.Outcome = $"already in sync ({noChange.Describe()}) \u2014 nothing written"
+                    + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
                 job.Phase = "Complete";
                 job.Status = SyncJobStatus.Completed;
                 job.Progress = 1.0;
@@ -2575,6 +2644,13 @@ public class SubSyncService : IDisposable
             if (job.OutputPath is not null)
             {
                 job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
+            }
+
+            if (cuesNote is not null)
+            {
+                job.Outcome = string.IsNullOrEmpty(job.Outcome)
+                    ? cuesNote
+                    : job.Outcome + " \u00b7 " + cuesNote;
             }
 
             SafeDelete(backupPath);

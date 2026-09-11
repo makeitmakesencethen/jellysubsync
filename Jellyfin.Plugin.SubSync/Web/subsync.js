@@ -197,6 +197,19 @@
         return !!(t.IsExternal !== undefined ? t.IsExternal : t.isExternal);
     }
 
+    function trackForced(t) {
+        return !!(t.IsForced !== undefined ? t.IsForced : t.isForced);
+    }
+
+    /**
+     * Lower is better when two tracks share a language: a forced track carries only on-screen signs
+     * and text (two cues over a whole episode in the case that prompted this), so it must never win
+     * over the full track, and an external file is preferred among equals.
+     */
+    function trackRank(t) {
+        return (trackForced(t) ? 2 : 0) + (trackIsExternal(t) ? 0 : 1);
+    }
+
     function LANG_NAMES() {
         return {
             eng: 'English', swe: 'Swedish', nor: 'Norwegian', dan: 'Danish', fin: 'Finnish',
@@ -455,7 +468,7 @@
                 tracks.forEach(function (t) {
                     var code = trackLanguage(t);
                     var current = byLanguage[code];
-                    if (!current || (!trackIsExternal(current) && trackIsExternal(t))) {
+                    if (!current || trackRank(t) < trackRank(current)) {
                         byLanguage[code] = t;
                     }
                 });
@@ -473,6 +486,7 @@
 
         function fillLanguages(tracksById, episodes) {
             languageCounts = {};
+            var forcedCounts = {};
             var episodeCounts = {};
             episodes.forEach(function (ep) {
                 var tracks = tracksById[ep.id] || [];
@@ -480,6 +494,9 @@
                 tracks.forEach(function (t) {
                     var code = trackLanguage(t);
                     languageCounts[code] = (languageCounts[code] || 0) + 1;
+                    if (trackForced(t)) {
+                        forcedCounts[code] = (forcedCounts[code] || 0) + 1;
+                    }
                     if (!seen[code]) {
                         seen[code] = true;
                         episodeCounts[code] = (episodeCounts[code] || 0) + 1;
@@ -494,8 +511,12 @@
             all.value = '*';
             langSelect.appendChild(all);
             codes.forEach(function (code) {
+                // Forced tracks are called out, because they are signs/text tracks with a handful of
+                // cues: syncing one by accident is how a two-cue sidecar appeared for a whole episode.
+                var forced = forcedCounts[code] || 0;
                 var option = el('option', null, languageLabel(code) + ' \u2014 '
-                    + humanCount(episodeCounts[code], 'episode') + ', ' + humanCount(languageCounts[code], 'track'));
+                    + humanCount(episodeCounts[code], 'episode') + ', ' + humanCount(languageCounts[code], 'track')
+                    + (forced ? ', ' + forced + ' forced' : ''));
                 option.value = code;
                 langSelect.appendChild(option);
             });
@@ -733,6 +754,7 @@
                 var isExternal = trackIsExternal(track);
                 name.appendChild(el('span', null, trackTitle(track) || languageLabel(trackLanguage(track))));
                 var meta2 = el('div', 'ss-row-meta', (isExternal ? 'external file' : 'embedded')
+                    + (trackForced(track) ? ' \u00b7 forced' : '')
                     + ' \u00b7 ' + languageLabel(trackLanguage(track)));
                 if (track.HasSyncedVersion !== undefined ? track.HasSyncedVersion : track.hasSyncedVersion) {
                     meta2.appendChild(el('span', 'ss-synced', '  \u2713 synced before'));

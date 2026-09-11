@@ -1014,6 +1014,21 @@
                 return LANG_ALIASES[raw.slice(0, 2)] || raw;
             }
 
+            function trackForced(t) {
+                return !!(t && (t.IsForced !== undefined ? t.IsForced : t.isForced));
+            }
+
+            function trackExternal(t) {
+                return !!(t && (t.IsExternal !== undefined ? t.IsExternal : t.isExternal));
+            }
+
+            // Lower is better when two tracks share a language: a forced track is a signs/text track
+            // with a handful of cues, so it must never win over the full track, and an external file
+            // is preferred over an embedded one of the same rank.
+            function trackRank(t) {
+                return (trackForced(t) ? 2 : 0) + (trackExternal(t) ? 0 : 1);
+            }
+
             function langLabel(code) {
                 if (!code) return 'All languages';
                 return LANG_NAMES2[code] || LANG_NAMES[code] || code.toUpperCase();
@@ -1035,8 +1050,9 @@
                 });
             }
 
-            // One track per language per episode (external preferred over embedded),
-            // mirroring what the queue build does.
+            // One track per language per episode, ranked the same way the queue build ranks
+            // (non-forced before forced, then external before embedded), so a two-cue forced track
+            // is never what gets queued for a language that also has a full track.
             function bestPerLanguage(tracks, onlyLang) {
                 var want = null;
                 if (onlyLang && onlyLang.length) {
@@ -1051,7 +1067,7 @@
                     var k = normLang(t);
                     if (want && want.indexOf(k) === -1) return;
                     var cur = byLang[k];
-                    if (!cur || (!cur.IsExternal && t.IsExternal)) byLang[k] = t;
+                    if (!cur || trackRank(t) < trackRank(cur)) byLang[k] = t;
                 });
                 return Object.keys(byLang).sort().map(function (k) { return byLang[k]; });
             }
@@ -1541,6 +1557,7 @@
                 sel.innerHTML = '<option value="*">All subtitles</option><option value="__scan" disabled>Scanning subtitles\u2026</option>';
                 episodesInScope(scopeId, seasonOnly).then(function (episodes) {
                     var counts = {};
+                    var forcedCounts = {};
                     var seq = Promise.resolve();
                     episodes.forEach(function (ep) {
                         seq = seq.then(function () {
@@ -1550,6 +1567,9 @@
                                     // one language, not four rows in the dropdown.
                                     var lang = normLang(t);
                                     counts[lang] = (counts[lang] || 0) + 1;
+                                    if (trackForced(t)) {
+                                        forcedCounts[lang] = (forcedCounts[lang] || 0) + 1;
+                                    }
                                 });
                             });
                         });
@@ -1561,8 +1581,13 @@
                         });
                         var html = '<option value="*">All subtitles (' + episodes.length + ' ep)</option>';
                         codes.forEach(function (c) {
+                            // Forced tracks are counted separately: they are signs/text tracks with a
+                            // handful of cues, and picking one silently is what produced a two-cue
+                            // sidecar for a whole episode.
+                            var forced = forcedCounts[c] || 0;
                             html += '<option value="' + esc(c) + '">' + esc(langLabel(c))
-                                + ' (' + counts[c] + ' track' + (counts[c] === 1 ? '' : 's') + ')</option>';
+                                + ' (' + counts[c] + ' track' + (counts[c] === 1 ? '' : 's')
+                                + (forced ? ', ' + forced + ' forced' : '') + ')</option>';
                         });
                         sel.innerHTML = html;
                         if (prev && prev !== '*' && prev !== '__scan' && codes.indexOf(prev) !== -1) {
@@ -1968,13 +1993,17 @@
                                         return tl === lang;
                                     });
                                 }
-                                // Collapse duplicate languages per episode: keep the
-                                // external track when one exists, else the first.
+                                // Collapse duplicate languages per episode. Ranked, because "first
+                                // one wins" silently picked a forced track: Vargasommar S01E03 has
+                                // a two-cue forced Norwegian SRT beside a full Norwegian WebVTT, and
+                                // the synced sidecar came out with the two signs in it. Order:
+                                // non-forced before forced, then an external file before an
+                                // embedded track.
                                 var byLang = {};
                                 use.forEach(function (t) {
                                     var key = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';
                                     var cur = byLang[key];
-                                    if (!cur || (!cur.IsExternal && t.IsExternal)) {
+                                    if (!cur || trackRank(t) < trackRank(cur)) {
                                         byLang[key] = t;
                                     }
                                 });

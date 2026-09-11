@@ -791,6 +791,24 @@ Check("the description keeps the framerate detail",
     SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? "(none)");
 Directory.Delete(noChangeDir, recursive: true);
 
+// ---------------- A forced/signs track must not be mistaken for the full subtitle ----------------
+// Reported from real use: a Norwegian sidecar came out with two cues for a whole episode. The file
+// carried a two-cue forced track beside a full WebVTT track in the same language, and the automatic
+// pick took the first one it met.
+Check("two cues in a 45-minute episode look like a signs track",
+    SubSyncService.LooksLikeSignsTrack(2, TimeSpan.FromMinutes(45)));
+Check("a full episode subtitle does not",
+    !SubSyncService.LooksLikeSignsTrack(640, TimeSpan.FromMinutes(45)));
+Check("few cues in a short clip are normal",
+    !SubSyncService.LooksLikeSignsTrack(5, TimeSpan.FromMinutes(5)));
+Check("an empty subtitle is not reported as a signs track",
+    !SubSyncService.LooksLikeSignsTrack(0, TimeSpan.FromMinutes(45)));
+Check("an unreadable subtitle is unknown, not signs",
+    !SubSyncService.LooksLikeSignsTrack(-1, TimeSpan.FromMinutes(45)));
+Check("the boundary is twelve cues over a long video",
+    SubSyncService.LooksLikeSignsTrack(11, TimeSpan.FromMinutes(45))
+    && !SubSyncService.LooksLikeSignsTrack(12, TimeSpan.FromMinutes(45)));
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 
@@ -928,6 +946,16 @@ def run_page_checks():
            "workersNow > 0 ? '' : phase" in main_html)
     report('the build number lives in the badge, not the progress line',
            's.PluginVersion' in main_html and "bits.push('v' + runningVersion)" not in main_html)
+
+    # A two-cue forced track was picked over the full track in the same language, because the collapse
+    # kept "the first one" (external preferred). Both surfaces must rank a forced track last.
+    report('the main page ranks forced tracks last', 'function trackRank' in main_html
+           and 'trackRank(t) < trackRank(cur)' in main_html)
+    report('the detail dialog ranks forced tracks last', 'function trackRank' in client
+           and 'trackRank(t) < trackRank(current)' in client)
+    report('forced tracks are counted in the language list',
+           'forcedCounts' in main_html and 'forcedCounts' in client)
+    report('the server exposes the forced flag', any('IsForced' in text for text in plugin_sources))
     return failures
 
 

@@ -191,7 +191,34 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.44]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.45]
+
+### Fixed
+- **A forced (signs/text) track is never picked automatically any more.** Reported from real use: a
+  synced Norwegian sidecar came out with two cues for a whole episode. The file carried that
+  two-cue forced track *and* a full WebVTT track in the same language, and where two tracks shared a
+  language the pick was "external file preferred, otherwise the first one" - so it took the signs
+  track and produced a valid but nearly empty subtitle. Tracks are now ranked: **not forced before
+  forced**, then an external file before an embedded one. Both surfaces use the same ranking (the
+  browser mode's scope build and multi-select build, and the detail-view dialog).
+
+- **Forced tracks are visible instead of indistinguishable.** The language list counts them
+  separately (`Norwegian Bokmål - 24 episodes, 26 tracks, 6 forced`), and the single-video dialog
+  marks a track as `embedded - forced`. Previously nothing in the interface said which of two
+  same-language tracks was the signs track.
+
+- **A synced track with a handful of cues is called out.** A full episode subtitle carries hundreds of
+  cues, so when one carries fewer than twelve over a video longer than ten minutes the log says so and
+  the job's outcome ends with `only 2 cues in a 44-minute file - looks like a forced/signs track, not
+  the full subtitle`. The output itself looks perfectly normal, which is why this mistake is invisible
+  without it.
+
+### Note
+- Files already written from a forced track keep the wrong content until they are synced again; a new
+  run overwrites them (the name is derived from the video and the language, and the pick is now the
+  full track).
+
+## [1.1.0.44]
 
 ### Changed
 - **The progress display is quieter.** Reported as messy and overwhelming, so:
