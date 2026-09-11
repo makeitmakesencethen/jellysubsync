@@ -324,6 +324,13 @@ logs the decision.
   own slot. Group semantics (awaiting a whole wave) wasted every finished worker's time and made
   all workers step together, which also hits the disk in one burst. Starts within a single
   dispatch are staggered by 400 ms.
+- **The scheduler's candidate scan must be wide enough to find a wave, not just to hold one.**
+  A cap of `limit x 4` candidates meant a ten-track episode covered only two media files, so every
+  batch ran two wide no matter the setting. It now scales with the worker count, with an absolute
+  ceiling so a huge queue cannot stall a pass.
+- **Sharing a media file is decided by the policy alone** (`CanShareMediaFile`). An extra "heavy
+  job" veto used to override it and blocked all overlap, which is why a file's later subtitles
+  queued behind the first even after their reference was cached.
 - A job whose media file is already being read waits for that file (to avoid racing the stored
   audio analysis) but never for anyone else; in-use volumes and in-use media files are passed
   into the selector as `InUseVolumes` / `InUseItemIds`.

@@ -94,6 +94,38 @@ public static class SpeechCache
             Root,
             KeyFor(videoPath, "reference-subtitle|" + streamSpec, engineVersion) + ".ref.srt");
 
+    /// <summary>
+    /// Records that a reference subtitle has been extracted for this media file.
+    ///
+    /// Used only for scheduling: several subtitles of one file may then run at the same time,
+    /// because none of them has to demux the file any more. Without it they queued behind the
+    /// first, which is why a ten-track episode used one worker at a time.
+    /// </summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <param name="engineVersion">Bundled/used ffsubsync version or path.</param>
+    public static void MarkReferenceReady(string videoPath, string engineVersion)
+    {
+        try
+        {
+            File.WriteAllText(
+                ReferenceReadyPath(videoPath, engineVersion),
+                DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture));
+        }
+        catch (IOException)
+        {
+            // Best effort: without the marker the file is scheduled one subtitle at a time.
+        }
+    }
+
+    /// <summary>Whether a reference subtitle has already been extracted for this media file.</summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <returns>True when the marker exists.</returns>
+    public static bool ReferenceReady(string videoPath) =>
+        File.Exists(ReferenceReadyPath(videoPath, "any"));
+
+    private static string ReferenceReadyPath(string videoPath, string engineVersion) =>
+        Path.Combine(Root, KeyFor(videoPath, "reference-ready", engineVersion) + ".ready");
+
     /// <summary>Gets the cached reference subtitle for a media file, or null when absent.</summary>
     /// <param name="videoPath">Path of the media file.</param>
     /// <param name="streamSpec">ffmpeg stream specifier of the reference track.</param>

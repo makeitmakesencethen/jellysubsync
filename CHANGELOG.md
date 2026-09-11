@@ -191,7 +191,30 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.34]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.35]
+
+### Fixed
+- **A batch can now use its full width on files that carry many subtitles.** Two causes, both
+  found from a run reporting `2/4 workers` on ten-track episodes:
+  - the scheduler's candidate scan stopped after `limit x 4` jobs — with ten subtitles per episode
+    that covered **two** media files, so a four-worker batch could only ever be two wide;
+  - a file's later subtitles were refused a slot by an extra "this job is heavy" veto, which
+    overrode the sharing policy that is supposed to decide exactly that.
+
+  Now the scan is wide enough to *find* a wave (still bounded, so one pass cannot stall on a huge
+  queue), and the sharing policy is the only thing that decides whether two subtitles of one file
+  may run together: an audio analysis that is stored, or a reference subtitle that has been
+  extracted, both allow it.
+
+- **The extracted reference subtitle is written atomically** (temporary file, then moved into
+  place), so two subtitles of the same file extracting it at once can never leave a half-written
+  file for the other to read.
+
+Checks: 132, ALL PASS — including "10-track episodes still fill four workers" (which failed before
+this change), "one episode's subtitles run four wide once its reference is cached", and the two
+checks that had encoded the veto.
+
+## [1.1.0.34]
 
 ### Fixed
 - **A sibling-subtitle reference no longer makes ffsubsync read the whole episode.** For an

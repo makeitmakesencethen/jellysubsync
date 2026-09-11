@@ -1147,9 +1147,14 @@ public class SubSyncService : IDisposable
             }
 
             candidates.Add(candidate);
-            if (candidates.Count >= policy.Limit * 4)
+
+            // The scan has to be wide enough to *find* a wave, not merely to hold one. A fixed
+            // multiple of the limit is not: with ten-track episodes, limit*4 candidates covered
+            // only two distinct media files, so a four-worker batch ran two wide and reported
+            // "using 2/4 workers". The ceiling is only there to keep one scheduler pass bounded.
+            if (candidates.Count >= Math.Min(20000, Math.Max(policy.Limit * 64, 512)))
             {
-                break; // enough to fill a wave several times over; keeps the scan bounded
+                break;
             }
         }
 
@@ -1344,7 +1349,11 @@ public class SubSyncService : IDisposable
 
         if (!claimedItems.Add(candidate.ItemId))
         {
-            if (heavy || policy.CanShareMediaFile?.Invoke(candidate) != true)
+            // The policy decides whether a second subtitle of the same file may run alongside the
+            // first — it is the only thing that knows whether that file's analysis is stored. An
+            // extra "heavy" veto here overrode it and blocked every overlap: a file's later
+            // subtitles queued behind the first even after their reference had been extracted.
+            if (policy.CanShareMediaFile?.Invoke(candidate) != true)
             {
                 return false;
             }
@@ -1460,7 +1469,9 @@ public class SubSyncService : IDisposable
                         limit,
                         job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
                         job => JobNeedsHeavyIo(job, headMode),
-                        job => SpeechIsCached(job));
+                        job => SpeechIsCached(job)
+                            || (_jobContexts.TryGetValue(job.Id, out var shareContext)
+                                && SpeechCache.ReferenceReady(shareContext.Video.Path)));
                 }
             }
 
@@ -2178,19 +2189,26 @@ public class SubSyncService : IDisposable
                 else if (referenceOrdinal >= 0)
                 {
                     var referenceTarget = SpeechCache.ReferencePath(videoPath, referenceStream!, referenceIdentity);
+                    var referencePart = referenceTarget + ".part";
                     try
                     {
                         Directory.CreateDirectory(SpeechCache.Root);
+
+                        // Written to a temporary name and moved into place: two subtitles of the
+                        // same file may extract the reference at the same time, and a reader must
+                        // never see a half-written file.
                         await ExtractEmbeddedAsync(
                             videoPath,
                             referenceOrdinal,
                             -1,
-                            referenceTarget,
+                            referencePart,
                             config,
                             job,
                             video.RunTimeTicks,
                             cancellationToken,
                             allowFfmpegFallback: false).ConfigureAwait(false);
+                        File.Move(referencePart, referenceTarget, overwrite: true);
+                        SpeechCache.MarkReferenceReady(videoPath, referenceIdentity);
                         referencePath = referenceTarget;
                         referenceStream = null;
                         _logger.LogInformation(
@@ -2198,6 +2216,8 @@ public class SubSyncService : IDisposable
                     }
                     catch (Exception ex) when (ex is not OperationCanceledException)
                     {
+                        try { File.Delete(referencePart); } catch (IOException) { /* best effort */ }
+
                         // Fall back to the previous behaviour: let ffsubsync pull the stream. Slow,
                         // but better than failing the sync.
                         _logger.LogWarning(

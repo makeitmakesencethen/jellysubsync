@@ -1,19 +1,20 @@
-Extract the reference subtitle once instead of demuxing the episode per subtitle
+Let a batch use its full width on files with many subtitles
 
-For an embedded track the plugin gives ffsubsync the video plus --reference-stream s:N, so
-ffsubsync demuxes the whole file to pull that stream out. Measured on an 8.2 GB episode: 12.5 s
-and 8218 MB read, repeated for every subtitle of that file - which is what made a ten-track
-episode take minutes and look like it was analysing the same audio over and over.
+A run reported "2/4 workers" on ten-track episodes. Two causes:
 
-The reference subtitle is now extracted once by the plugin's own container-index reader (29.5 ms,
-0.1 MB), cached as <key>.ref.srt beside the speech cache, and passed to ffsubsync as a small SRT
-(0.6 s, 6.5 MB). Later subtitles of the same file reuse it and report "Syncing (from cache)".
+1. The candidate scan stopped after limit*4 jobs. With ten subtitles per episode those candidates
+   covered two media files, so the wave could never be wider than two, whatever the setting. The
+   scan now scales with the worker count (bounded by an absolute ceiling so a large queue cannot
+   stall a scheduler pass).
+2. An extra "this job is heavy" veto in the claim check overrode the sharing policy that decides
+   whether two subtitles of one file may overlap, so a file's later subtitles always queued behind
+   the first - even after their reference subtitle had been extracted. The policy is now the only
+   decision-maker, and it says yes when the audio analysis is stored or the reference is cached.
 
-Output is unchanged: our reader and ffmpeg extract the same subtitles, and syncing against the
-extracted file is byte-identical to syncing against the stream (both verified on the real file).
-Extraction failure falls back to the previous behaviour instead of failing the sync. The fallback
-demux is refused for reference extraction, since it would cost exactly what this avoids.
+The extracted reference subtitle is also written atomically now (temporary file, then moved), so
+two subtitles of one file extracting it simultaneously cannot leave a half-written file behind.
 
-Checks: 127, ALL PASS (reference-subtitle specifier parsing included).
+Checks: 132, ALL PASS. Two existing checks had encoded the veto and were updated to the intended
+contract, with a new check that a refusing policy still prevents sharing.
 
-Version 1.1.0.34.
+Version 1.1.0.35.

@@ -264,8 +264,18 @@ var heavyFirstWave = SubSyncService.SelectWave(sameFileQueue, "ultimate", "b", n
     IsHeavyIo = _ => true,
     CanShareMediaFile = _ => true,
 });
-Check("uncached file cannot run two workers",
-    heavyFirstWave.Count(j => j.ItemId == v1) == 1, "v1 count " + heavyFirstWave.Count(j => j.ItemId == v1));
+// The policy decides sharing, not the job's weight. This is what lets a file's later subtitles
+// run in parallel once its reference subtitle has been extracted - the case that used to report
+// "using 2/4 workers" on a ten-track episode.
+Check("a heavy job shares a file when the policy allows it",
+    heavyFirstWave.Count(j => j.ItemId == v1) == 2, "v1 count " + heavyFirstWave.Count(j => j.ItemId == v1));
+Check("and a heavy job still never shares when the policy refuses",
+    SubSyncService.SelectWave(sameFileQueue, "ultimate", "b", new SubSyncService.WavePolicy
+    {
+        Limit = 4,
+        IsHeavyIo = _ => true,
+        CanShareMediaFile = _ => false,
+    }).Count(j => j.ItemId == v1) == 1);
 
 // ---------------- Volume spreading is a preference, not a limit ----------------
 // Two files on volA, one on volB. With two workers the wave should take one from each
@@ -340,8 +350,8 @@ var sameFileWave = SubSyncService.SelectWave(sameFileSpread, "ultimate", "b", ne
     IsHeavyIo = _ => true,
     CanShareMediaFile = _ => true,
 });
-Check("same file is never split across workers when uncached",
-    sameFileWave.Count(j => j.ItemId == volA1) == 1, "volA1 count " + sameFileWave.Count(j => j.ItemId == volA1));
+Check("a sharing policy also beats the spreading pass",
+    sameFileWave.Count(j => j.ItemId == volA1) == 2, "volA1 count " + sameFileWave.Count(j => j.ItemId == volA1));
 Check("the other disk still joins the wave", sameFileWave.Any(j => j.ItemId == volB1));
 
 // ---------------- Waves are bounded by the worker count alone ----------------
@@ -572,6 +582,49 @@ Check("audio is not a subtitle specifier", SubSyncService.SubtitleStreamOrdinal(
 Check("a missing specifier is rejected", SubSyncService.SubtitleStreamOrdinal(null) == -1);
 Check("junk is rejected", SubSyncService.SubtitleStreamOrdinal("s:") == -1 && SubSyncService.SubtitleStreamOrdinal("nonsense") == -1);
 Check("a negative position is rejected", SubSyncService.SubtitleStreamOrdinal("s:-2") == -1);
+
+// ---------------- A ten-track episode must not cap the batch width ----------------
+// The candidate scan stopped after limit*4 jobs. With ten subtitles per episode those candidates
+// covered two media files, so a four-worker batch ran two wide ("using 2/4 workers") no matter
+// what was configured. The scan must be wide enough to find a wave, not merely to hold one.
+var wideFiles = new List<SyncJob>();
+for (var file = 0; file < 12; file++)
+{
+    var fileId = Guid.NewGuid();
+    for (var track = 0; track < 10; track++)
+    {
+        wideFiles.Add(PJob(fileId, "wide", "ultimate", (file * 10) + track));
+    }
+}
+
+// No sharing: one subtitle per file, so four workers need four distinct files.
+var distinctPlan = SubSyncService.PlanStart(
+    wideFiles, Array.Empty<SyncJob>(), "ultimate", "wide", 4,
+    _ => "/library", _ => true, _ => false);
+Check("10-track episodes still fill four workers",
+    distinctPlan.Count == 4, "got " + distinctPlan.Count);
+Check("the four jobs are four different episodes",
+    distinctPlan.Select(j => j.ItemId).Distinct().Count() == 4,
+    "got " + distinctPlan.Select(j => j.ItemId).Distinct().Count() + " distinct");
+
+// With the file's reference extracted, several subtitles of one episode may run together.
+var oneEpisodeQueue = new List<SyncJob>();
+var oneFileId = Guid.NewGuid();
+for (var track = 0; track < 10; track++)
+{
+    oneEpisodeQueue.Add(PJob(oneFileId, "wide", "ultimate", track));
+}
+
+var oneEpisodePlan = SubSyncService.PlanStart(
+    oneEpisodeQueue, Array.Empty<SyncJob>(), "ultimate", "wide", 4,
+    _ => "/library", _ => true, _ => true);
+Check("one episode's subtitles run four wide once its reference is cached",
+    oneEpisodePlan.Count == 4, "got " + oneEpisodePlan.Count);
+
+Check("a huge queue cannot stall the scan", SubSyncService.PlanStart(
+    Enumerable.Range(0, 30000).Select(i => PJob(Guid.NewGuid(), "wide", "ultimate", i)),
+    Array.Empty<SyncJob>(), "ultimate", "wide", 4,
+    _ => "/library", _ => true, _ => false).Count == 4);
 
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
