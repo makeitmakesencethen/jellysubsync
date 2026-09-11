@@ -8,13 +8,6 @@ namespace Jellyfin.Plugin.SubSync.Configuration;
 /// </summary>
 public class PluginConfiguration : BasePluginConfiguration
 {
-    /// <summary>
-    /// Gets or sets whether embedded subtitles are read through the container's own index
-    /// (Matroska cues, MP4 sample table) instead of being demuxed with ffmpeg. This is a
-    /// pure speed-up — indexed reads touch kilobytes instead of the whole file — and falls
-    /// back to ffmpeg for anything it cannot handle.
-    /// </summary>
-    public bool FastIndexedExtraction { get; set; } = true;
 
     /// <summary>
     /// Gets or sets the configuration revision this file was last migrated to. Used to move

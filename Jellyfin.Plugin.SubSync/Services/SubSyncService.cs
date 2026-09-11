@@ -2066,7 +2066,17 @@ public class SubSyncService : IDisposable
                     && int.TryParse(parts[1], out var m)
                     && int.TryParse(parts[2], out var s))
                 {
-                    starts.Add((h * 3600.0) + (m * 60.0) + s);
+                    // The fraction matters: SRT writes milliseconds (",500"), and dropping them
+                    // truncated every cue to a whole second. A real 400 ms shift then measured as
+                    // "0 ms offset" - which would have skipped saving a genuine correction. Some
+                    // tools write one or two digits, so scale by the digit count.
+                    var fraction = 0.0;
+                    if (parts.Length > 3 && int.TryParse(parts[3], out var frac))
+                    {
+                        fraction = frac / Math.Pow(10, parts[3].Length);
+                    }
+
+                    starts.Add((h * 3600.0) + (m * 60.0) + s + fraction);
                 }
             }
 
@@ -2079,13 +2089,37 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Describes what a successful sync actually changed, by comparing cue
-    /// timings of the original and the synced file: the applied offset in
-    /// milliseconds (signed; + = subtitles moved later) and, when ffsubsync
-    /// corrected a framerate mismatch, the fitted time ratio plus the total
-    /// cumulative drift it fixed over the subtitle's runtime.
+    /// What a successful sync actually changed, measured by comparing the cue timings of the input
+    /// and the synced file.
     /// </summary>
-    internal static string? DescribeSyncChange(string inputPath, string outputPath)
+    /// <param name="ShiftMs">Applied offset in milliseconds (signed; + = subtitles moved later).</param>
+    /// <param name="Ratio">Fitted time ratio; 1.0 when no framerate correction was needed.</param>
+    /// <param name="DriftMs">Cumulative drift the ratio fixes over the subtitle's runtime.</param>
+    internal readonly record struct SyncChange(long ShiftMs, double Ratio, long DriftMs)
+    {
+        /// <summary>
+        /// Gets a value indicating whether the sync changed nothing: no offset and no framerate
+        /// correction. ffsubsync still writes an output file in that case, and a synced sidecar whose
+        /// timings are identical to its source is only noise in the library.
+        /// </summary>
+        public bool IsNoChange => ShiftMs == 0 && Math.Abs(Ratio - 1.0) < 1e-4;
+
+        /// <summary>
+        /// Describes the change for the log and the History list.
+        /// </summary>
+        /// <returns>A short human-readable description.</returns>
+        public string Describe() => Math.Abs(Ratio - 1.0) < 1e-4
+            ? $"{ShiftMs:+0;-0} ms offset"
+            : $"{ShiftMs:+0;-0} ms offset at start \u00b7 framerate ratio {Ratio:0.0000}\u00d7 (\u2248{DriftMs:+0;-0} ms cumulative drift)";
+    }
+
+    /// <summary>
+    /// Measures what a sync changed, by comparing cue timings of the original and the synced file.
+    /// </summary>
+    /// <param name="inputPath">Subtitle handed to ffsubsync.</param>
+    /// <param name="outputPath">Subtitle ffsubsync wrote.</param>
+    /// <returns>The measurement, or null when the files cannot be compared (too few cues, non-SRT).</returns>
+    internal static SyncChange? MeasureSyncChange(string inputPath, string outputPath)
     {
         var before = ParseSrtCueStarts(inputPath);
         var after = ParseSrtCueStarts(outputPath);
@@ -2118,14 +2152,19 @@ public class SubSyncService : IDisposable
             ratio = ((n * sumXY) - (sumX * sumY)) / denom;
         }
 
-        if (Math.Abs(ratio - 1.0) < 1e-4)
-        {
-            return $"{shiftMs:+0;-0} ms offset";
-        }
-
         var driftMs = (long)Math.Round((ratio - 1.0) * before[^1] * 1000.0);
-        return $"{shiftMs:+0;-0} ms offset at start \u00b7 framerate ratio {ratio:0.0000}\u00d7 (\u2248{driftMs:+0;-0} ms cumulative drift)";
+        return new SyncChange(shiftMs, ratio, driftMs);
     }
+
+    /// <summary>
+    /// Describes what a successful sync actually changed, by comparing cue
+    /// timings of the original and the synced file: the applied offset in
+    /// milliseconds (signed; + = subtitles moved later) and, when ffsubsync
+    /// corrected a framerate mismatch, the fitted time ratio plus the total
+    /// cumulative drift it fixed over the subtitle's runtime.
+    /// </summary>
+    internal static string? DescribeSyncChange(string inputPath, string outputPath)
+        => MeasureSyncChange(inputPath, outputPath)?.Describe();
 
     private async Task RunSyncJob(
         SyncJob job,
@@ -2414,6 +2453,26 @@ public class SubSyncService : IDisposable
             }
 
             _logger.LogInformation("ffsubsync produced synced subtitle ({Size} bytes)", new FileInfo(tempOutput).Length);
+
+            // ffsubsync writes an output file even when the timings come out identical, which produced
+            // a ".SYNCED" sidecar with the same timing as its source: no benefit, one more subtitle
+            // track in the library. Measured before anything is written, so nothing is touched.
+            var measured = MeasureSyncChange(subtitleInputPath, tempOutput);
+            if (measured is { IsNoChange: true } noChange)
+            {
+                _logger.LogInformation(
+                    "Sync job {JobId}: the sync changed nothing ({Change}) \u2014 no sidecar written",
+                    job.Id,
+                    noChange.Describe());
+                job.Outcome = $"already in sync ({noChange.Describe()}) \u2014 nothing written";
+                job.Phase = "Complete";
+                job.Status = SyncJobStatus.Completed;
+                job.Progress = 1.0;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.OutputPath = null;
+                SafeDelete(tempOutput);
+                return;
+            }
 
             // Step 3: Save the synced subtitle (copy mode by default — original untouched)
             if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
@@ -2903,7 +2962,7 @@ public class SubSyncService : IDisposable
         var utf8 = new System.Text.UTF8Encoding(false);
         var skipped = new List<string>();
 
-        if (config.FastIndexedExtraction && MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
+        if (MkvSubtitleExtractor.LooksLikeMatroska(videoPath))
         {
             job.Phase = "Extracting subtitle from the Matroska index";
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -2930,7 +2989,7 @@ public class SubSyncService : IDisposable
             skipped.Add("matroska-index: " + why + " [" + stats + "]");
         }
 
-        if (config.FastIndexedExtraction && Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
+        if (Mp4SubtitleExtractor.LooksLikeMp4(videoPath))
         {
             job.Phase = "Extracting subtitle with the MP4 sample table";
             var watch = System.Diagnostics.Stopwatch.StartNew();
@@ -2946,9 +3005,9 @@ public class SubSyncService : IDisposable
             skipped.Add("mp4-sample-table: " + why);
         }
 
-        if (!config.FastIndexedExtraction)
+        if (skipped.Count == 0)
         {
-            skipped.Add("indexed extraction is switched off in the settings");
+            skipped.Add("no index reader matched this container");
         }
 
         if (!allowFfmpegFallback)

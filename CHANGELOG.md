@@ -191,7 +191,30 @@ All notable changes to this plugin are documented here. Versions follow
 - First public release: bundled self-contained ffsubsync (linux-x64), zero setup on
   Docker, detail-page "Sync Subtitles" action, dashboard library browser with per-track
   selection, copy-by-default output (`-SYNCED.srt`, original untouched), server-side
-  FIFO batch queue with history that survives page reloads.## [1.1.0.41]
+  FIFO batch queue with history that survives page reloads.## [1.1.0.42]
+
+### Changed
+- **The extraction switch is gone: the container index is always used.** The Settings page carried a
+  checkbox ("Read embedded subtitles through the container's own index") wired to a property the
+  configuration model never had, so it remembered nothing and controlled nothing, while the legacy
+  dashboard page held the real switch. Both are removed - embedded subtitles are always read through
+  the container's own index, falling back to ffmpeg for anything the index cannot describe, with the
+  reason logged.
+
+### Fixed
+- **A sync that changes nothing no longer writes a file.** ffsubsync produces an output even when the
+  timings come out identical, which left a `.SYNCED` sidecar with the same timing as its source
+  beside the original (reported from real use after syncing embedded tracks). The change is measured
+  before anything is written and the job finishes as *already in sync - nothing written*.
+
+- **The measured offset was only accurate to the second.** The cue parser read the milliseconds out
+  of every timestamp and then ignored them, so a real 400 ms shift was reported as `0 ms offset` in
+  the History list and framerate ratios came out distorted (1.3x for a 0.5% correction). This also
+  mattered for the rule above: with the old parser a genuine sub-second correction would have been
+  discarded as "no change". Fractional seconds are parsed now, and the checks assert that a 400 ms
+  shift measures as 400 ms while a zero-median framerate correction is still treated as a change.
+
+## [1.1.0.41]
 
 ### Changed
 - **Jellyfin is only asked to re-read what changed.** After a sync the plugin reports the one

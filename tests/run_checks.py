@@ -726,6 +726,71 @@ System.Threading.Tasks.Parallel.For(0, 8, _ =>
 });
 Check("parallel finishes of one item produce exactly one refresh", winners == 1, "got " + winners);
 
+// ---------------- A sync that changes nothing writes nothing ----------------
+// ffsubsync writes an output file even when the timings come out identical. Saving that as a
+// ".SYNCED" sidecar puts a second subtitle with the same timing next to the original: no benefit,
+// and it was reported from real use after syncing embedded tracks.
+var noChangeDir = Path.Combine(Path.GetTempPath(), "subsync-nochange-" + Guid.NewGuid().ToString("N")[..8]);
+Directory.CreateDirectory(noChangeDir);
+
+string Srt(params int[] startsMs)
+{
+    var sb = new System.Text.StringBuilder();
+    for (var i = 0; i < startsMs.Length; i++)
+    {
+        sb.AppendLine((i + 1).ToString());
+        sb.AppendLine(TimeSpan.FromMilliseconds(startsMs[i]).ToString(@"hh\:mm\:ss\,fff")
+            + " --> "
+            + TimeSpan.FromMilliseconds(startsMs[i] + 1200).ToString(@"hh\:mm\:ss\,fff"));
+        sb.AppendLine("line " + (i + 1));
+        sb.AppendLine();
+    }
+
+    return sb.ToString();
+}
+
+var sourceSrt = Path.Combine(noChangeDir, "source.srt");
+var identicalSrt = Path.Combine(noChangeDir, "identical.srt");
+var shiftedSrt = Path.Combine(noChangeDir, "shifted.srt");
+var framerateSrt = Path.Combine(noChangeDir, "framerate.srt");
+var tinySrt = Path.Combine(noChangeDir, "tiny.srt");
+
+File.WriteAllText(sourceSrt, Srt(1000, 2000, 3000, 4000, 5000));
+File.WriteAllText(identicalSrt, Srt(1000, 2000, 3000, 4000, 5000));
+File.WriteAllText(shiftedSrt, Srt(1500, 2500, 3500, 4500, 5500));
+// Zero median offset but a real framerate correction: 990, 1995, 3000, 4005, 5010 against 1000,
+// 2000, 3000, 4000, 5000. The median difference is 0 ms, the fitted ratio is not 1 - this must not
+// be mistaken for "nothing changed".
+File.WriteAllText(framerateSrt, Srt(990, 1995, 3000, 4005, 5010));
+File.WriteAllText(tinySrt, Srt(1000, 2000));
+
+var identical = SubSyncService.MeasureSyncChange(sourceSrt, identicalSrt);
+Check("an identical output is recognised as no change", identical is { IsNoChange: true });
+Check("the no-change case is described as a 0 ms offset",
+    identical?.Describe() == "+0 ms offset", identical?.Describe() ?? "(none)");
+
+var shifted = SubSyncService.MeasureSyncChange(sourceSrt, shiftedSrt);
+Check("a 500 ms shift is a change", shifted is { IsNoChange: false });
+Check("the shift is reported in milliseconds", shifted?.ShiftMs == 500, "got " + shifted?.ShiftMs);
+
+// Sub-second precision must survive: parsing that dropped the milliseconds reported a real 400 ms
+// shift as "0 ms offset", and the "nothing changed" check would then throw the correction away.
+var subSecondSrt = Path.Combine(noChangeDir, "subsecond.srt");
+File.WriteAllText(subSecondSrt, Srt(1400, 2400, 3400, 4400, 5400));
+var subSecond = SubSyncService.MeasureSyncChange(sourceSrt, subSecondSrt);
+Check("a 400 ms shift is measured, not rounded to zero",
+    subSecond?.ShiftMs == 400, "got " + subSecond?.ShiftMs);
+Check("a sub-second shift is not treated as no change", subSecond is { IsNoChange: false });
+
+Check("a framerate correction is a change even with a zero median offset",
+    SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt) is { IsNoChange: false });
+Check("too few cues cannot be judged, so the output is kept",
+    SubSyncService.MeasureSyncChange(sourceSrt, tinySrt) is null);
+Check("the description keeps the framerate detail",
+    (SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? string.Empty).Contains("framerate ratio"),
+    SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? "(none)");
+Directory.Delete(noChangeDir, recursive: true);
+
 static int EnvInt(string name) =>
     int.TryParse(Environment.GetEnvironmentVariable(name), out var parsed) ? parsed : -1;
 
@@ -820,6 +885,24 @@ def run_page_checks():
         report(f"settings field '{element_id}' exists exactly once", count == 1, f'found {count}')
 
     report('the scope dropdown carries no fake item id', 'value="series"' not in main_html)
+
+    # A checkbox in the new settings page was wired to "FastMkvExtraction", which the config model
+    # never had: it rendered, remembered nothing, and controlled nothing (the engine always used the
+    # indexed reader). The real switch was the legacy dashboard page's "FastIndexedExtraction", which
+    # has now been removed as well because the indexed reader is what the plugin should always do.
+    pages = {name: open(os.path.join(web, name), encoding='utf-8').read()
+             for name in os.listdir(web) if name.endswith(('.html', '.js'))}
+    report('no page offers a switch for the always-on extraction',
+           not any('ss-fastmkv' in text or 'FastIndexedExtraction' in text for text in pages.values()))
+
+    plugin_sources = []
+    for root, _dirs, files in os.walk(os.path.join(REPO, 'Jellyfin.Plugin.SubSync')):
+        if 'bin' in root.split(os.sep) or 'obj' in root.split(os.sep):
+            continue
+        plugin_sources.extend(open(os.path.join(root, name), encoding='utf-8').read()
+                              for name in files if name.endswith(('.cs', '.html', '.js')))
+    report('no dead extraction setting is left in the plugin sources',
+           not any('FastIndexedExtraction' in text for text in plugin_sources))
     return failures
 
 

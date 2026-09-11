@@ -192,24 +192,6 @@
                                     <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
                                 </div>
 
-                                <h3 class="ss-subhead">Extraction &amp; sync engine</h3>
-                                <div class="ss-field">
-                                    <div class="checkboxContainer checkboxContainer-withDescription">
-                                        <label class="emby-checkbox-label">
-                                            <input is="emby-checkbox" type="checkbox" id="ss-fastmkv" />
-                                            <span>Read embedded subtitles through the container's own index</span>
-                                        </label>
-                                        <div class="fieldDescription checkboxFieldDescription">
-                                            Instead of demuxing the whole file for a few kilobytes of text, subtitle
-                                            samples are read straight from the index the container already carries — the
-                                            Matroska cue index or the MP4 sample table. On a 1.7 GB file that is ~0.2 s
-                                            instead of ~2.3 s, and it avoids a full read of a NAS-hosted file. Anything the
-                                            index cannot describe (image tracks, laced/compressed blocks, exotic codecs, a
-                                            missing index) falls back to ffmpeg automatically, with the reason logged.
-                                        </div>
-                                    </div>
-                                </div>
-
                                 <h3 class="ss-subhead">Multi-subtitle sync mode</h3>
                                 <div class="ss-field">
                                     <select is="emby-select" id="ss-multimode" label="When one sync covers several subtitles">
@@ -551,7 +533,6 @@
                     $('ss-ffsubsync').value = c.FfSubSyncPath && c.FfSubSyncPath !== 'ffsubsync' ? c.FfSubSyncPath : '';
                     $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
                     $('ss-gss').checked = !!c.UseGoldenSectionSearch;
-                    $('ss-fastmkv').checked = c.FastMkvExtraction !== false;
                     $('ss-multimode').value = c.MultiSyncMode || 'auto';
                     // The settings input has its own id: it used to share "ss-workers" with the
                     // worker-rows container, and getElementById returned the container, so the
@@ -577,7 +558,6 @@
                     c.FfSubSyncPath = $('ss-ffsubsync').value || 'ffsubsync';
                     c.SyncModeCopy = $('ss-mode').value === 'copy';
                     c.UseGoldenSectionSearch = $('ss-gss').checked;
-                    c.FastMkvExtraction = $('ss-fastmkv').checked;
                     c.SyncLanguages = syncLanguages.slice();
                     c.MultiSyncMode = $('ss-multimode').value || 'auto';
                     c.ParallelWorkers = wantedWorkers;

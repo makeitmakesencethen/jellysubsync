@@ -171,7 +171,7 @@ See also:
 
 `SubSyncService.RunSyncJob` extracts an embedded track in one of two ways:
 
-1. **Indexed (Matroska only, default on via `FastMkvExtraction`)** —
+1. **Indexed (always on; the setting was removed)** —
    `MkvSubtitleExtractor.TryExtract` walks EBML/segment → `Tracks` → `Cues`, then reads
    only the clusters that hold the target track's blocks and writes SRT itself. Touches
    kilobytes.

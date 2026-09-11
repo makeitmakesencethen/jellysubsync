@@ -4,7 +4,7 @@
     <RootNamespace>Jellyfin.Plugin.SubSync</RootNamespace>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <Version>1.1.0.41</Version>
+    <Version>1.1.0.42</Version>
     <!-- Both follow <Version>, so a release cannot ship a mismatched assembly version: the
          catalog said 1.1.0.30 while the assembly still said 1.1.0.19, and the version the
          interface shows is read from the assembly. -->
@@ -21,5 +21,11 @@
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="Web\**" />
+  </ItemGroup>
+  <ItemGroup>
+    <!-- The regression harness (tests/run_checks.py compiles its own project named "logictest")
+         checks the scheduling, measurement and configuration logic directly, so it needs to see
+         the internals rather than have the plugin widen its public API to be testable. -->
+    <InternalsVisibleTo Include="logictest" />
   </ItemGroup>
 </Project>

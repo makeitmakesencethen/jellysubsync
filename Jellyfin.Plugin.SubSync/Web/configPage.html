@@ -94,18 +94,6 @@
                             <div class="fieldDescription">Recommended (default): each sync writes a new file named "Title.SYNCED.srt" next to the original, so your subtitles are never touched. Replace overwrites the subtitle in place. Video files are never modified — embedded tracks are extracted and saved as a new external subtitle file instead of being remuxed back in.</div>
                         </div>
 
-                        <div class="checkboxContainer checkboxContainer-withDescription">
-                            <label class="emby-checkbox-label">
-                                <input is="emby-checkbox" type="checkbox" id="FastIndexedExtraction" name="FastIndexedExtraction" />
-                                <span>Read embedded subtitles through the container's own index</span>
-                            </label>
-                            <div class="fieldDescription checkboxFieldDescription">
-                                Reads subtitle samples from the Matroska cue index or the MP4 sample table instead of
-                                demuxing the entire file (measured 0.2 s vs 2.3 s on a 1.7 GB file). Falls back to ffmpeg
-                                automatically for anything it cannot handle, and reports the reason in the log.
-                            </div>
-                        </div>
-
                         <div class="selectContainer">
                             <label class="selectLabel" for="MultiSyncMode">Multi-subtitle sync mode</label>
                             <select is="emby-select" id="MultiSyncMode" name="MultiSyncMode">
@@ -265,7 +253,6 @@
                         document.querySelector('#OutputEncoding').value = config.OutputEncoding || 'utf-8';
                         document.querySelector('#UseGoldenSectionSearch').checked = config.UseGoldenSectionSearch || false;
                         document.querySelector('#SyncModeCopy').value = config.SyncModeCopy !== false ? 'true' : 'false';
-                        document.querySelector('#FastIndexedExtraction').checked = config.FastIndexedExtraction !== false;
                         document.querySelector('#ExtractionTimeoutMinutes').value = config.ExtractionTimeoutMinutes || 20;
                         document.querySelector('#MultiSyncMode').value = config.MultiSyncMode || 'auto';
                         document.querySelector('#ParallelWorkers').value = config.ParallelWorkers || 4;
@@ -321,7 +308,6 @@
                         config.OutputEncoding = document.querySelector('#OutputEncoding').value || 'utf-8';
                         config.UseGoldenSectionSearch = document.querySelector('#UseGoldenSectionSearch').checked;
                         config.SyncModeCopy = document.querySelector('#SyncModeCopy').value === 'true';
-                        config.FastIndexedExtraction = document.querySelector('#FastIndexedExtraction').checked;
                         config.ExtractionTimeoutMinutes = Math.min(240, Math.max(1, parseInt(document.querySelector('#ExtractionTimeoutMinutes').value, 10) || 20));
                         config.MultiSyncMode = document.querySelector('#MultiSyncMode').value || 'normal';
                         config.ParallelWorkers = Math.min(64, Math.max(1, parseInt(document.querySelector('#ParallelWorkers').value, 10) || 4));
