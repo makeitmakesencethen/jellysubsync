@@ -153,14 +153,18 @@ one-line note on each. **Never tick something you did not verify.**
   the file (listeners for `DOMContentLoaded`/`pageshow`/`load` plus a `setTimeout(0)`, all registered before
   anything else can go wrong) is what makes the page work. Any future code that must run in this page has to
   start from the top, not from the last line.
-- **D23 (F29's two-press kill and the mirrored run box in a browser) is still open**, and the blocker changed:
-  a run queued for the probe now **fails within seconds** (see S19), so the page never sees a live run to
-  mirror. The probe is ready: `tests/gui/page-selfstart-probe.js`.
+- **D23 half verified in a browser**: with a run queued through the page's own session, the mirrored run box
+  **appears** — `#ss-runbox` visible, the Cancel control visible, the line reading "8/1 workers · 3/20 · 3 failed"
+  (`tests/gui/page-selfstart3.json`) — which is the fix that used to fill a box nobody had shown. What is still
+  open is F29's two-press confirmation *in the browser*: the button reads "Kill all syncing" only when there is
+  no run the page can attach to, and the probe did not reach that state (it mirrored a run, so its first press
+  was a plain cancel, as designed). The source check pins the two-press behaviour; the browser check needs a
+  server busy with runs the page cannot attach to.
 
 | state | id | sev | what | evidence |
 |---|---|---|---|---|
 | open | **S19** | high | a bulk run can lose jobs to a missing extraction file: 4 of 50 tasks in the A8 w=4 sweep run failed with `DirectoryNotFoundException: …/cache/subsync/<jobId>/subtitle_15.srt`, and the same shape appeared for streams 13, 14, 19 — the files are written by the shared extraction pass and read from a *job's own* temporary directory, and a job deletes that directory when it finishes (`SubSyncService` 3104 creates `TempPath/<job.Id>`, 3205 reads `subtitle_<n>.srt` from it, 4027 deletes it). Jobs that started later read a directory their predecessor had already removed | `acceptance-A8-slow-w4.json` (4 failed, 0 empty outputs) + 4 `DirectoryNotFoundException` lines in the plugin log at 01:05:35–01:07:35 UTC; every other worker setting in the same sweep had 0 failures | 
-| open | **S20** | medium | with the page now running, a queued run reported **Failed** within seconds and the page stayed on "Idle" — the count of `DirectoryNotFoundException` in the log did not grow, so the failures the probes provoked are *not* S19 and happen on the fast profile with warm caches. Next step: read the batch record's task errors for `3f0918f7c5f84c3c9eddc17d5b6a9924` / `58b383922e6945879a2bcbeb767df1cc` | `tests/gui/page-selfstart2.json`, `page-interactive3.json` |
+| closed | **S20** | — | the probe's own batches failed for two harness reasons, not a product defect: `Guid can't be empty (Parameter 'id')` (the probe read an item id key that does not exist in `ids.json`) and, once that was fixed, `Subtitle stream index 7/8/9 not found.` (the probe asked for indices 2..21; a sidecar added by an earlier run renumbered them — S14). The server refused both correctly. The probe now reads the item's tracks from the server before queueing | `tests/gui/page-selfstart{2,4}.json`; batch `b8926df6` = 16 Completed / 3 Failed / 1 Refused, all three failures "stream index not found" |
 
 ## Ask the user before coding these
 

@@ -65,14 +65,19 @@ const results = { label: LABEL, steps: [] };
   const batch = await page.evaluate(async (itemId) => {
     const creds = JSON.parse(localStorage.getItem('jellyfin_credentials') || '{}');
     const accessToken = ((creds.Servers || [])[0] || {}).AccessToken;
+    const headers = { 'Content-Type': 'application/json', Authorization: 'MediaBrowser Token="' + accessToken + '"' };
+    // The tracks are read from the server rather than assumed: a sidecar added by an earlier run
+    // renumbers them (S14), and a hard-coded range then asks for indices that do not exist.
+    const tracks = await (await fetch('/SubSync/Subtitles/' + itemId, { headers })).json();
+    const wanted = (Array.isArray(tracks) ? tracks : []).slice(0, 20).map((x) => x.Index);
     const r = await fetch('/SubSync/Batch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: 'MediaBrowser Token="' + accessToken + '"' },
-      body: JSON.stringify({ Label: 'self-start probe', Tasks: Array.from({ length: 20 }, (_, i) => ({ ItemId: itemId, SubtitleIndex: i + 2 })) }),
+      headers,
+      body: JSON.stringify({ Label: 'self-start probe', Tasks: wanted.map((Index) => ({ ItemId: itemId, SubtitleIndex: Index })) }),
     });
     const body = await r.text();
     return { status: r.status, body: body.slice(0, 120) };
-  }, IDS.episode_fast);
+  }, IDS.movie);
   let mirrored = null;
   for (let i = 0; i < 60; i++) {
     await wait(700);
@@ -93,6 +98,20 @@ const results = { label: LABEL, steps: [] };
 
   // 3. F29: the button asks before it kills everything on the server
   const presses = [];
+  // The two-press confirmation belongs to the *global* button ("Kill all syncing"), which the page shows
+  // once there is no run of its own to cancel. Mirroring a run puts the button in cancel mode, so the
+  // first press here is a plain cancel; with that run dropped the button switches to the global kill and
+  // the next two presses are the ones F29 changes.
+  presses.push({ note: 'cancel the mirrored run', state: await page.evaluate(() => {
+    const btn = document.querySelector('#ss-cancel');
+    if (btn) btn.click();
+    return { label: btn ? btn.textContent.trim() : null };
+  }) });
+  await wait(4000);
+  presses.push({ note: 'after the cancel', state: await page.evaluate(() => {
+    const btn = document.querySelector('#ss-cancel');
+    return { label: btn ? btn.textContent.trim() : null, phase: ((document.querySelector('#ss-phase') || {}).textContent || '').slice(0, 120) };
+  }) });
   for (const note of ['first press', 'second press']) {
     presses.push({ note, state: await page.evaluate(() => {
       const btn = document.querySelector('#ss-cancel');

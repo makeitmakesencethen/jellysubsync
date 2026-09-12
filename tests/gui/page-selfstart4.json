@@ -1,0 +1,91 @@
+{
+  "label": "page-selfstart4",
+  "steps": [
+    {
+      "step": "page starts by itself",
+      "state": {
+        "status": "ffsubsync source: /opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync\nffmpeg",
+        "libraries": 5,
+        "filled": true
+      },
+      "after_s": null
+    },
+    {
+      "step": "a run the page did not start",
+      "batch": {
+        "status": 200,
+        "body": "{\"Id\":\"b8926df617624bad8a3833d4a2daca62\",\"Mode\":\"normal\",\"RunningTasks\":[{\"StartedAtUtc\":\"2026-09-12T01:29:47.925641Z\",\""
+      },
+      "mirrored": {
+        "boxHidden": false,
+        "buttonVisible": true,
+        "buttonLabel": "Cancel",
+        "runLine": "8/8 workers · 4/20 · 3 failed",
+        "phase": ""
+      }
+    },
+    {
+      "step": "F29 two-press kill",
+      "presses": [
+        {
+          "note": "cancel the mirrored run",
+          "state": {
+            "label": "Cancel"
+          }
+        },
+        {
+          "note": "after the cancel",
+          "state": {
+            "label": "Cancel",
+            "phase": "Last run finished at 11/20."
+          }
+        },
+        {
+          "note": "first press",
+          "state": {
+            "label": "Cancel",
+            "phase": "Last run finished at 11/20."
+          }
+        },
+        {
+          "note": "second press",
+          "state": {
+            "label": "Cancel",
+            "phase": "Last run finished at 11/20."
+          }
+        }
+      ],
+      "activeAfter": {
+        "running": 0,
+        "queued": 0
+      }
+    }
+  ],
+  "calls": [
+    "GET /SubSync/ClientScript",
+    "GET /SubSync/MainScript",
+    "GET /SubSync/InstallationStatus",
+    "GET /SubSync/Configuration",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "HTTP 403 /SubSync/Configuration",
+    "PAGEERROR Error: HTTP 403",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batches",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/b8926df617624bad8a3833d4a2daca62",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/b8926df617624bad8a3833d4a2daca62",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches"
+  ]
+}

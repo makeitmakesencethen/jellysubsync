@@ -1,0 +1,74 @@
+{
+  "label": "page-selfstart3",
+  "steps": [
+    {
+      "step": "page starts by itself",
+      "state": {
+        "status": "ffsubsync source: /opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync\nffmpeg",
+        "libraries": 5,
+        "filled": true
+      },
+      "after_s": null
+    },
+    {
+      "step": "a run the page did not start",
+      "batch": {
+        "status": 200,
+        "body": "{\"Id\":\"8f80f95c6c2844558999b1a705740bb8\",\"Mode\":\"normal\",\"RunningTasks\":[{\"StartedAtUtc\":\"2026-09-12T01:29:17.0454922Z\","
+      },
+      "mirrored": {
+        "boxHidden": false,
+        "buttonVisible": true,
+        "buttonLabel": "Cancel",
+        "runLine": "8/1 workers · 3/20 · 3 failed",
+        "phase": ""
+      }
+    },
+    {
+      "step": "F29 two-press kill",
+      "presses": [
+        {
+          "note": "first press",
+          "state": {
+            "label": "Cancel",
+            "phase": ""
+          }
+        },
+        {
+          "note": "second press",
+          "state": {
+            "label": "Cancel",
+            "phase": ""
+          }
+        }
+      ],
+      "activeAfter": {
+        "running": 0,
+        "queued": 0
+      }
+    }
+  ],
+  "calls": [
+    "GET /SubSync/ClientScript",
+    "GET /SubSync/MainScript",
+    "GET /SubSync/InstallationStatus",
+    "GET /SubSync/Configuration",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "HTTP 403 /SubSync/Configuration",
+    "PAGEERROR Error: HTTP 403",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batches",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/8f80f95c6c2844558999b1a705740bb8",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/8f80f95c6c2844558999b1a705740bb8",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches"
+  ]
+}

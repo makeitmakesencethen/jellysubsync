@@ -93,7 +93,7 @@ const results = { label: LABEL, steps: [] };
     });
     const body = await r.text();
     return { status: r.status, body: body.slice(0, 160) };
-  }, IDS.episode_fast);
+  }, IDS.movie);
   let mirrored = null;
   for (let i = 0; i < 40; i++) {
     await wait(700);
