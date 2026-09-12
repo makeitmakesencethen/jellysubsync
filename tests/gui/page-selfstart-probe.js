@@ -19,6 +19,19 @@ const BASE = 'http://127.0.0.1:8096';
 const IDS = JSON.parse(fs.readFileSync(__dirname + '/ids.json', 'utf8'));
 const LABEL = process.argv[2] || 'page-selfstart';
 const OUT = __dirname + '/' + LABEL + '.json';
+const grantAdmin = async (auth, userId) => {
+  // A partial body for POST /Users/{id}/Policy answers 400 and leaves the account as it was, so the
+  // throwaway accounts stayed non-administrators and every elevated call from the page (settings, Kill)
+  // answered 403. Send the account's own policy back with the flag set.
+  const current = await (await fetch(BASE + '/Users/' + userId, { headers: { Authorization: auth } })).json();
+  const policy = Object.assign({}, current.Policy, { IsAdministrator: true, EnableAllFolders: true });
+  const r = await fetch(BASE + '/Users/' + userId + '/Policy', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth }, body: JSON.stringify(policy),
+  });
+  if (!r.ok) { throw new Error('could not grant administrator: HTTP ' + r.status); }
+  return true;
+};
+
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const results = { label: LABEL, steps: [] };
 
@@ -28,10 +41,7 @@ const results = { label: LABEL, steps: [] };
     method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ Name: 'guitest-self-' + Date.now().toString(36) }),
   })).json();
-  await fetch(BASE + '/Users/' + user.Id + '/Policy', {
-    method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({ IsAdministrator: true, EnableAllFolders: true }),
-  });
+  await grantAdmin(auth, user.Id);
 
   const browser = await chromium.launch({ args: ['--no-sandbox'], executablePath: '/opt/data/.playwright/chromium-1234/chrome-linux64/chrome' });
   const page = await (await browser.newContext({ viewport: { width: 1400, height: 900 } })).newPage();

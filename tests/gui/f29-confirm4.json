@@ -1,0 +1,220 @@
+{
+  "label": "f29-confirm4",
+  "steps": [
+    {
+      "step": "the page is up",
+      "button": {
+        "label": "Cancel",
+        "kill": false,
+        "phase": "Nothing queued."
+      }
+    },
+    {
+      "step": "queued a run (attempt 1)",
+      "queued": {
+        "status": 200,
+        "tasks": 50,
+        "body": "{\"Id\":\"e9e0b840debd4131852d299d3a807a21\",\"Mode\":\"ultimate\",\"RunningTasks\":[],\"Wo"
+      },
+      "runningWhenCancelled": 3
+    },
+    {
+      "step": "after the cancel",
+      "button": {
+        "label": "Cancel",
+        "kill": false,
+        "phase": "Last run finished at 0/50."
+      }
+    },
+    {
+      "step": "queued a run (attempt 2)",
+      "queued": {
+        "status": 200,
+        "tasks": 50,
+        "body": "{\"Id\":\"ffcb6228496248229cdcd218215767cc\",\"Mode\":\"normal\",\"RunningTasks\":[{\"Start"
+      },
+      "runningWhenCancelled": 4
+    },
+    {
+      "step": "after the cancel",
+      "button": {
+        "label": "Cancel",
+        "kill": false,
+        "phase": ""
+      }
+    },
+    {
+      "step": "queued a run (attempt 3)",
+      "queued": {
+        "status": 200,
+        "tasks": 50,
+        "body": "{\"Id\":\"74ddcdef12874fbd96896f5caa40826b\",\"Mode\":\"auto\",\"RunningTasks\":[],\"Worker"
+      },
+      "runningWhenCancelled": 4
+    },
+    {
+      "step": "after the cancel",
+      "button": {
+        "label": "Kill all syncing",
+        "kill": true,
+        "phase": ""
+      }
+    },
+    {
+      "step": "F29 presses",
+      "afterFirstPress": {
+        "label": "Confirm: kill all syncing",
+        "kill": true,
+        "phase": "Press again to stop every sync on this server — that includes runs other users started. Nothing has been stopped yet."
+      },
+      "afterSecondPress": {
+        "label": "Confirm: kill all syncing",
+        "kill": true,
+        "phase": ""
+      },
+      "serverAfter": {
+        "running": 4,
+        "queued": 50
+      },
+      "killCalls": 1
+    }
+  ],
+  "calls": [
+    "GET /SubSync/ClientScript",
+    "GET /SubSync/MainScript",
+    "GET /SubSync/InstallationStatus",
+    "GET /SubSync/Configuration",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Subtitles/1c0799b1407a2e7714b9e6e0bffbd6e2",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "POST /SubSync/Batch/e9e0b840debd4131852d299d3a807a21/Cancel",
+    "GET /SubSync/Batch/e9e0b840debd4131852d299d3a807a21",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Subtitles/1c0799b1407a2e7714b9e6e0bffbd6e2",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Subtitles/1c0799b1407a2e7714b9e6e0bffbd6e2",
+    "GET /SubSync/Batches",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "POST /SubSync/Batch/ffcb6228496248229cdcd218215767cc/Cancel",
+    "GET /SubSync/Active",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "POST /SubSync/Kill",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batch/ffcb6228496248229cdcd218215767cc"
+  ]
+}

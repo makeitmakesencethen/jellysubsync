@@ -4,6 +4,40 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.12 (beta)
+
+Makes a bulk run start instead of stalling, measured on your server.
+
+- **A run started by reading the file for minutes before the first subtitle came out.** On network storage a
+  read costs about the same whatever its size (measured on fabji's Synology: 12,8 ms per read), so the number
+  of round trips is the cost, not the bytes. One episode's extraction pass was issuing 2 058 ranges / 3 553
+  reads and spending **46-96 s** before its jobs could begin — which reads as "it takes a very long time to
+  start, and then it is fast". Wanted ranges are now **merged across megabytes on such storage**, which turns
+  those thousands of reads into hundreds (measured on a fixture built to behave like that share: the same pass
+  went from a projected ~42 s of round-trip waiting to **11,3 s**).
+- **The decision is measured, not assumed.** The probe now compares the cost *per MB* of small reads against
+  one 4 MB read: on a share the big read wins and ranges are merged; on a slow disk (where the bytes are what
+  costs) the big read costs the same per MB and the ranges stay tight — verified on both fixtures, no
+  regression on the tight path (212 MB / 3 379 reads / 23 s before and after).
+- **The storage probe no longer trusts one region.** It reported 0,54 ms per 16 KB on that server — the
+  probed region was in the page cache — and a "reads are cheap" verdict is what makes a walker read in
+  thousands of small pieces. It now samples four regions spread across the file and the **median** decides.
+- **The walk corrects a wrong verdict from its own reads**: if they turn out to cost milliseconds while it is
+  reading small windows, it switches to big ones for the rest of the file and says so in the plugin log.
+- Trade-off, stated plainly: merging reads more bytes than the subtitles need (an episode's wanted ranges plus
+  everything in between). That is the right trade when a round trip costs 13 ms and wrong when bytes are what
+  costs, which is exactly what the per-MB measurement decides.
+- **A movie with several subtitles analysed its audio once per subtitle.** Two tracks of one 2 h movie were
+  started together and each ran the engine against the audio — **141 s each**, both reporting
+  `cachedSpeech=False`, because neither had harvested the result yet; on your log that shape appears ten
+  times. The audio analysis is per *file*: only one job of a file may run it while that file's speech cache
+  is empty, and the others wait for the harvest and then reuse it (verified: one job
+  `reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the
+  others wait for it)`, the other `method=speech-cache … (harvested by another job of this file while this
+  one waited)`).
+- Also here: a **refused Kill or Cancel now says so** ("The kill was refused: HTTP 403 — stopping every run on
+  the server needs an administrator account.") and the button drops back instead of staying armed.
+
 ## 2.0.11 (beta)
 
 Fixes 2.0.10, which should not have been published.

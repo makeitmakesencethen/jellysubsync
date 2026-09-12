@@ -1927,9 +1927,11 @@
             // Give the server a moment to reflect the running job's state.
             setTimeout(reportStillRunning, 700);
         }).catch(function (e) {
+            var why = (e && e.message) ? e.message : e;
             if (el) el.disabled = false;
             $('ss-run-label').textContent = 'Cancel request failed.';
-            diag('Cancel failed: ' + (e.message || e), true);
+            $('ss-phase').textContent = 'The cancel was refused: ' + why;
+            diag('Cancel failed: ' + why, true);
         });
     }
 
@@ -1967,9 +1969,16 @@
                 if (watchedBatchId) refreshHistory();
             }
         }).catch(function (e) {
+            var why = (e && e.message) ? e.message : e;
             if (el) el.disabled = false;
+            // A refused kill must not leave the button on the confirmation: it would read as "press again",
+            // and pressing again would be refused too. Say what happened, in the line the user is reading.
+            setCancelButton('Kill all syncing', true);
             $('ss-run-label').textContent = 'Kill request failed.';
-            diag('Kill failed: ' + (e.message || e), true);
+            $('ss-phase').textContent = 'The kill was refused: ' + why
+                + (/\b403\b/.test(String(why))
+                    ? ' \u2014 stopping every run on the server needs an administrator account.' : '');
+            diag('Kill failed: ' + why, true);
         });
     }
 

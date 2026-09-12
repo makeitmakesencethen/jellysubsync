@@ -6,7 +6,10 @@
 # stdout logs cost time. Run this, do not retype it.
 #
 #   ./start-server.sh            # normal storage
-#   SLOW=1 ./start-server.sh     # slow-storage profile (LD_PRELOAD shim)
+#   SLOW=1 ./start-server.sh     # slow-storage profile (LD_PRELOAD shim, bytes are the cost)
+#   SLOWREAD_MS_PER_CALL=13   # the same shim charging per round trip instead: a share charges ~13 ms
+#                             #   per read whatever its size, which is the storage the prefetch has to
+#                             #   be right for (measured on fabji's Synology)
 #
 # Logs:  /opt/data/jf12test/log/stdout-<SLOW|fast>.log
 set -e

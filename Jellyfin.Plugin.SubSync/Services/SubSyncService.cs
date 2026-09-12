@@ -71,6 +71,9 @@ public class SyncJob
     /// <summary>Gets or sets the unique job identifier.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
+    /// <summary>Gets or sets a value indicating whether this job holds its file's audio-analysis gate.</summary>
+    public bool HoldsSpeechGate { get; set; }
+
     /// <summary>Gets or sets the Jellyfin item ID.</summary>
     public Guid ItemId { get; set; }
 
@@ -312,6 +315,13 @@ public class SubSyncService : IDisposable
     // loser either failed to write it or failed to move it into place, which used to end in the
     // engine being handed the whole container to demux.
     private readonly ConcurrentDictionary<string, SemaphoreSlim> _referenceGates = new(StringComparer.Ordinal);
+
+    // One gate per media file for the *audio* analysis, which is the expensive half of a job that has no
+    // subtitle to align against: measured on a real server, two subtitle tracks of one 2 h movie were
+    // started together and each ran the engine against the audio - 141 s each, twice, and both reported
+    // cachedSpeech=False because neither had harvested the result yet. The first job through the gate
+    // analyses; the others wait and then reuse what it stored in the speech cache.
+    private readonly ConcurrentDictionary<string, SemaphoreSlim> _speechGates = new(StringComparer.Ordinal);
 
     // A lane pass reads a whole file in one go, tens of seconds on local storage and minutes on a
     // slow share. Kill cancels the jobs, the engine's process trees and this source; it is replaced
@@ -1421,6 +1431,27 @@ public class SubSyncService : IDisposable
         removed += SharedExtractionStore.Cleanup(id => _jobs.ContainsKey(id));
 
         return removed;
+    }
+
+    /// <summary>
+    /// Releases a job's hold on its file's audio analysis, if it has one.
+    /// </summary>
+    /// <param name="job">The job that may be holding it.</param>
+    /// <param name="videoPath">The media file.</param>
+    private void ReleaseSpeechGate(SyncJob job, string videoPath)
+    {
+        if (!job.HoldsSpeechGate)
+        {
+            return;
+        }
+
+        job.HoldsSpeechGate = false;
+        if (_speechGates.TryGetValue(videoPath, out var gate))
+        {
+            // Released only by the job that took it (the flag above), and never twice: the harvest path and
+            // the job's finally both come through here.
+            gate.Release();
+        }
     }
 
     /// <summary>Joins a note with another, so callers do not repeat the separator.</summary>
@@ -3337,9 +3368,27 @@ public class SubSyncService : IDisposable
                     return cached;
                 }
 
+                // The analysis is per *file*, not per subtitle: hold the file's gate so the first job does
+                // it and the rest reuse the harvest. They wait here rather than starting a second analysis.
+                var speechGate = _speechGates.GetOrAdd(videoPath, _ => new SemaphoreSlim(1, 1));
+                await speechGate.WaitAsync().ConfigureAwait(false);
+                job.HoldsSpeechGate = true;
+
+                var harvestedWhileWaiting = SpeechCache.TryGet(speechKey);
+                if (harvestedWhileWaiting is not null)
+                {
+                    speechGate.Release();
+                    job.HoldsSpeechGate = false;
+                    usingCachedSpeech = true;
+                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
+                    _logger.LogInformation("Reusing the audio analysis another job stored for {Video} ({Why})", videoPath, why);
+                    PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why} (harvested by another job of this file while this one waited)");
+                    return harvestedWhileWaiting;
+                }
+
                 serializeSpeech = true;
                 job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
-                PluginLog.Info($"[{job.Id}] reference: method=audio why={why}");
+                PluginLog.Info($"[{job.Id}] reference: method=audio why={why} (this job does the file's analysis; the others wait for it)");
                 return SpeechCache.CreateReferenceLink(videoPath, speechKey);
             }
 
@@ -3589,6 +3638,8 @@ public class SubSyncService : IDisposable
                 SpeechCache.DropLink(speechKey);
                 SpeechCache.Prune();
             }
+
+            ReleaseSpeechGate(job, videoPath);
 
             if (!File.Exists(tempOutput))
             {
@@ -4042,6 +4093,15 @@ public class SubSyncService : IDisposable
 
             // The shared extraction directory goes away only when the last job reading it is done; this job
             // deleting it is exactly what used to fail the jobs that came after it.
+            try
+            {
+                ReleaseSpeechGate(job, video.Path);
+            }
+            catch
+            {
+                // Non-critical: the next job of this file will do its own analysis.
+            }
+
             try
             {
                 SharedExtractionStore.Release(video.Path, job.Id);

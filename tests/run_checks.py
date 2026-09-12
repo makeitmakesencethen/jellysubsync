@@ -1282,6 +1282,10 @@ def run_page_checks():
     # (every real web client) the stack blew and the page stopped at "Loading libraries…", while every browser
     # test here ran where ApiClient is undefined and therefore never took that branch. The self-call is what
     # the check below exists for.
+    report('a refused kill says so and does not stay armed',
+           "setCancelButton('Kill all syncing', true);" in pages['subsyncMain.js']
+           and 'The kill was refused: ' in pages['subsyncMain.js']
+           and 'The cancel was refused: ' in pages['subsyncMain.js'])
     report('currentUserId() does not call itself',
            'if (mine) { return mine; }' in pages['subsyncMain.js']
            and 'return currentUserId();' not in pages['subsyncMain.js'])
@@ -1321,6 +1325,16 @@ def run_page_checks():
     report('the cancel control works for a run the page did not start',
            'var target = watchedBatchId || mirroredBatchId;' in pages['subsyncMain.html']
            and "api('SubSync/Batch/' + target + '/Cancel'" in pages['subsyncMain.html'])
+    # Measured on a real server 2026-09-12: two subtitles of one 2 h movie started together, each ran the
+    # engine against the audio (141 s each, cachedSpeech=False both times). The audio analysis is per file,
+    # so only one job may run it while the file's speech cache is empty; the others wait for the harvest.
+    report('only one job per file runs the audio analysis, the others wait for its harvest',
+           '_speechGates' in service_source
+           and 'await speechGate.WaitAsync()' in service_source
+           and 'harvestedWhileWaiting' in service_source
+           and 'ReleaseSpeechGate(job, videoPath);' in service_source
+           and 'job.HoldsSpeechGate = true;' in service_source
+           and 'public bool HoldsSpeechGate { get; set; }' in service_source)
     report('a refusal is reported as a refusal, not as a failure',
            'private static string StatusOf(SyncJob job)' in controller_source
            and 'StatusOf(j),' in controller_source
@@ -1551,8 +1565,19 @@ def run_page_checks():
     report('the shared pass reads a cluster-sized region, never the whole file',
            'Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024)' in extractor_source
            and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
-    report('the storage probe steps forward at distinct offsets, not on one cached block',
-           'foreach (var step in new[] { 0L, 64 * 1024, 128 * 1024 })' in extractor_source)
+    # 2026-09-12, from a real server: probing three reads stepping forward from the middle of the file
+    # reported 0,54 ms per 16 KB (the probed region was in the page cache) while the walk that followed
+    # spent 16-33 ms per read over 2 600-3 700 reads - 46-96 s per file before its jobs could start, which
+    # the user described as "it took a long time to start, then it got fast". The probe now samples four
+    # regions spread across the file and the median decides, and the walk watches its own reads and switches
+    # to big windows if they turn out to be expensive anyway.
+    report('the storage probe samples the whole file, and the median decides',
+           'foreach (var fraction in new[] { 0.10, 0.35, 0.60, 0.85 })' in extractor_source
+           and 'samples.Sort();' in extractor_source
+           and 'var fastest = samples[samples.Count / 2];' in extractor_source)
+    report('the walk corrects a wrong "reads are cheap" verdict from its own reads',
+           'reads measured {perRead:0.00} ms each once the walk started' in extractor_source
+           and 'reader.WindowSize = BlobReader.MaxWindowSize;' in extractor_source)
 
     # The run that made all this visible: 240 jobs queued, four workers limit, and the plugin silent
     # for 46 s and then 83 s because the pump waited on a signal that a job becoming startable never

@@ -39,6 +39,8 @@ static struct {
     int slow;
 } cache[CACHE];
 
+static double ns_per_call;
+
 static void init(void)
 {
     if (ready)
@@ -50,6 +52,11 @@ static void init(void)
     prefix = (p && *p) ? p : "/opt/data/jf12test/media-slow/";
     const char *m = getenv("SLOWREAD_MS_PER_16K");
     ns_per_16k = ((m && *m) ? atof(m) : 12.8) * 1e6;
+    /* A share charges per round trip, not per byte: the same read costs ~13 ms whether it returns 4 KB or
+       4 MB. SLOWREAD_MS_PER_CALL=<ms> reproduces that shape (fabji's Synology), which is the storage the
+       extractor's read pattern has to be right for. */
+    const char *c = getenv("SLOWREAD_MS_PER_CALL");
+    ns_per_call = ((c && *c) ? atof(c) : 0.0) * 1e6;
     ready = 1;
 }
 
@@ -82,7 +89,7 @@ static void charge(ssize_t got)
 {
     if (got <= 0)
         return;
-    double ns = ((double)got / 16384.0) * ns_per_16k;
+    double ns = ns_per_call > 0.0 ? ns_per_call : ((double)got / 16384.0) * ns_per_16k;
     if (ns <= 0)
         return;
     struct timespec ts;

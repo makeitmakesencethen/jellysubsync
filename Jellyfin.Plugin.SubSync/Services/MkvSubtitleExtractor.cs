@@ -1109,40 +1109,52 @@ public static class MkvSubtitleExtractor
             return 4 * 1024;
         }
 
+        // The walk touches the whole file, so the number that matters is what a read costs *anywhere* in
+        // it - and one place is not enough to learn that. Measuring three reads stepping forward from the
+        // middle reported 0,54 ms per 16 KB on a server whose walk then spent 16-33 ms per read over
+        // 2 600-3 700 reads (46-96 s per file before its jobs could start): the probed region was in the
+        // page cache (the file had just been scanned or played) and the rest of the file was not. Four
+        // regions spread across the file are probed and the *median* decides, so one cached region cannot
+        // talk the walk into thousands of tiny reads.
         Span<byte> probe = stackalloc byte[16 * 1024];
-        var fastest = double.MaxValue;
+        var samples = new List<double>(8);
         var got = 0;
         // Three reads stepping forward from one place, which is the pattern a walk uses. Reading the
         // *same* offset three times measures the page cache - the second and third reads come out of
         // RAM - and reported 0.00 ms on a share that answers a real read in milliseconds, which is
         // how the walker ended up reading in 4 KB pieces there.
-        var probeStart = reader.Length / 2;
-        foreach (var step in new[] { 0L, 64 * 1024, 128 * 1024 })
+        foreach (var fraction in new[] { 0.10, 0.35, 0.60, 0.85 })
         {
-            var watch = Stopwatch.StartNew();
-            var read = reader.ReadAt(Math.Min(probeStart + step, reader.Length - probe.Length), probe);
-            watch.Stop();
-            if (read <= 0)
+            var probeStart = (long)(reader.Length * fraction);
+            foreach (var step in new[] { 0L, 64 * 1024 })
             {
-                continue;
-            }
+                var offset = Math.Clamp(probeStart + step, 0, Math.Max(0, reader.Length - probe.Length));
+                var watch = Stopwatch.StartNew();
+                var read = reader.ReadAt(offset, probe);
+                watch.Stop();
+                if (read <= 0)
+                {
+                    continue;
+                }
 
-            got = read;
-            fastest = Math.Min(fastest, watch.Elapsed.TotalMilliseconds);
+                got = read;
+                samples.Add(watch.Elapsed.TotalMilliseconds);
+            }
         }
 
-        if (got <= 0 || fastest == double.MaxValue)
+        if (got <= 0 || samples.Count == 0)
         {
             return 4 * 1024;
         }
 
-        // A read on a share costs milliseconds; on a local disk it costs tens of microseconds. When the
-        // read itself is expensive, transfer the file in a handful of big reads (the walk covers the
-        // file anyway). When it is cheap, read only the block headers and skip the rest, which moves a
-        // fraction of the bytes.
+        // The median, not the fastest: one cached region among four is exactly the case this probe exists
+        // to see through.
+        samples.Sort();
+        var fastest = samples[samples.Count / 2];
+
         var window = fastest >= 1.0 ? BlobReader.MaxWindowSize : 4 * 1024;
         PluginLog.Info(
-            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read -> walk window {window / 1024} KB "
+            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file -> walk window {window / 1024} KB "
             + (fastest >= 1.0
                 ? "(reads are expensive here, so the file is read in big pieces)"
                 : "(reads are cheap here, so only the block headers are read)"));
@@ -1509,6 +1521,15 @@ public static class MkvSubtitleExtractor
         var visited = 0;
         endPosition = Math.Min(endPosition, reader.Length);
 
+        // A probe can be wrong (a cached region, a share that was busy, a file that is on a different
+        // filesystem than the last one) and a wrong "reads are cheap" verdict costs thousands of reads at
+        // 16-33 ms each, which is what a user experiences as "it takes minutes to start, then it is fast".
+        // So the walk watches its own reads: if they turn out to be expensive while it is reading small
+        // windows, it switches to big ones for the rest of the file and says so.
+        var walkWatch = Stopwatch.StartNew();
+        var readsAtStart = reader.ReadCalls;
+        var switched = false;
+
         while (cursor < endPosition)
         {
             if (!reader.TryReadElementHeaderAt(cursor, out var id, out var size, out var headerLength))
@@ -1529,6 +1550,21 @@ public static class MkvSubtitleExtractor
                 if (progress is not null && visited % ProgressEveryClusters == 0)
                 {
                     progress($"scanning clusters ({visited} read, {stats.BytesRead / 1e6:0.0} MB, {cues.Count} subtitles found)");
+                }
+
+                if (!switched && visited >= 64 && reader.WindowSize < BlobReader.MaxWindowSize)
+                {
+                    var reads = reader.ReadCalls - readsAtStart;
+                    var perRead = reads > 0 ? walkWatch.Elapsed.TotalMilliseconds / reads : 0;
+                    if (perRead >= 1.0)
+                    {
+                        switched = true;
+                        reader.WindowSize = BlobReader.MaxWindowSize;
+                        PluginLog.Info(
+                            $"extract: reads measured {perRead:0.00} ms each once the walk started "
+                            + $"({reads} reads) - switching to {reader.WindowSize / 1024} KB windows for the rest "
+                            + "of this file, because the probe before the walk said they were cheap");
+                    }
                 }
 
                 var dataEnd = size == ulong.MaxValue ? endPosition : Math.Min(dataStart + (long)size, endPosition);
@@ -2177,6 +2213,13 @@ public static class MkvSubtitleExtractor
         List<CueRef> cueRefs,
         CancellationToken cancellationToken)
     {
+        // Merging these ranges across megabytes was tried on 2026-09-12 and reverted: on a share that answers
+        // a read in 12-20 ms it looked like the obvious win (tens of reads instead of thousands), and on a
+        // fixture built to behave like that share it *was* the win (11,3 s against a projected 42 s), but the
+        // suite's own sparse fixture caught what it costs everywhere else - 4,377 MB read where it allows
+        // under 1 MB - and on a bandwidth-poor share the extra bytes can outweigh the round trips saved.
+        // The pattern has to be chosen from measured latency *and* measured bandwidth per file, not from one
+        // heuristic; until then the tuned constants stay.
         const long MergeGap = 32L * 1024;
         const long MaxRange = 4L * 1024 * 1024;
         const long MaxTotalBytes = 192L * 1024 * 1024;
