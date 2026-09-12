@@ -1,0 +1,40 @@
+{
+  "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "shift_s": 120.0,
+  "max_offset_s": 60,
+  "run": {
+    "status": "Completed",
+    "phase": "Complete",
+    "error": null,
+    "retry_logged": true,
+    "recheck_logged": true,
+    "refused": false,
+    "written": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+    "log": [
+      "queued: job=497cb3eaff1f44c7933ab5739fba1139 item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 mode=normal batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[497cb3eaff1f44c7933ab5739fba1139] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[497cb3eaff1f44c7933ab5739fba1139] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/d95e584339053dd030b93945d54f5071.ref.srt -i /opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.srt -o /opt/da",
+      "[497cb3eaff1f44c7933ab5739fba1139] ffsubsync exit=0 after 7229 ms",
+      "[497cb3eaff1f44c7933ab5739fba1139] offsets: the alignment wanted -95804 ms, at or past the 60 s ceiling \u2014 retrying this subtitle with a 300 s allowance and then checking the result against the film's audio again",
+      "[497cb3eaff1f44c7933ab5739fba1139] offsets: the -120000 ms result was checked against the film's audio again (a further 0 ms, no rescale) \u2014 writing it",
+      "job 497cb3eaff1f44c7933ab5739fba1139: the reference subtitle s:1 is not the same cut (aligned to the reference subtitle s:1 at -120000 ms, over the 30 s limit for a subtitle reference) \u2014 discarding that track as a ruler and aligning against the audio instead, file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[497cb3eaff1f44c7933ab5739fba1139] reference: method=speech-cache why=the reference subtitle is not the same cut as the video",
+      "[497cb3eaff1f44c7933ab5739fba1139] reference: method=audio why=the reference subtitle was not the same cut (it demanded -120000 ms)",
+      "job 497cb3eaff1f44c7933ab5739fba1139 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=56767 change=the file's own subtitle track is not the same cut, so this was aligned against the audio \u00b7 -90856 ms offset at start \u00b7 framerate ratio 0.9655\u00d7 (\u2248-103291 ms cumulative drif"
+    ],
+    "cues": 803,
+    "applied_shift_s": -90.856,
+    "applied_beyond_the_limit": true,
+    "median_offset_vs_reference_s": 29.144
+  },
+  "verdict": {
+    "wide_retry_used": true,
+    "rechecked_against_audio": true,
+    "still_refused": false,
+    "written": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+    "applied_shift_s": -90.856,
+    "applied_beyond_the_limit": true,
+    "median_offset_vs_reference_s": 29.144,
+    "pass": true
+  }
+}

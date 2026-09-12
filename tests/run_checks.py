@@ -553,10 +553,10 @@ Check("an unusable duration leaves the decision to the pair rule", SubSyncServic
 // A stretch is a claim about the whole timeline, and only the film's audio can test it: a differently cut subtitle
 // produces the same span ratio as one from another framerate. A correct stretch leaves the audio alignment almost
 // nothing to do; one applied to the wrong kind of difference still wants a large shift.
-Check("a stretch the audio agrees with holds", SubSyncService.StretchHoldsAgainstAudio(1.0, 1200, 3000));
-Check("a stretch the audio still wants 40 s of does not hold", !SubSyncService.StretchHoldsAgainstAudio(1.0, 40000, 3000));
-Check("a stretch the audio wants rescaled again does not hold", !SubSyncService.StretchHoldsAgainstAudio(1.02, 500, 3000));
-Check("the room grows with the runtime, up to a point", SubSyncService.StretchHoldsAgainstAudio(1.0, 12000, 4200));
+Check("a result the audio agrees with holds", SubSyncService.AlignmentHoldsAgainstAudio(1.0, 1200, 3000));
+Check("a result the audio still wants 40 s of does not hold", !SubSyncService.AlignmentHoldsAgainstAudio(1.0, 40000, 3000));
+Check("a result the audio wants rescaled again does not hold", !SubSyncService.AlignmentHoldsAgainstAudio(1.02, 500, 3000));
+Check("the room grows with the runtime, up to a point", SubSyncService.AlignmentHoldsAgainstAudio(1.0, 12000, 4200));
 
 // The guard that decides whether a measured result may be written. Without correction asked for, any
 // rescale is the failure this exists for: a 4% scale ruins a whole file rather than a few seconds.
@@ -1405,7 +1405,7 @@ def run_page_checks():
            and 'ReleaseSpeechGate(job, videoPath);' in service_source)
     report('a stretch is tested against the film\'s audio, and only when something was stretched',
            'private async Task<(string? Path, bool Dropped, string Input)> VerifyStretchAgainstAudioAsync(' in service_source
-           and 'internal static bool StretchHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)' in service_source
+           and 'internal static bool AlignmentHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)' in service_source
            and 'if (engineInput != subtitleInputPath)\n            {\n                var (verifiedPath, dropped, verifiedInput) = await VerifyStretchAgainstAudioAsync(' in service_source
            and 'the stretch does NOT hold against the audio' in service_source
            and 'aligned with offsets only' in service_source
@@ -1547,9 +1547,15 @@ def run_page_checks():
            and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service
            and 'worth checking, a shift this size' in service
            and 'refusing a reference-derived shift' not in service)
-    report('a result pinned to the offset ceiling is refused too, with the measured number',
-           'refusing a result pinned to the offset ceiling' in service
-           and 'so the engine was clamped - the file is still written' not in service)
+    report('a result at the offset ceiling gets one wide retry, checked against the audio again',
+           'Math.Max(config.MaxOffsetSeconds * 4, 300)' in service
+           and 'wide-allowance.srt' in service
+           and 'wide-verify.srt' in service
+           and 'retrying this subtitle with a {wideSeconds} s' in service
+           and 'AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds)' in service
+           and 'the alignment is not stable' in service
+           and 'so the engine was clamped - the file is still written' not in service
+           and 'wideAllowanceApplied' in service)
     # The setting AGENTS.md documents. An earlier session removed it as a "leftover" and pinned its
     # absence; the fix plan's S3 line puts it back as the documented refusal, so this check now asserts
     # it exists in the model and is reachable from the settings page.

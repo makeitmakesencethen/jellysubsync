@@ -2946,19 +2946,19 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Whether a stretch holds up against the film's own audio.
+    /// Whether an alignment holds up against the film's own audio.
     /// </summary>
     /// <remarks>
-    /// The audio is the film: a subtitle stretched by the right factor needs almost nothing further to line up with
-    /// the speech, while a stretch applied to a subtitle from a different cut - which looks identical in the spans -
-    /// still needs a large shift, because its error is not a uniform scale. Ten seconds, or half a percent of the
-    /// runtime, is the room left for a genuine difference in intro or outro length.
+    /// The audio is the film: a subtitle that has been put in the right place needs almost nothing further to line up
+    /// with the speech, while a stretch applied to a differently cut subtitle - or a wide allowance that locked onto
+    /// the wrong part of the audio - still asks for a large shift. Ten seconds, or half a percent of the runtime, is
+    /// the room left for a genuine difference in intro or outro length.
     /// </remarks>
-    /// <param name="ratio">Time ratio the audio alignment asked for after the stretch (1.0 = none).</param>
-    /// <param name="shiftMs">Shift the audio alignment asked for after the stretch.</param>
+    /// <param name="ratio">Time ratio the audio alignment asked for on the result (1.0 = none).</param>
+    /// <param name="shiftMs">Shift the audio alignment asked for on the result.</param>
     /// <param name="videoSeconds">The file's duration.</param>
-    /// <returns>True when the stretch holds.</returns>
-    internal static bool StretchHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)
+    /// <returns>True when the result holds.</returns>
+    internal static bool AlignmentHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)
     {
         if (Math.Abs(ratio - 1.0) > 0.005)
         {
@@ -3399,6 +3399,7 @@ public class SubSyncService : IDisposable
         var usedSubtitleReference = false;
         var stretchDropped = false;
         var audioFallback = false;
+        var wideAllowanceApplied = false;
 
         // Which track became the reference, for both log lines and the outcome text.
         string? referenceSpec = null;
@@ -3960,6 +3961,126 @@ public class SubSyncService : IDisposable
             // just been fixed. Comparing the engine's own input keeps that check about the alignment.
             var measured = MeasureSyncChange(engineInput, tempOutput);
 
+            // The engine clamps the shift at the configured ceiling, so a result sitting at or past it is the most it
+            // was allowed to apply, not what the file needed: writing that would present a guess as a synced subtitle.
+            // Giving up is safe and unhelpful - a subtitle can genuinely be a minute or two out - so the subtitle is
+            // aligned once more with a wide allowance, and that wide result is then checked again with a tight one
+            // against the film's audio, the same double-check a framerate stretch gets: a wide allowance that locked
+            // onto the wrong part of the audio still asks for a large shift on the tight pass and nothing is written.
+            var ceilingMs = config.MaxOffsetSeconds * 1000.0;
+            if (!wideAllowanceApplied && measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
+            {
+                var wideSeconds = Math.Max(config.MaxOffsetSeconds * 4, 300);
+                var wideOutput = Path.Combine(tempDir, "wide-allowance.srt");
+                SafeDelete(wideOutput);
+                var wideArgs = BuildFfSubSyncArgs(config, referenceArg, engineInput, wideOutput, tempDir, serializeSpeech, referenceStream);
+                wideArgs[wideArgs.IndexOf("--max-offset-seconds") + 1] = wideSeconds.ToString(CultureInfo.InvariantCulture);
+                // A wide allowance is for moving the subtitle, not for rescaling it: an engine that compensates for a
+                // clamped shift with a scale is how the first pass went wrong. The pair guard and the tight audio
+                // check below still see this result.
+                foreach (var flag in FramerateArgs(false, false))
+                {
+                    if (!wideArgs.Contains(flag))
+                    {
+                        wideArgs.Add(flag);
+                    }
+                }
+
+                wideArgs.Remove("--gss");
+
+                PluginLog.Info(
+                    $"[{job.Id}] offsets: the alignment wanted {onCeiling.ShiftMs} ms, at or past the "
+                    + $"{config.MaxOffsetSeconds} s ceiling \u2014 retrying this subtitle with a {wideSeconds} s "
+                    + "allowance and then checking the result against the film's audio again");
+                _logger.LogInformation(
+                    "Sync job {JobId}: the result reached the {Ceiling} s offset ceiling - retrying with {Wide} s and a check",
+                    job.Id,
+                    config.MaxOffsetSeconds,
+                    wideSeconds);
+
+                var wideExit = await RunProcessWithStderrCallbackAsync(
+                    ffsubsyncExe, wideArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
+
+                if (wideExit == 0 && File.Exists(wideOutput))
+                {
+                    var wideChange = MeasureSyncChange(engineInput, wideOutput);
+
+                    // The second check, with a tight allowance: if the film agrees with where the wide pass put the
+                    // subtitle, it needs almost nothing more.
+                    var verifyOutput = Path.Combine(tempDir, "wide-verify.srt");
+                    SafeDelete(verifyOutput);
+                    var verifyArgs = new List<string>(wideArgs);
+                    verifyArgs[verifyArgs.IndexOf("-i") + 1] = wideOutput;
+                    verifyArgs[verifyArgs.IndexOf("-o") + 1] = verifyOutput;
+                    verifyArgs[verifyArgs.IndexOf("--max-offset-seconds") + 1] =
+                        config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture);
+                    var verifyExit = await RunProcessWithStderrCallbackAsync(
+                        ffsubsyncExe, verifyArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
+
+                    var residual = verifyExit == 0 && File.Exists(verifyOutput)
+                        ? MeasureSyncChange(wideOutput, verifyOutput)
+                        : null;
+                    var residualRatio = residual?.Ratio ?? 1.0;
+                    var residualShift = residual?.ShiftMs ?? 0;
+
+                    if (AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds))
+                    {
+                        wideAllowanceApplied = true;
+                        tempOutput = wideOutput;
+                        measured = wideChange;
+                        PluginLog.Info(
+                            $"[{job.Id}] offsets: the {wideChange?.ShiftMs} ms result was checked against the film's "
+                            + $"audio again (a further {residualShift} ms, no rescale) \u2014 writing it");
+                        _logger.LogInformation(
+                            "Sync job {JobId}: the wide-allowance result holds against the audio ({Shift} ms more)",
+                            job.Id,
+                            residualShift);
+                    }
+                    else
+                    {
+                        var why = $"the {wideChange?.ShiftMs} ms result still wanted {residualShift} ms more from a "
+                            + $"{config.MaxOffsetSeconds} s check, so the alignment is not stable";
+                        _logger.LogWarning(
+                            "Sync job {JobId}: refusing after the wide retry ({Why}) — nothing written",
+                            job.Id,
+                            why);
+                        PluginLog.Info(
+                            $"job {job.Id} REFUSED: {why}; nothing written, source untouched, file={video.Path}");
+                        job.Status = SyncJobStatus.Failed;
+                        job.Phase = "Refused";
+                        job.Error = $"refused: this subtitle is further out than the {config.MaxOffsetSeconds} s limit, "
+                            + $"and aligning it with a {wideSeconds} s allowance did not hold up when checked again "
+                            + $"({why}). Nothing was written.";
+                        job.Progress = 1.0;
+                        job.FinishedAtUtc = DateTime.UtcNow;
+                        job.OutputPath = null;
+                        SafeDelete(tempOutput);
+                        SafeDelete(wideOutput);
+                        return;
+                    }
+                }
+                else
+                {
+                    var detail = $"the measured offset {onCeiling.ShiftMs} ms is at or past the configured ceiling "
+                        + $"({config.MaxOffsetSeconds} s), and the retry with a {wideSeconds} s allowance (exit "
+                        + $"{wideExit}) produced nothing";
+                    _logger.LogWarning(
+                        "Sync job {JobId}: refusing after the offset ceiling ({Detail}) — nothing written",
+                        job.Id,
+                        detail);
+                    PluginLog.Info(
+                        $"job {job.Id} REFUSED: {detail}; nothing written, source untouched, file={video.Path}");
+                    job.Status = SyncJobStatus.Failed;
+                    job.Phase = "Refused";
+                    job.Error = $"refused: {detail}. Nothing was written.";
+                    job.Progress = 1.0;
+                    job.FinishedAtUtc = DateTime.UtcNow;
+                    job.OutputPath = null;
+                    SafeDelete(tempOutput);
+                    return;
+                }
+            }
+
             // Nothing destructive is ever written: a measured rescale that was not asked for (or that
             // is not a real framerate pair) means the engine moved the timeline, and the source
             // subtitle stays untouched while the job says exactly why.
@@ -4044,6 +4165,7 @@ public class SubSyncService : IDisposable
                     usedSubtitleReference = false;
                     referenceSpec = null;
                     referenceStream = null;
+                    referenceArg = audioReference;
                     audioFallback = true;
                     measured = MeasureSyncChange(subtitleInputPath, tempOutput);
                     PluginLog.Info(
@@ -4071,33 +4193,6 @@ public class SubSyncService : IDisposable
                     SafeDelete(tempOutput);
                     return;
                 }
-            }
-
-            // The engine clamps the shift at the configured ceiling, so a result that sits exactly there
-            // is the most it was allowed to apply, not what the file needed: writing it would present a
-            // guess as a synced subtitle. AGENTS.md documents this as a refusal as well.
-            var ceilingMs = config.MaxOffsetSeconds * 1000.0;
-            if (measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
-            {
-                var detail = $"the measured offset {onCeiling.ShiftMs} ms sits on the configured ceiling "
-                    + $"({config.MaxOffsetSeconds} s)";
-                _logger.LogWarning(
-                    "Sync job {JobId}: refusing a result pinned to the offset ceiling ({Detail}) — nothing written",
-                    job.Id,
-                    detail);
-                PluginLog.Info(
-                    $"job {job.Id} REFUSED: {detail}, so the shift is what the engine was allowed to apply, "
-                    + $"not what the file needs; nothing written, source untouched, file={video.Path}");
-                job.Status = SyncJobStatus.Failed;
-                job.Phase = "Refused";
-                job.Error = $"refused: the engine clamped the shift at the {config.MaxOffsetSeconds} s ceiling "
-                    + $"({detail}), so this subtitle is further out than the plugin was allowed to move it. Nothing "
-                    + "was written. Raise \"Maximum offset\" and run it again if the file really is that far out.";
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
-                return;
             }
 
             if (usedSubtitleReference
@@ -5634,7 +5729,7 @@ public class SubSyncService : IDisposable
         var measured = File.Exists(verifyOutput) ? MeasureSyncChange(stretchedInput, verifyOutput) : null;
         var ratio = measured?.Ratio ?? 1.0;
         var shiftMs = measured?.ShiftMs ?? 0;
-        if (StretchHoldsAgainstAudio(ratio, shiftMs, videoSeconds))
+        if (AlignmentHoldsAgainstAudio(ratio, shiftMs, videoSeconds))
         {
             _logger.LogInformation(
                 "Sync job {JobId}: the stretch holds - the audio asked for {Shift} ms more and no rescale",

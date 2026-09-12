@@ -4,6 +4,30 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.18 (beta)
+
+A subtitle further out than the offset limit gets one wide retry, checked against the audio again.
+
+"Maximum offset" (60 s by default) exists because a result pinned to it is the most the engine was allowed to apply,
+not what the file needed. Refusing is safe and unhelpful: subtitles two minutes out are real, and the job used to end
+there with nothing written.
+
+- A result at or past the limit now sends that subtitle through **one more alignment with a wide allowance** - four
+  times the configured ceiling, at least 300 s - instead of ending the job.
+- The wide result is then **checked again with a tight allowance** against the film's own audio, the same double-check
+  a framerate stretch gets. If the film agrees (only seconds left to fix) the result is written; if the wide pass
+  locked onto the wrong part of the audio, the tight pass still asks for a large shift, and the job refuses with the
+  numbers, writing nothing.
+- The message is honest now: a 94 s shift is reported as "at or past the 60 s ceiling it was allowed", not as
+  "sitting on" it.
+- The hold-predicate behind both checks is one function (`AlignmentHoldsAgainstAudio`), so the stretch check and the
+  wide-retry check cannot drift apart.
+
+Verified by `tests/backend/wide_allowance_fixture.py`: the fixture's subtitle is the file's own track 120 s out - past
+the 30 s a subtitle reference is trusted for, past the 60 s offset ceiling, inside the 300 s retry - and the run
+completes with the written subtitle within seconds of the film's own track, after the log shows the retry and the
+second check.
+
 ## 2.0.17 (beta)
 
 A subtitle reference that is not the same cut is replaced by the audio, instead of ending the job.
