@@ -9,7 +9,7 @@
     "versions": [
       {
         "version": "2.0.18.0",
-        "checksum": "98eb6a66cd650930a50c4e914b246eb4",
+        "checksum": "1b5705a5cc9310a59d726e8279cc50ce",
         "targetAbi": "12.0.0.0",
         "sourceUrl": "https://makeitmakesencethen.github.io/jellysubsync/beta/Jellyfin.Plugin.SubSync_2.0.18.0.zip",
         "changelog": "https://github.com/makeitmakesencethen/jellysubsync/tree/beta"
