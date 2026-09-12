@@ -1,0 +1,23 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v10.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v10.0": {
+      "Jellyfin.Plugin.SubSync/2.0.18.0": {
+        "runtime": {
+          "Jellyfin.Plugin.SubSync.dll": {}
+        }
+      }
+    }
+  },
+  "libraries": {
+    "Jellyfin.Plugin.SubSync/2.0.18.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

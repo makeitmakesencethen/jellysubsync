@@ -1,0 +1,15 @@
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.deps.json
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.dll
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.pdb
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/bin/Release/net10.0/Jellyfin.Plugin.SubSync.xml
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.csproj.AssemblyReference.cache
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.GeneratedMSBuildEditorConfig.editorconfig
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.AssemblyInfoInputs.cache
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.AssemblyInfo.cs
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.csproj.CoreCompileInputs.cache
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.sourcelink.json
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.dll
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/refint/Jellyfin.Plugin.SubSync.dll
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.xml
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/Jellyfin.Plugin.SubSync.pdb
+/opt/data/jellysubsync/Jellyfin.Plugin.SubSync/obj/Release/net10.0/ref/Jellyfin.Plugin.SubSync.dll
