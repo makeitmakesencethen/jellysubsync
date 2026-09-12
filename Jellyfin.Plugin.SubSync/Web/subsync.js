@@ -984,10 +984,23 @@
             return;
         }
         pageEl.setAttribute('data-ss-script', 'attached');
-        var script = document.createElement('script');
-        script.src = '/SubSync/MainScript';
-        document.head.appendChild(script);
-        log('Plugin page script attached');
+        // The page's own tag is fetched but not run in Jellyfin 12, so the two ways of attaching it are
+        // tried in the order they were measured: fetching the text and running it as a blob (measured to
+        // work) first, and the plain src tag as the fallback.
+        fetch('/SubSync/MainScript')
+            .then(function (r) { return r.ok ? r.text() : Promise.reject(new Error('HTTP ' + r.status)); })
+            .then(function (src) {
+                var script = document.createElement('script');
+                script.src = URL.createObjectURL(new Blob([src], { type: 'application/javascript' }));
+                document.head.appendChild(script);
+                log('Plugin page script attached');
+            })
+            ['catch'](function (e) {
+                var script = document.createElement('script');
+                script.src = '/SubSync/MainScript';
+                document.head.appendChild(script);
+                log('Plugin page script attached (fallback): ' + (e && e.message ? e.message : e));
+            });
     }
 
     var pageObserver = new MutationObserver(function () {

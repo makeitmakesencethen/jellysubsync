@@ -1277,7 +1277,10 @@ def run_page_checks():
     report('the client script attaches the page script itself',
            "'/SubSync/MainScript'" in pages['subsync.js']
            and 'data-ss-script' in pages['subsync.js']
-           and 'function attachPluginPageScript()' in pages['subsync.js'])
+           and 'function attachPluginPageScript()' in pages['subsync.js']
+           # Fetched and run as a blob, because that is the shape measured to execute in Jellyfin 12;
+           # the plain src tag stays as the fallback.
+           and 'URL.createObjectURL(new Blob([src]' in pages['subsync.js'])
     report('the page script does nothing when it is loaded a second time',
            'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
     report('a refusal is reported as a refusal, not as a failure',
