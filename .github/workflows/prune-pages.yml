@@ -1,0 +1,42 @@
+name: prune pages
+
+# Keeps the published branch small. It grew to 74 zips / 3.14 GB, and GitHub's Pages build processes the whole
+# branch on every push: deploys took minutes and each following push cancelled the one in flight, so the catalogue
+# URL could serve an older manifest than the branch it is built from. scripts/prune_pages.py keeps the newest five
+# beta builds plus the zip the stable manifest points at.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 4 * * 0"
+
+permissions:
+  contents: write
+
+jobs:
+  prune:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out the workflow's own branch (for the script)
+        uses: actions/checkout@v4
+
+      - name: Check out the published branch
+        uses: actions/checkout@v4
+        with:
+          ref: gh-pages
+          path: published
+
+      - name: Prune superseded zips
+        run: python3 scripts/prune_pages.py published
+
+      - name: Commit and push if anything went
+        run: |
+          cd published
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "nothing to prune"
+            exit 0
+          fi
+          git commit -m "prune published zips: keep the newest five beta builds and the stable release's"
+          git push
