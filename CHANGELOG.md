@@ -4,6 +4,23 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.23 (beta)
+
+The prefetched ranges now start at the cluster, so the pass finally reads from memory.
+
+The per-cue loop reads a cluster's header first (to find where its children begin) and only then the block
+the index named. The prefetch built its ranges from the block position - or from the first block's relative
+offset, which is relative to the cluster's *data* start - so that first read fell outside every range and
+went to disk. The fetch was made and then ignored: one file fetched 118,3 MB and the loop still issued 2 282
+real reads, 70,9 s of which was waiting on the same share that had just answered the prefetch.
+
+- **Both prefetches cover the cluster head now**: the cue-indexed path and the shared multi-track pass.
+  The reads the fetch was made for are served from it, so the loop stops issuing one real read per cue.
+- **What this does not fix**: a file whose cue index does not locate its subtitle blocks has to walk the
+  clusters, and walking reads about the file - on a share delivering ~11 MB/s that is ~2 minutes for a
+  1,3 GB remux however the reads are arranged. Locating those blocks from the video track's own index
+  instead of walking is the next piece of work; it is measured, not guessed, and is not in this release.
+
 ## 2.0.22 (beta)
 
 The cue window now adapts while the pass runs, because a probe taken before the work cannot size it.

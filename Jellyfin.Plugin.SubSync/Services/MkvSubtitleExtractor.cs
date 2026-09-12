@@ -2264,11 +2264,18 @@ public static class MkvSubtitleExtractor
                 continue;
             }
 
+            // The range has to start at the CLUSTER, not at the block. The per-cue loop reads the cluster
+            // header first (to find where its children begin) and only then the block the index named, so a
+            // range that starts at blockAt - 32 misses that first read every time: the prefetch fetched
+            // 118,3 MB on one file and the loop still issued 2 282 real reads, 70,9 s on the share this was
+            // reported from. Covering the cluster head as well (the offset is relative to the cluster's data
+            // start, so the head sits in the few hundred bytes before it) is what makes the fetch serve the
+            // reads it was made for.
             var blockAt = position + cueRef.RelativePosition;
             AddRange(
                 ranges,
                 ref total,
-                Math.Max(0, blockAt - 32),
+                Math.Max(0, position),
                 Math.Min(reader.Length, blockAt + CueBlockSlop),
                 MergeGap,
                 MaxRange,
@@ -2382,9 +2389,12 @@ public static class MkvSubtitleExtractor
             }
             else
             {
-                // Offsets are relative to the cluster's data start, a few bytes into the cluster: 128
-                // bytes of slack covers the header, and 16 KB covers the last block's own payload.
-                start = clusterPosition + lowest - 128;
+                // The range starts at the CLUSTER, not at the first wanted block: the pass reads the
+                // cluster header before anything else, and the block offsets are relative to the cluster's
+                // data start, so a range beginning deep inside the cluster misses that first read and the
+                // whole prefetch goes unclaimed (measured on one file: 118,3 MB fetched, 2 282 real reads
+                // still issued, 70,9 s). 16 KB past the last block covers its own header and payload.
+                start = clusterPosition;
                 end = clusterPosition + highest + (16 * 1024);
             }
 
