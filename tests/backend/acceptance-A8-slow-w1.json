@@ -1,9 +1,9 @@
 {
-  "label": "A8-slow-w4",
+  "label": "A8-slow-w1",
   "scope": "episode",
-  "workers": 4,
+  "workers": 1,
   "cache": "cleared",
-  "batch_id": "378a4236f6cd438a8aef44073a9596d8",
+  "batch_id": "e81cb0e944df45859946dc60459f790c",
   "tasks": 50,
   "expansion": [],
   "statuses": {
@@ -13,8 +13,8 @@
   "completed": 49,
   "failed": 0,
   "refused": 1,
-  "wall_s": 18.2,
-  "wall_per_task_s": 0.36,
+  "wall_s": 37.0,
+  "wall_per_task_s": 0.74,
   "failures": [],
   "outputs_reported": 4,
   "empty_or_missing_outputs": [],
@@ -26,7 +26,9 @@
     650,
     684,
     696,
+    699,
     709,
+    726,
     734,
     735,
     737,
@@ -56,7 +58,8 @@
     815,
     824,
     846,
-    848
+    848,
+    920
   ],
   "output_cue_counts": [
     625,

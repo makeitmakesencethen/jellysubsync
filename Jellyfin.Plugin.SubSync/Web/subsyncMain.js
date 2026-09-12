@@ -12,11 +12,24 @@
     // The page's own <script src> is fetched but not executed in Jellyfin 12, so the script is attached
     // by the client script the middleware injects (see subsync.js). A client that does execute the tag
     // would attach a second copy: the first one wins, the second does nothing.
+    window.__ssTrace = window.__ssTrace || [];
     if (window.__subsyncPageLoaded) {
+        window.__ssTrace.push('skipped: already loaded');
         return;
     }
 
     window.__subsyncPageLoaded = true;
+    window.__ssTrace.push('loaded');
+
+    // Start on the first signal that arrives, from up here and not from the last line of the file: this
+    // script is injected into a page the Jellyfin web client builds, and a client that replaces the
+    // document while the script is still executing cuts the rest of the file off (measured: the first
+    // line ran, nothing after the declarations did, and no error was reported anywhere). The listeners
+    // below are registered before anything else can go wrong.
+    document.addEventListener('DOMContentLoaded', whenApiReady);
+    window.addEventListener('pageshow', whenApiReady);
+    window.addEventListener('load', whenApiReady);
+    setTimeout(whenApiReady, 0);
 
     var PLUGIN_ID = 'c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2';
     var allItems = [];
@@ -2163,7 +2176,9 @@
     function whenApiReady() {
         var tries = 0;
         (function attempt() {
+            window.__ssTrace.push('gate: api=' + (typeof ApiClient) + ' token=' + (token() ? 'yes' : 'no'));
             if ((typeof ApiClient !== 'undefined' && ApiClient) || token()) {
+                window.__ssTrace.push('gate passed');
                 if (!initStarted) {
                     initStarted = true;
                     try {
@@ -2175,6 +2190,7 @@
                 return;
             }
             if (++tries > 80) {
+                window.__ssTrace.push('gate gave up');
                 var line = document.getElementById('ss-status');
                 if (line) {
                     line.textContent = 'The Jellyfin web client did not finish loading and no session was found, so this page cannot read or change settings. Sign in again, then reload the page.';
@@ -2186,6 +2202,7 @@
     }
 
     function init() {
+        window.__ssTrace.push('init start');
         var now = Date.now();
         if (now - lastInitAt < 800) return; // pageshow + immediate can double-fire
         lastInitAt = now;

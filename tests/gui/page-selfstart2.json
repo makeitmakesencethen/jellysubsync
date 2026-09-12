@@ -1,0 +1,112 @@
+{
+  "label": "page-selfstart2",
+  "steps": [
+    {
+      "step": "page starts by itself",
+      "state": {
+        "status": "ffsubsync source: /opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync\nffmpeg",
+        "libraries": 5,
+        "filled": true
+      },
+      "after_s": null
+    },
+    {
+      "step": "a run the page did not start",
+      "batch": {
+        "status": 200,
+        "body": "{\"Id\":\"58b383922e6945879a2bcbeb767df1cc\",\"Mode\":\"auto\",\"RunningTasks\":[],\"WorkerCeiling\":64,\"WorkerSetting\":8,\"PluginVer"
+      },
+      "mirrored": {
+        "boxHidden": true,
+        "buttonVisible": false,
+        "buttonLabel": "Cancel",
+        "runLine": "Idle",
+        "phase": "Nothing queued."
+      }
+    },
+    {
+      "step": "F29 two-press kill",
+      "presses": [
+        {
+          "note": "first press",
+          "state": {
+            "label": "Cancel",
+            "phase": "Nothing queued."
+          }
+        },
+        {
+          "note": "second press",
+          "state": {
+            "label": "Cancel",
+            "phase": "Nothing queued."
+          }
+        }
+      ],
+      "activeAfter": {
+        "running": 0,
+        "queued": 0
+      }
+    }
+  ],
+  "calls": [
+    "GET /SubSync/ClientScript",
+    "GET /SubSync/MainScript",
+    "GET /SubSync/InstallationStatus",
+    "GET /SubSync/Configuration",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "HTTP 403 /SubSync/Configuration",
+    "PAGEERROR Error: HTTP 403",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Batches",
+    "POST /SubSync/Batch",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches",
+    "GET /SubSync/Active",
+    "GET /SubSync/Batches"
+  ]
+}

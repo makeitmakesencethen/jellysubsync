@@ -38,6 +38,7 @@ const results = { label: LABEL, steps: [] };
   const calls = [];
   page.on('request', (r) => { if (/SubSync\//.test(r.url())) calls.push(r.method() + ' ' + r.url().replace(BASE, '').split('?')[0]); });
   page.on('pageerror', (e) => calls.push('PAGEERROR ' + String(e).slice(0, 160)));
+  page.on('response', (r) => { if (r.status() >= 400) calls.push('HTTP ' + r.status() + ' ' + r.url().replace(BASE, '').split('?')[0]); });
 
   await page.goto(BASE + '/web/', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await wait(3500);

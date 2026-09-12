@@ -1,0 +1,56 @@
+{
+  "label": "page-selfstart1",
+  "steps": [
+    {
+      "step": "page starts by itself",
+      "state": {
+        "status": "Checking status...",
+        "libraries": 1,
+        "filled": false
+      },
+      "after_s": null
+    },
+    {
+      "step": "a run the page did not start",
+      "batch": {
+        "status": 200,
+        "body": "{\"Id\":\"481ac2cf99db4589a94fbf165d812ab3\",\"Mode\":\"auto\",\"RunningTasks\":[],\"WorkerCeiling\":64,\"WorkerSetting\":4,\"PluginVer"
+      },
+      "mirrored": {
+        "boxHidden": true,
+        "buttonVisible": false,
+        "buttonLabel": "Cancel",
+        "runLine": "",
+        "phase": ""
+      }
+    },
+    {
+      "step": "F29 two-press kill",
+      "presses": [
+        {
+          "note": "first press",
+          "state": {
+            "label": "Cancel",
+            "phase": ""
+          }
+        },
+        {
+          "note": "second press",
+          "state": {
+            "label": "Cancel",
+            "phase": ""
+          }
+        }
+      ],
+      "activeAfter": {
+        "running": 0,
+        "queued": 0
+      }
+    }
+  ],
+  "calls": [
+    "GET /SubSync/ClientScript",
+    "GET /SubSync/MainScript",
+    "POST /SubSync/Batch"
+  ]
+}
