@@ -4,6 +4,30 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.15 (beta)
+
+Framerate correction works on every reference path, and is on by default.
+
+- **On by default.** A subtitle timed for a different framerate (PAL 25 against a 23.976 fps release) is
+  stretched onto the video's timeline without having to be asked for. The setting stays, so it can be turned off
+  for the case it cannot distinguish: a subtitle from a longer cut looks numerically identical, and stretching
+  that one leaves the end of the film minutes out of step (measured: a span 4.17% too long became a 0.960x scale,
+  a -51.9 s shift and -104 s of drift). Either way nothing is stretched silently - a result that is not a real
+  framerate pair is refused with the numbers.
+- **It now works when the alignment reference is another subtitle**, which is where it did nothing before. A
+  subtitle reference has no frame rate for the engine to read, so the engine could only fit a shift: a PAL-timed
+  subtitle came out as a pure shift of about half the film's drift - on a user's file 111.9 s over 96 minutes -
+  and the 30 s reference ceiling refused it, so sync failed on exactly the file the option was turned on for. The
+  plugin now measures both spans itself, rescales the subtitle onto the reference's time base when the two are a
+  framerate pair apart, and leaves the aligner the small shift it is good at. A span difference that is not a
+  pair is a different cut: nothing is rescaled, and the alignment reports it as before.
+- **The engine's span-based ratio inference is kept out of the subtitle-reference path.** It has no frame rate
+  to read there and compares the reference's duration with the subtitle's span instead: measured on a 50-minute
+  fixture whose subtitle was one PAL step off the reference, enabling framerate correction this way turned a
+  17.4 s shift into a 55.8 s one, and the reference ceiling then refused the file. The plugin owns that decision
+  on this path - it sees both spans and only accepts a real framerate pair - so the inference stays out of it.
+- The label no longer says "(advanced)", since this is now the default rather than a specialty.
+
 ## 2.0.14 (beta)
 
 Wording only - no behaviour change.

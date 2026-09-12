@@ -269,9 +269,9 @@
                                     <div class="checkboxContainer checkboxContainer-withDescription">
                                         <label class="emby-checkbox-label">
                                             <input is="emby-checkbox" type="checkbox" id="ss-fixfps" />
-                                            <span>Correct framerate mismatch (advanced)</span>
+                                            <span>Correct framerate mismatch</span>
                                         </label>
-                                        <div class="fieldDescription checkboxFieldDescription">Let the sync stretch the timings to fix a framerate mismatch, e.g. a subtitle timed for PAL 25 fps on a 23.976 fps file. Leave it off when the subtitle is simply from a different cut: that looks identical to the engine, and stretching it leaves the end of the film minutes out of step. Either way nothing is stretched silently — a result that is not a real framerate pair is refused with the numbers.</div>
+                                        <div class="fieldDescription checkboxFieldDescription">On by default: a subtitle timed for a different framerate (PAL 25 on a 23.976 fps file) is stretched onto the video's timeline, whether the alignment uses the audio or another subtitle. Turn it off when a subtitle from a different cut gets stretched instead — that case looks the same in the numbers, and the stretch then leaves the end of the film minutes out of step. Nothing is stretched silently either way: a result that is not a real framerate pair is refused with the numbers.</div>
                                     </div>
                                 </div>
                                 <div class="ss-field">

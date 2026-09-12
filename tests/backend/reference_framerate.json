@@ -1,0 +1,49 @@
+{
+  "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "track": 3,
+  "reference_cues": 898,
+  "pal": 0.95904,
+  "sidecar": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.srt",
+  "framerate-on": {
+    "status": "Failed",
+    "phase": "Refused",
+    "error": "refused: the alignment came from the reference subtitle s:1 and moved this subtitle by 55799 ms, more than the 30 s a subtitle reference is trusted for \u2014 a shift this size usually means that track is from a different cut. Nothing was written. Raise \"Maximum shift from a subtitle reference\" if the track really is the same cut, or sync this subtitle against the audio instead.",
+    "rescale": false,
+    "not_a_pair": true,
+    "refused": true,
+    "written": null,
+    "log": [
+      "queued: job=162b4a25ec7d4e2788d4de750d0db58d item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 mode=normal batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12",
+      "[162b4a25ec7d4e2788d4de750d0db58d] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[162b4a25ec7d4e2788d4de750d0db58d] framerate: the subtitle's span is 1.0337x the reference's, which is not a framerate pair \u2014 a different cut, left for the alignment to report",
+      "[162b4a25ec7d4e2788d4de750d0db58d] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a96",
+      "[162b4a25ec7d4e2788d4de750d0db58d] ffsubsync exit=0 after 7373 ms",
+      "job 162b4a25ec7d4e2788d4de750d0db58d REFUSED: aligned to the reference subtitle s:1 at 55799 ms, over the 30 s limit for a subtitle reference \u2014 the reference track is probably not the same cut; nothin"
+    ]
+  },
+  "framerate-off": {
+    "status": "Completed",
+    "phase": "Complete",
+    "error": null,
+    "rescale": false,
+    "not_a_pair": false,
+    "refused": false,
+    "written": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+    "log": [
+      "queued: job=aa731a5094eb43879dede05630643d06 item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 mode=normal batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12",
+      "[aa731a5094eb43879dede05630643d06] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[aa731a5094eb43879dede05630643d06] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a96",
+      "[aa731a5094eb43879dede05630643d06] ffsubsync exit=0 after 604 ms",
+      "[aa731a5094eb43879dede05630643d06] note: aligned to the reference subtitle s:1 at 17420 ms - check the result; a shift this size usually means that track is not the same cut",
+      "job aa731a5094eb43879dede05630643d06 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=64522 change=+17420 ms offset \u00b7 aligned to the reference subtitl"
+    ],
+    "cues": 898,
+    "span_ratio_vs_reference": 0.95904,
+    "median_offset_s": 38.329
+  },
+  "verdict": {
+    "on_rescaled_and_synced": false,
+    "off_left_uncorrected": true,
+    "pass": false
+  }
+}

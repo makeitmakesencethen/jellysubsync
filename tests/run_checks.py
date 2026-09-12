@@ -1356,6 +1356,22 @@ def run_page_checks():
            and 'starting as soon as a worker is free' in pages['subsyncMain.js']
            and '.ss-spinner { width: 12px; height: 12px' in pages['subsyncMain.html']
            and 'id="ss-spinner"' in pages['subsyncMain.html'])
+    # Framerate correction works out of the box and stays switchable: a PAL-timed subtitle is stretched onto the
+    # video's timeline on the audio path (the engine) and on the subtitle-reference path (the plugin does it,
+    # because a reference subtitle has no frame rate for the engine to read).
+    config_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                                      'PluginConfiguration.cs'), encoding='utf-8').read()
+    report('framerate correction is on by default and the option to disable it remains',
+           'public bool FixFramerate { get; set; } = true;' in config_source
+           and 'Correct framerate mismatch (advanced)' not in pages['subsyncMain.html']
+           and "On by default" in pages['subsyncMain.html']
+           and 'id="ss-fixfps"' in pages['subsyncMain.html'])
+    report('a subtitle reference rescales a framerate-mismatched subtitle before aligning',
+           'private string? RescaleOntoReferenceSpan(string targetPath, string referencePath, string tempDir, SyncJob job)' in service_source
+           and 'RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, tempDir, job)' in service_source
+           and 'rescaling it onto the reference\'s time base' in service_source
+           and 'a different cut, left for the alignment to report' in service_source
+           and 'BuildFfSubSyncArgs(config, referenceArg, engineInput' in service_source)
     report('the queued job carries the reason the interface shows',
            'private string QueuedReason(SyncJob job, int running, int limit)' in service_source
            and 'Reading subtitles from the video' in service_source

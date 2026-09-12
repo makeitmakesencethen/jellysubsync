@@ -95,17 +95,22 @@ public class PluginConfiguration : BasePluginConfiguration
     /// framerate mismatch between the video and the subtitles.
     /// </summary>
     /// <remarks>
-    /// Off by default, deliberately. ffsubsync 0.5.1 infers a framerate ratio from the ratio between
-    /// the reference duration and the subtitle's own span, and rescales the whole file unless it is
-    /// told not to. A subtitle whose last cue sits a few percent outside the video - very common, from
-    /// a release with a longer credits roll, or an extra scene - therefore reads as a framerate
-    /// mismatch. Measured with the bundled engine on a 45-minute file: a span 4.17% too long became a
-    /// 0.960x scale, a -51.9 s shift and -104 s of drift, and the log called it "framerate ratio
-    /// 1.0427x" rather than saying the subtitle had been time-scaled. Off means offsets only, bounded
-    /// by <see cref="MaxOffsetSeconds"/>. Turn it on only for subtitles known to come from a different
-    /// framerate; results that are not a real framerate pair are then refused rather than written.
+    /// On by default: a subtitle timed for a different framerate (PAL 25 against a 23.976 fps release - the
+    /// common case in a European library) is stretched onto the video's timeline. That now works on both
+    /// reference paths: on the audio path the engine does the rescale, and on the subtitle-reference path the
+    /// plugin does it itself, because a reference subtitle has no frame rate for the engine to read (see
+    /// RescaleOntoReferenceSpan) - before that, a PAL-timed subtitle aligned against a sibling subtitle came out
+    /// as a pure shift of about half the film's drift and the reference ceiling refused it.
+    ///
+    /// The ambiguity this default accepts: ffsubsync infers a ratio from the reference duration against the
+    /// subtitle's own span, so a subtitle that merely spans a few percent more - a release with a longer credits
+    /// roll, or an extra scene - reads as a framerate mismatch as well. Measured with the bundled engine on a
+    /// 45-minute file: a span 4.17% too long became a 0.960x scale, a -51.9 s shift and -104 s of drift. Turning
+    /// this off means offsets only, bounded by <see cref="MaxOffsetSeconds"/>, and is the escape hatch for that
+    /// case. Either way nothing is stretched silently: a result that is not a real framerate pair is refused
+    /// rather than written.
     /// </remarks>
-    public bool FixFramerate { get; set; } = false;
+    public bool FixFramerate { get; set; } = true;
 
     /// <summary>
     /// Gets or sets whether to use golden-section search for optimal framerate ratio.
