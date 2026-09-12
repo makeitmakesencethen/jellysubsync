@@ -2,7 +2,7 @@
   "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
   "tasks": 14,
   "workers": 4,
-  "batch_id": "0cf124cc2bbf4f72a155d3b183b59131",
+  "batch_id": "ebe6017b26294f29976be1cd95983026",
   "statuses": {
     "Completed": 13,
     "Refused": 1
@@ -31,10 +31,9 @@
       ],
       "status": "Running",
       "tasks": {
-        "Completed": 3,
-        "Refused": 1,
+        "Completed": 2,
         "Running": 3,
-        "Queued": 7
+        "Queued": 9
       }
     },
     {
@@ -58,5 +57,6 @@
       }
     }
   ],
+  "empty_root_left_behind": false,
   "verdict": "PASS"
 }

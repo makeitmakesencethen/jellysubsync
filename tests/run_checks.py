@@ -1298,6 +1298,7 @@ def run_page_checks():
            'public static string Acquire(string videoPath, string jobId)' in shared_store
            and 'public static bool Release(string videoPath, string jobId)' in shared_store
            and 'Consumers.Remove(videoPath);' in shared_store
+           and 'TryRemoveEmptyRoot();' in shared_store
            and 'Directory.CreateDirectory(directory);' in shared_store)
     report('clearing caches also clears shared extraction directories nothing reads',
            'SharedExtractionStore.Cleanup(id => _jobs.ContainsKey(id))' in service_source)

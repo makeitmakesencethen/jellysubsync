@@ -85,7 +85,14 @@ public static class SharedExtractionStore
             }
         }
 
-        return last && TryDelete(DirectoryFor(videoPath));
+        if (!last)
+        {
+            return false;
+        }
+
+        var gone = TryDelete(DirectoryFor(videoPath));
+        TryRemoveEmptyRoot();
+        return gone;
     }
 
     /// <summary>
@@ -119,6 +126,7 @@ public static class SharedExtractionStore
             }
 
             var known = new HashSet<string>(Consumers.Keys.Select(DirectoryFor), StringComparer.OrdinalIgnoreCase);
+
             foreach (var directory in Directory.EnumerateDirectories(Root))
             {
                 if (known.Contains(directory))
@@ -133,6 +141,7 @@ public static class SharedExtractionStore
             }
         }
 
+        TryRemoveEmptyRoot();
         return removed;
     }
 
@@ -157,6 +166,31 @@ public static class SharedExtractionStore
         var bytes = Encoding.UTF8.GetBytes(videoPath);
         var hash = SHA1.HashData(bytes);
         return Convert.ToHexString(hash)[..16].ToLowerInvariant();
+    }
+
+    /// <summary>
+    /// Removes the root when nothing is in it, so "Clear cache" leaves no empty directories behind.
+    /// </summary>
+    /// <returns>True when the root is gone.</returns>
+    private static bool TryRemoveEmptyRoot()
+    {
+        try
+        {
+            if (Directory.Exists(Root) && !Directory.EnumerateFileSystemEntries(Root).Any())
+            {
+                Directory.Delete(Root);
+            }
+
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
+        }
     }
 
     private static bool TryDelete(string directory)

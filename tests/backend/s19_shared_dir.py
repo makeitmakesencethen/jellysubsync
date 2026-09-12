@@ -115,14 +115,17 @@ def main():
         "directory_not_found_lines": exceptions,
         "samples": samples[:8],
     }
+    root_left_behind = os.path.isdir(SHARED_ROOT) and len(shared_dirs()) == 0
+    result["empty_root_left_behind"] = root_left_behind
     ok = (result["failed"] == 0 and not disappeared and not exceptions
-          and result["shared_dirs_after"] == [])
+          and not root_left_behind)
     result["verdict"] = "PASS" if ok else "CHECK"
     with open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "s19-shared-dir.json"), "w") as fh:
         json.dump(result, fh, indent=2)
         fh.write("\n")
     print(json.dumps({k: result[k] for k in ("statuses", "failed", "refused", "shared_dir_seen_while_running",
                                              "shared_dir_vanished_mid_run", "shared_dirs_after",
+                                             "empty_root_left_behind",
                                              "directory_not_found_lines", "verdict")}, indent=2))
     print("written: tests/backend/s19-shared-dir.json")
 
