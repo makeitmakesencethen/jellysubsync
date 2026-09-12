@@ -1416,6 +1416,10 @@ public class SubSyncService : IDisposable
             }
         }
 
+        // The shared extraction directories are not jobs' business, so they are not counted above: they go
+        // when no job that reads them is left (see SharedExtractionStore).
+        removed += SharedExtractionStore.Cleanup(id => _jobs.ContainsKey(id));
+
         return removed;
     }
 
@@ -3104,6 +3108,10 @@ public class SubSyncService : IDisposable
         var tempDir = Path.Combine(Plugin.Instance?.TempPath ?? Path.GetTempPath(), job.Id);
         Directory.CreateDirectory(tempDir);
 
+        // The extracted subtitle is not the job's private business: every job of this file reads the same
+        // tracks out of it, and it outlives the job that happened to extract it (see SharedExtractionStore).
+        var sharedExtractDir = SharedExtractionStore.Acquire(video.Path, job.Id);
+
         // The file is checked here instead of when the task is queued: queueing must not touch the
         // media share (a stat per task slowed a 50-task batch to a minute while a job was reading the
         // same share, which starved the scheduler). One stat per job, at the point where it matters.
@@ -3202,7 +3210,7 @@ public class SubSyncService : IDisposable
 
                 job.Phase = "Extracting subtitle";
                 job.Progress = 0.05;
-                subtitleInputPath = Path.Combine(tempDir, $"subtitle_{job.SubtitleIndex}.srt");
+                subtitleInputPath = Path.Combine(sharedExtractDir, $"subtitle_{job.SubtitleIndex}.srt");
 
                 // Jellyfin's MediaStream.Index cannot be trusted as a container
                 // stream index (observed values pointing past the file's real
@@ -4030,6 +4038,17 @@ public class SubSyncService : IDisposable
             catch
             {
                 // Non-critical
+            }
+
+            // The shared extraction directory goes away only when the last job reading it is done; this job
+            // deleting it is exactly what used to fail the jobs that came after it.
+            try
+            {
+                SharedExtractionStore.Release(video.Path, job.Id);
+            }
+            catch
+            {
+                // Non-critical: the next cleanup clears it.
             }
         }
     }

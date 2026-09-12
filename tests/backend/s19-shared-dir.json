@@ -1,0 +1,62 @@
+{
+  "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "tasks": 14,
+  "workers": 4,
+  "batch_id": "0cf124cc2bbf4f72a155d3b183b59131",
+  "statuses": {
+    "Completed": 13,
+    "Refused": 1
+  },
+  "failed": 0,
+  "refused": 1,
+  "shared_dirs_before": [],
+  "shared_dirs_after": [],
+  "shared_dir_seen_while_running": true,
+  "shared_dir_vanished_mid_run": [],
+  "directory_not_found_lines": [],
+  "samples": [
+    {
+      "dirs": [
+        "429f98ca746d0aed"
+      ],
+      "status": "Running",
+      "tasks": {
+        "Running": 1,
+        "Queued": 13
+      }
+    },
+    {
+      "dirs": [
+        "429f98ca746d0aed"
+      ],
+      "status": "Running",
+      "tasks": {
+        "Completed": 3,
+        "Refused": 1,
+        "Running": 3,
+        "Queued": 7
+      }
+    },
+    {
+      "dirs": [
+        "429f98ca746d0aed"
+      ],
+      "status": "Running",
+      "tasks": {
+        "Completed": 8,
+        "Refused": 1,
+        "Running": 4,
+        "Queued": 1
+      }
+    },
+    {
+      "dirs": [],
+      "status": "Partial",
+      "tasks": {
+        "Completed": 13,
+        "Refused": 1
+      }
+    }
+  ],
+  "verdict": "PASS"
+}

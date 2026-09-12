@@ -1274,6 +1274,10 @@ def run_page_checks():
            and '<script type="text/javascript">' not in raw_main_html)
     controller_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api',
                                           'SubSyncController.cs'), encoding='utf-8').read()
+    shared_store = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                     'SharedExtractionStore.cs'), encoding='utf-8').read()
+    service_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                       'SubSyncService.cs'), encoding='utf-8').read()
     report('the client script attaches the page script itself',
            "'/SubSync/MainScript'" in pages['subsync.js']
            and 'data-ss-script' in pages['subsync.js']
@@ -1283,6 +1287,20 @@ def run_page_checks():
            and 'URL.createObjectURL(new Blob([src]' in pages['subsync.js'])
     report('the page script does nothing when it is loaded a second time',
            'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
+    report('shared extraction output outlives every job that reads it',
+           'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
+           and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source
+           and 'subtitleInputPath = Path.Combine(sharedExtractDir, ' in service_source
+           # the extracted input must not be written into the job's own directory again: that is the
+           # directory the job deletes when it finishes, which failed the jobs that came after it.
+           and 'Path.Combine(tempDir, $"subtitle_' not in service_source)
+    report('a shared extraction directory is ref-counted and only removed when nothing reads it',
+           'public static string Acquire(string videoPath, string jobId)' in shared_store
+           and 'public static bool Release(string videoPath, string jobId)' in shared_store
+           and 'Consumers.Remove(videoPath);' in shared_store
+           and 'Directory.CreateDirectory(directory);' in shared_store)
+    report('clearing caches also clears shared extraction directories nothing reads',
+           'SharedExtractionStore.Cleanup(id => _jobs.ContainsKey(id))' in service_source)
     report('the cancel control works for a run the page did not start',
            'var target = watchedBatchId || mirroredBatchId;' in pages['subsyncMain.html']
            and "api('SubSync/Batch/' + target + '/Cancel'" in pages['subsyncMain.html'])
