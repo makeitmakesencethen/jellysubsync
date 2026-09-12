@@ -16,6 +16,7 @@ now rescales the target onto the reference's time base before aligning, and this
 """
 import json
 import os
+import re
 import pathlib
 import statistics
 import subprocess
@@ -77,20 +78,29 @@ def embedded_text(track):
     return out.stdout
 
 
-REF_CACHE = pathlib.Path("/opt/data/jf12test/cache/subsync/ref")
+TRACK_RE = re.compile(r"reference: method=\w+ cues=(\d+) track=s:(\d+)")
 
 
-def cached_reference_text():
-    """The reference the plugin actually uses for this file: the newest one under its cache.
+def reference_from_probe(log_lines):
+    """The container track the plugin chose as this file's reference, taken from its own log line.
 
-    Picking a track myself got this wrong (the plugin chose s:1 while the sidebar of tracks suggested s:3), and a
-    fixture built from the wrong track measures a span ratio that is not the PAL pair under test.
+    Picking a track by hand got this wrong before (the plugin chose s:1 where the stream list suggested s:3), and the
+    cache cannot be used: the plugin removes the reference with the run it belongs to. The probe's log names the track
+    and the cue count, and the same text comes out of the container - the cue count is checked so a wrong track fails
+    loudly instead of quietly measuring a span ratio that is not the PAL pair under test.
     """
-    files = [p for p in REF_CACHE.rglob("*.ref.srt")]
-    if not files:
-        raise SystemExit("no reference in the plugin's cache - run any sync first")
-    newest = max(files, key=lambda p: p.stat().st_mtime)
-    return newest, newest.read_text(encoding="utf-8", errors="replace")
+    for line in log_lines:
+        m = TRACK_RE.search(line)
+        if m:
+            cues, track = int(m.group(1)), int(m.group(2))
+            text = embedded_text(track)
+            got = text.count("-->")
+            if got != cues:
+                raise SystemExit("track s:%d has %d cues but the plugin's reference had %d"
+                                 % (track, got, cues))
+            return track, text
+    raise SystemExit("the probe run did not say which track it used as the reference: %s"
+                     % " / ".join(l[:120] for l in log_lines[:4]))
 
 
 def run_case(item_id, index, enabled, label):
@@ -126,14 +136,15 @@ def main():
     ss.set_plugin_config(cfg0)
     probe = drive.run_single(item_id, target["Index"], mode="copy", timeout=900, label="framerate-probe")
     print("probe: %s" % probe.get("status_job"))
-    ref_file, reference = cached_reference_text()
+    track, reference = reference_from_probe(probe.get("log", []))
     ref_cues = cue_starts_from_text(reference)
     BACKUP.write_text(SIDECAR.read_text(encoding="utf-8", errors="replace"), encoding="utf-8")
     SIDECAR.write_text(rescale_srt(reference, PAL), encoding="utf-8")
-    print("reference: %s, %d cues; the sidecar is the same text at %.5fx" % (ref_file, len(ref_cues), PAL))
+    print("reference: the plugin's own track s:%d, %d cues; the sidecar is the same text at %.5fx"
+          % (track, len(ref_cues), PAL))
 
     was = ss.plugin_config().get("FixFramerate")
-    results = {"item": item_id, "reference": str(ref_file), "reference_cues": len(ref_cues), "pal": PAL,
+    results = {"item": item_id, "reference_track": track, "reference_cues": len(ref_cues), "pal": PAL,
                "sidecar": str(SIDECAR)}
     try:
         for enabled, label in ((True, "framerate-on"), (False, "framerate-off")):
@@ -158,12 +169,13 @@ def main():
 
     on, off = results.get("framerate-on", {}), results.get("framerate-off", {})
     # The corrected subtitle's span must match the reference's, the written file must exist, and it must sit on
-    # the reference's timeline. (An earlier version of this required the ratio to be strictly greater than 1.0,
-    # which reported CHECK for a perfect 1.0 - a wrong assertion, not a wrong result.)
-    on_ok = (on.get("rescale") and on.get("status") == "Completed" and bool(on.get("written"))
-             and (on.get("span_ratio_vs_reference") or 0) > 0
-             and abs((on.get("span_ratio_vs_reference") or 0) - 1.0) <= 0.01
-             and (on.get("median_offset_s") or 99) <= 2.5)
+    # the reference's timeline. None-checks, not `or` defaults: a perfect result is a ratio of 1.0 and an offset of
+    # 0.0, and `or 99` reads that 0.0 as "missing" and fails the best possible outcome.
+    on_ratio = on.get("span_ratio_vs_reference")
+    on_offset = on.get("median_offset_s")
+    on_ok = bool(on.get("rescale") and on.get("status") == "Completed" and on.get("written")
+                 and on_ratio is not None and abs(on_ratio - 1.0) <= 0.01
+                 and on_offset is not None and on_offset <= 2.5)
     off_ok = (not off.get("rescale")) and (off.get("refused") or abs((off.get("span_ratio_vs_reference") or 0) - PAL) <= 0.02)
     results["verdict"] = {"on_rescaled_and_synced": bool(on_ok), "off_left_uncorrected": bool(off_ok),
                           "pass": bool(on_ok and off_ok)}
