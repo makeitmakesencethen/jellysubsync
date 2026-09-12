@@ -1,5 +1,5 @@
 {
-  "label": "A8-slow-w8",
+  "label": "A8-fast-w8",
   "scope": "episode",
   "workers": 8,
   "cache": "cleared",
@@ -83,5 +83,7 @@
   "active_after": {
     "running": [],
     "queued": 0
-  }
+  },
+  "profile": "fast (the slow preload shim was not active for this sweep)",
+  "note": "Renamed from A8-slow-w8: the sweep ran on a server where the slow-read shim was not active, so these are fast-profile numbers. The slow-profile sweep of the same file with the same worker settings is recorded in a8-slow-sweep-transcript.md."
 }
