@@ -1,0 +1,23 @@
+{
+  "label": "page-apiclient1",
+  "session": {
+    "tokenPresent": true,
+    "userId": "08c7e1bdae12450ebb1845bad3ca07c3"
+  },
+  "state": {
+    "status": "ffsubsync source: /opt/data/jf12test/data/data/subsync/venv/bin/ffsubs",
+    "dataline": "Some parts of this page could not load — settings: HTTP 403",
+    "libraryOptions": [
+      "All Libraries",
+      "Movies",
+      "Shows",
+      "Slow Storage",
+      "SubSync Fixtures"
+    ],
+    "diag": "Some parts of this page could not load — settings: HTTP 403",
+    "rows": 0
+  },
+  "apiClientHandover": [],
+  "errors": [],
+  "verdict": "PASS"
+}

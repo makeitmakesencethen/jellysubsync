@@ -984,6 +984,24 @@
             return;
         }
         pageEl.setAttribute('data-ss-script', 'attached');
+
+        // The page runs in this document but cannot always reach the web client's API object — Jellyfin 12
+        // does not define window.ApiClient for a plugin page, which left the page unable to authenticate and
+        // stuck on "Loading libraries…". This script is injected into the web client itself, where the API
+        // object (and the session) definitely exist, so the page gets both from here.
+        try {
+            var api = (typeof ApiClient !== 'undefined') ? ApiClient : null;
+            window.__subsyncBridge = {
+                token: (api && api.accessToken) ? api.accessToken() : '',
+                userId: (api && api.getCurrentUserId) ? api.getCurrentUserId() : '',
+                at: Date.now()
+            };
+            log('Handed the page its session (' + (window.__subsyncBridge.token ? 'token' : 'no token')
+                + (window.__subsyncBridge.userId ? ', user' : ', no user') + ')');
+        } catch (e) {
+            window.__subsyncBridge = { token: '', userId: '', at: Date.now() };
+            log('Could not read the session for the page: ' + (e && e.message ? e.message : e));
+        }
         // The page's own tag is fetched but not run in Jellyfin 12, so the two ways of attaching it are
         // tried in the order they were measured: fetching the text and running it as a blob (measured to
         // work) first, and the plain src tag as the fallback.

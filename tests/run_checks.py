@@ -1278,6 +1278,22 @@ def run_page_checks():
                                      'SharedExtractionStore.cs'), encoding='utf-8').read()
     service_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                        'SubSyncService.cs'), encoding='utf-8').read()
+    # Shipped 2.0.10 carried a rename that made `currentUserId()` call itself: with window.ApiClient present
+    # (every real web client) the stack blew and the page stopped at "Loading libraries…", while every browser
+    # test here ran where ApiClient is undefined and therefore never took that branch. The self-call is what
+    # the check below exists for.
+    report('currentUserId() does not call itself',
+           'if (mine) { return mine; }' in pages['subsyncMain.js']
+           and 'return currentUserId();' not in pages['subsyncMain.js'])
+    report('the page can use the session the client script hands it',
+           'function bridge()' in pages['subsyncMain.js']
+           and 'handed.token' in pages['subsyncMain.js']
+           and 'handed.userId' in pages['subsyncMain.js']
+           and 'window.__subsyncBridge = {' in pages['subsync.js'])
+    report('one failing step cannot leave the page on "Loading libraries…"',
+           "step('libraries', loadLibraries)" in pages['subsyncMain.js']
+           and 'function explain(text)' in pages['subsyncMain.js']
+           and "explain('Some parts of this page could not load" in pages['subsyncMain.js'])
     report('the client script attaches the page script itself',
            "'/SubSync/MainScript'" in pages['subsync.js']
            and 'data-ss-script' in pages['subsync.js']

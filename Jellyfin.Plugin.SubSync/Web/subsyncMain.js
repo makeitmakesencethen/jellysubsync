@@ -97,9 +97,20 @@
     // `X-Emby-Token` header and the `?api_key=` query parameter are ignored there. The
     // `Authorization: MediaBrowser Token="..."` header and `?ApiKey=` are what
     // jellyfin-web sends and both are accepted by 10.11 as well.
+    function bridge() {
+        return (typeof window !== 'undefined' && window.__subsyncBridge) ? window.__subsyncBridge : null;
+    }
+
     function token() {
         if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.accessToken) {
             return ApiClient.accessToken();
+        }
+        // Second source: the client script (SubSync.js) runs in the web client itself, where the API object
+        // exists, and hands the page its token and user id. This is what makes the page work when
+        // window.ApiClient is undefined here, which is the normal case for a plugin page in Jellyfin 12.
+        var handed = bridge();
+        if (handed && handed.token) {
+            return handed.token;
         }
         // The web client keeps its session in localStorage and this page is injected into that client,
         // so the page can read its own token. Without it nothing works when window.ApiClient is absent
@@ -120,19 +131,43 @@
     // answer is used when it is there; otherwise the server is asked once (see whenApiReady).
     var cachedUserId = '';
     function currentUserId() {
-        if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.getCurrentUserId) {
-            return currentUserId();
+        try {
+            if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.getCurrentUserId) {
+                var mine = ApiClient.getCurrentUserId();
+                if (mine) { return mine; }
+            }
+        } catch (e) { /* fall through to the handed-over session */ }
+
+        var handed = bridge();
+        if (handed && handed.userId) {
+            return handed.userId;
         }
+
         return cachedUserId;
     }
 
+    // Primes the user id whenever it cannot be read locally — not only when the API object is missing, which
+    // is what left the page unable to say which user it was asking for.
     function primeUserId() {
-        if (typeof ApiClient !== 'undefined' && ApiClient && ApiClient.getCurrentUserId) {
+        if (currentUserId()) {
             return Promise.resolve();
         }
+
         return api('Users/Me').then(function (me) {
             cachedUserId = (me && me.Id) || '';
-        })['catch'](function () { });
+            if (!cachedUserId) {
+                throw new Error('the server did not report a signed-in user');
+            }
+        });
+    }
+
+    // Every early return that leaves the interface unfinished has to say so where the user is looking.
+    function explain(text) {
+        diag(text, true);
+        var dl = $('ss-dataline');
+        if (dl) { dl.textContent = text; dl.classList.add('err'); }
+        var st = $('ss-status');
+        if (st && !/ffsubsync source/.test(st.textContent || '')) { st.textContent = text; }
     }
 
     function authHeader() {
@@ -538,7 +573,12 @@
     // ---------------- Browse ----------------
     function loadLibraries() {
         var uid = currentUserId();
-        if (!uid) { diag('Not logged in \u2014 open from the Jellyfin web UI.', true); return Promise.resolve(); }
+        if (!uid) {
+            explain('This page could not tell which user is signed in, so it cannot list your libraries. '
+                + 'Open it from the Jellyfin web UI while signed in; if it still fails, the browser console '
+                + 'shows what the page asked for.');
+            return Promise.resolve();
+        }
         return api('Users/' + uid + '/Views').then(function (data) {
             var folders = (data && data.Items) ? data.Items : [];
             libraries = folders.filter(function (f) {
@@ -2181,6 +2221,11 @@
         var tries = 0;
         (function attempt() {
             window.__ssTrace.push('gate: api=' + (typeof ApiClient) + ' token=' + (token() ? 'yes' : 'no'));
+            var lines = document.getElementById('ss-dataline');
+            if (tries === 1 && lines) {
+                lines.textContent = 'Waiting for the Jellyfin web client to hand over a session\u2026';
+            }
+
             if ((typeof ApiClient !== 'undefined' && ApiClient) || token()) {
                 window.__ssTrace.push('gate passed');
                 if (!initStarted) {
@@ -2219,15 +2264,37 @@
         if (st.search) $('ss-search').value = st.search;
         if (st.library) $('ss-library').value = st.library;
 
-        refreshStatus();
-        loadConfig();
-        attachActiveJobs();
+        // Each step is isolated: one failing call used to stop the ones after it, which is how the page sat
+        // on "Loading libraries…" with nothing else happening (a self-referencing currentUserId() did exactly
+        // that in the field). Whatever fails is named on the page.
+        var failed = [];
+        var step = function (name, run) {
+            try {
+                return Promise.resolve(run())['catch'](function (e) {
+                    failed.push(name + ': ' + (e && e.message ? e.message : e));
+                    return null;
+                });
+            } catch (e) {
+                failed.push(name + ': ' + (e && e.message ? e.message : e));
+                return Promise.resolve(null);
+            }
+        };
+
+        var all = Promise.all([
+            step('status', refreshStatus),
+            step('settings', loadConfig),
+            step('runs', attachActiveJobs),
+            step('libraries', loadLibraries),
+            step('items', loadItems)
+        ]);
         startHeartbeat();
-        loadLibraries().then(function () {
-            return loadItems();
-        }).then(function () {
+
+        all.then(function () {
             restoreSelection(st);
             attachActiveJobs(); // re-check after selection restore (catches late-running jobs)
+            if (failed.length) {
+                explain('Some parts of this page could not load \u2014 ' + failed.join(' \u00b7 '));
+            }
         });
     }
 

@@ -4,6 +4,22 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.11 (beta)
+
+Fixes 2.0.10, which should not have been published.
+
+- **The page no longer stops at "Loading libraries…" in a real web client.** 2.0.10 read the signed-in
+  user through a helper that called itself, so with the web client's API object present — which is every
+  real Jellyfin client — the page failed at the first library request and left the line on
+  "Loading libraries…" for ever. Every browser test before the release ran in a context where that API
+  object is absent, so the branch was never taken; the test now defines it, the way a real client does.
+- **The page gets its session from the client script** (which runs inside the web client and holds the
+  token and the signed-in user) as well as from the web client's own API object, so it no longer depends
+  on being able to read the browser's stored credentials.
+- **The page says what failed instead of staying unfinished**: each part of the page (status, settings,
+  runs, libraries, items) loads on its own, and anything that fails is named on the page. An account
+  without administrator rights now reads "settings: HTTP 403" instead of an empty settings form.
+
 ## 2.0.10 (beta)
 
 This build is mostly about the plugin's own page in Jellyfin 12 — it ran nothing there — plus one defect
