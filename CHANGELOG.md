@@ -4,6 +4,48 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.10 (beta)
+
+This build is mostly about the plugin's own page in Jellyfin 12 — it ran nothing there — plus one defect
+that cost a bulk run four tasks.
+
+- **The plugin page works in Jellyfin 12 again.** It rendered with every control in place and did nothing:
+  an inline `<script>` in a plugin page never executes in 12, the script that arrived with the markup is
+  fetched but not run, and the script itself stopped part-way through when the web client replaced the
+  document. The page's script now lives in its own file the plugin serves, is attached by the client script
+  (the path that already works for the ⋮ menu), and starts from the top of the file on the first signal it
+  gets. Verified in a browser: status line, libraries, settings and history all load by themselves.
+- **The page no longer needs the web client's API object.** It takes its session from the web client's
+  stored credentials, builds its own URLs and reads/writes its settings through its own
+  `GET`/`POST /SubSync/Configuration`. If the web client never finishes loading, the page says so on its
+  status line instead of showing a surface that silently does nothing.
+- **The run box now appears for a run the page did not start** (the previous build filled it into a box
+  nobody had shown, so a run — and its Cancel control — was invisible unless the page had started it).
+- **The Cancel button works for those runs.** It used to do nothing at all when the page was mirroring a run
+  someone else started.
+- **"Kill all syncing" asks before it stops everything**: the first press asks ("Confirm: kill all syncing",
+  with a line saying it includes runs other users started and that nothing has stopped yet), the second
+  press within eight seconds does it. Verified: four running jobs, four engine processes gone 5.1 s later.
+- **One settings surface.** The dashboard page is now a pointer to the plugin's own page instead of a
+  second, partial copy of the same settings.
+- **An embedded subtitle whose file has no other text track is no longer rewritten from the audio alone.**
+  The result cannot be checked against anything, so the job reports "Unverified — audio-only alignment" with
+  the measured shift and writes nothing; the library file is untouched. External `.srt` files still use the
+  audio, and now prefer a sibling embedded track as the reference when the file has one.
+- **Refusals are reported as refusals, not as failures.** A bulk run of 100 tracks that safely refused two
+  tracks used to read as "2 failed".
+- **A bulk run no longer loses tasks to a missing extraction file.** The extracted subtitle lived in a job's
+  own temporary directory, and a job deletes that directory when it finishes — so a job that started later
+  (or re-entered) failed with `Could not find a part of the path …/subtitle_15.srt`. The directory is now
+  shared per file and goes when the last job reading it is done: the run that lost four tasks finishes with
+  zero failures, and a finished run leaves nothing behind in the cache.
+- **A fetched reference stays until every job using it has finished**, `Kill` also stops the extraction
+  pass's reads, and a reference-derived shift beyond the configured limit (default 30 s) is refused instead
+  of written.
+- **Measured, cold cache, one file per setting**: whole series 98 Completed + 2 Refused in 35 s (the
+  refusals are the 30 s limit above); the 2.38 GB episode on slow network storage at 4 workers finishes 50
+  tracks with no failures, and `workers=8` is 2.8× faster than `workers=1`.
+
 ## 2.0.7 (beta)
 
 - **A shared pass now serves the tracks it used to skip.** Tracks whose index names the cluster but not
