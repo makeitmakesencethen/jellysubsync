@@ -4,6 +4,21 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.14 (beta)
+
+Wording only - no behaviour change.
+
+- **The framerate option now says the trade-off instead of the engine's internals.** It was: "the engine infers a
+  framerate ratio from the subtitle's own span, so a release with a slightly longer runtime gets time-scaled".
+  It is: it stretches the timings to fix a mismatch (a subtitle timed for PAL 25 fps on a 23.976 fps file), leave
+  it off when the subtitle is simply from a different cut because that looks identical to the engine and
+  stretching it leaves the end of the film minutes out of step, and either way nothing is stretched silently - a
+  result that is not a real framerate pair is refused with the numbers.
+- **No flag names in the interface.** "Enable --gss to find the optimal framerate ratio" is now "Searches harder
+  for the exact stretch factor. Slower, and only useful together with the option above."
+- **Speech detection says what it decides** ("how the engine decides which parts of the audio are speech")
+  rather than which component does it.
+
 ## 2.0.13 (beta)
 
 The run indicator, and a queue that says what it is waiting for.

@@ -184,7 +184,7 @@
                                         <option value="subs_then_silero">subs_then_silero</option>
                                         <option value="silero">silero</option>
                                     </select>
-                                    <div class="fieldDescription">The VAD method used by ffsubsync for speech detection.</div>
+                                    <div class="fieldDescription">How the engine decides which parts of the audio are speech. The default works for both film and TV.</div>
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-maxoffset" label="Max offset seconds" min="1" max="600" />
@@ -271,7 +271,7 @@
                                             <input is="emby-checkbox" type="checkbox" id="ss-fixfps" />
                                             <span>Correct framerate mismatch (advanced)</span>
                                         </label>
-                                        <div class="fieldDescription checkboxFieldDescription">Off by default, and that is the safe setting: the engine infers a framerate ratio from the subtitle's own span, so a release with a slightly longer runtime gets time-scaled and the whole file drifts. Only enable this for subtitles you know come from a different framerate.</div>
+                                        <div class="fieldDescription checkboxFieldDescription">Let the sync stretch the timings to fix a framerate mismatch, e.g. a subtitle timed for PAL 25 fps on a 23.976 fps file. Leave it off when the subtitle is simply from a different cut: that looks identical to the engine, and stretching it leaves the end of the film minutes out of step. Either way nothing is stretched silently — a result that is not a real framerate pair is refused with the numbers.</div>
                                     </div>
                                 </div>
                                 <div class="ss-field">
@@ -280,7 +280,7 @@
                                             <input is="emby-checkbox" type="checkbox" id="ss-gss" />
                                             <span>Use golden-section search for framerate ratio</span>
                                         </label>
-                                        <div class="fieldDescription checkboxFieldDescription">Enable --gss to find the optimal framerate ratio between video and subtitles.</div>
+                                        <div class="fieldDescription checkboxFieldDescription">Searches harder for the exact stretch factor. Slower, and only useful together with the option above.</div>
                                     </div>
                                 </div>
                                 <div class="ss-field">
