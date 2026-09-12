@@ -26,7 +26,25 @@ Framerate correction works on every reference path, and is on by default.
   fixture whose subtitle was one PAL step off the reference, enabling framerate correction this way turned a
   17.4 s shift into a 55.8 s one, and the reference ceiling then refused the file. The plugin owns that decision
   on this path - it sees both spans and only accepts a real framerate pair - so the inference stays out of it.
+- **The rescale is anchored to the file's own duration, not to whatever the reference is.** Both a subtitle from
+  a different framerate and a mis-timed *reference* look like the same few percent, so the references alone cannot
+  say which side is wrong. The file's duration can: a subtitle spans the film it was timed for, so the side that
+  disagrees with the duration is the one to correct. This matters most in bulk, where every subtitle of a file is
+  aligned against the same reference - a reference taken from a PAL release would otherwise have stretched every
+  correct subtitle of that file onto it, and the old reference ceiling that used to refuse such a file no longer
+  fires once the shift is small.
+- **A rescaled result is reported as a rescale.** The outcome used to compare the subtitle you had with the
+  corrected file, which are on differently scaled timelines: a correction read as "change=+55388 ms" on a
+  50-minute file, i.e. as if the alignment had gone badly wrong. It now says the factor it stretched to and the
+  alignment's own change.
 - The label no longer says "(advanced)", since this is now the default rather than a specialty.
+
+Verified with a fixture (`tests/backend/reference_framerate.py`, run by `tests/backend/run_reference_fixture.sh`)
+whose subtitle is one PAL step off the reference the plugin itself uses: with the option on, the log records the
+rescale, the job completes, and the written subtitle's span matches the reference's (median offset 0.0 s); with it
+off, no rescale is attempted and the written file keeps its 0.95904 span. The other direction - a correct subtitle
+against a mis-timed reference - is covered by unit checks in the generated C# harness, because the plugin writes
+its reference per run and removes it with the run, so no fixture can make that reference PAL-timed.
 
 ## 2.0.14 (beta)
 

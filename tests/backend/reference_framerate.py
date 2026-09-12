@@ -157,8 +157,11 @@ def main():
             stale.unlink()
 
     on, off = results.get("framerate-on", {}), results.get("framerate-off", {})
-    on_ok = (on.get("rescale") and on.get("status") == "Completed"
-             and (on.get("span_ratio_vs_reference") or 0) > 1.0
+    # The corrected subtitle's span must match the reference's, the written file must exist, and it must sit on
+    # the reference's timeline. (An earlier version of this required the ratio to be strictly greater than 1.0,
+    # which reported CHECK for a perfect 1.0 - a wrong assertion, not a wrong result.)
+    on_ok = (on.get("rescale") and on.get("status") == "Completed" and bool(on.get("written"))
+             and (on.get("span_ratio_vs_reference") or 0) > 0
              and abs((on.get("span_ratio_vs_reference") or 0) - 1.0) <= 0.01
              and (on.get("median_offset_s") or 99) <= 2.5)
     off_ok = (not off.get("rescale")) and (off.get("refused") or abs((off.get("span_ratio_vs_reference") or 0) - PAL) <= 0.02)

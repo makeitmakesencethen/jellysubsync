@@ -2946,6 +2946,39 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Whether the subtitle being synced is the one that sits off the file's own timeline.
+    /// </summary>
+    /// <remarks>
+    /// Both a subtitle timed for another playback speed and one from a longer cut show up as a span that is a few
+    /// percent away from the reference's, so the references alone cannot say which of the two is the odd one out.
+    /// The file's duration can: a subtitle spans the film it was timed for, so the side that disagrees with the
+    /// duration is the one to correct. Getting this backwards would rescale a correct subtitle onto a mis-timed
+    /// ruler, and every subtitle of the file shares that ruler in a bulk run.
+    /// </remarks>
+    /// <param name="targetSpan">Span of the subtitle being synced, in seconds.</param>
+    /// <param name="referenceSpan">Span of the reference, in seconds.</param>
+    /// <param name="videoSeconds">The file's duration, in seconds.</param>
+    /// <returns>True when the subtitle is the side to rescale; false when the reference is, or when both or neither are.</returns>
+    internal static bool IsTargetOffTheVideo(double targetSpan, double referenceSpan, double videoSeconds)
+    {
+        if (videoSeconds <= 60)
+        {
+            return true;
+        }
+
+        var targetOnVideo = Math.Abs((targetSpan / videoSeconds) - 1.0) <= 0.03;
+        var referenceOnVideo = Math.Abs((referenceSpan / videoSeconds) - 1.0) <= 0.03;
+        if (!referenceOnVideo && !targetOnVideo)
+        {
+            // Neither span matches the file: not a case this rule can settle, so the pair rule and the alignment
+            // guards below decide, as before.
+            return true;
+        }
+
+        return !targetOnVideo;
+    }
+
+    /// <summary>
     /// Reads one SRT timestamp ("00:01:02,345") as milliseconds.
     /// </summary>
     /// <param name="text">The timestamp, optionally followed by cue coordinates.</param>
@@ -2990,10 +3023,16 @@ public class SubSyncService : IDisposable
     /// </remarks>
     /// <param name="targetPath">The subtitle being synced.</param>
     /// <param name="referencePath">The reference subtitle.</param>
+    /// <param name="videoDuration">The file's duration, which settles which side is off the video's timeline.</param>
     /// <param name="tempDir">Directory to write the copy into.</param>
     /// <param name="job">The job, for the log.</param>
     /// <returns>The path of the rescaled copy, or null when nothing should change.</returns>
-    private string? RescaleOntoReferenceSpan(string targetPath, string referencePath, string tempDir, SyncJob job)
+    private string? RescaleOntoReferenceSpan(
+        string targetPath,
+        string referencePath,
+        TimeSpan videoDuration,
+        string tempDir,
+        SyncJob job)
     {
         var target = ParseSrtCueStarts(targetPath);
         var reference = ParseSrtCueStarts(referencePath);
@@ -3007,6 +3046,28 @@ public class SubSyncService : IDisposable
         if (targetSpan <= 60 || referenceSpan <= 60)
         {
             return null;
+        }
+
+        // Which side is off the video's timeline? A subtitle spans the film it was timed for, so a span a few
+        // percent away from the file's duration is a subtitle timed for a different playback speed. If the
+        // *reference* is that one, rescaling the target onto it would drag a correct subtitle onto a mis-timed
+        // ruler - and in bulk that would happen to every subtitle of the file, because they share the reference.
+        if (videoDuration > TimeSpan.FromSeconds(60))
+        {
+            var videoSeconds = videoDuration.TotalSeconds;
+            var referenceOnVideo = Math.Abs((referenceSpan / videoSeconds) - 1.0) <= 0.03;
+            if (IsTargetOffTheVideo(targetSpan, referenceSpan, videoSeconds))
+            {
+                // The ordinary case: the subtitle is the one that is off.
+            }
+            else if (!referenceOnVideo)
+            {
+                PluginLog.Info(
+                    $"[{job.Id}] framerate: the reference spans {referenceSpan:0.0} s of the file's {videoSeconds:0.0} s "
+                    + $"(the subtitle's own span, {targetSpan:0.0} s, matches the file), so the reference is the odd one "
+                    + "out \u2014 no rescale; a shift from a reference this far off the video is refused as before");
+                return null;
+            }
         }
 
         var scale = referenceSpan / targetSpan;
@@ -3702,7 +3763,7 @@ public class SubSyncService : IDisposable
             var referenceArg = referencePath!;
             if (usedSubtitleReference && config.FixFramerate)
             {
-                engineInput = RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, tempDir, job) ?? engineInput;
+                engineInput = RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job) ?? engineInput;
             }
 
             var args = BuildFfSubSyncArgs(config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream);
@@ -3804,6 +3865,22 @@ public class SubSyncService : IDisposable
 
             ReleaseSpeechGate(job, videoPath);
 
+            if (!File.Exists(tempOutput) && engineInput != subtitleInputPath && File.Exists(engineInput))
+            {
+                // The engine suppressed its write because the subtitle it was handed - the copy the plugin
+                // rescaled onto the reference's time base - needed no further shift. That copy is the fix the
+                // user asked for: the rescaled subtitle becomes the result, instead of the run reporting
+                // "already in sync" while the user's own PAL-timed file is left as it was. The checks below see
+                // it exactly as they would an engine output, including the pair rule.
+                File.Copy(engineInput, tempOutput, overwrite: true);
+                PluginLog.Info(
+                    $"[{job.Id}] framerate: the engine needed no further shift on the rescaled subtitle "
+                    + "\u2014 that rescaled timing is the result");
+                _logger.LogInformation(
+                    "Sync job {JobId}: the subtitle was rescaled onto the reference's time base and aligned; using it as the output",
+                    job.Id);
+            }
+
             if (!File.Exists(tempOutput))
             {
                 // ffsubsync suppresses writing when the detected shift is below
@@ -3823,7 +3900,12 @@ public class SubSyncService : IDisposable
             // ffsubsync writes an output file even when the timings come out identical, which produced
             // a ".SYNCED" sidecar with the same timing as its source: no benefit, one more subtitle
             // track in the library. Measured before anything is written, so nothing is touched.
-            var measured = MeasureSyncChange(subtitleInputPath, tempOutput);
+            // Measured against what the engine was actually given. When the plugin rescaled a framerate-mismatched
+            // subtitle itself (engineInput differs), comparing the original with the output made a correct fix look
+            // like a growing shift - the median difference between two differently scaled timelines is about half
+            // the file's drift, 55.4 s on the 50-minute fixture - and the reference ceiling refused a file that had
+            // just been fixed. Comparing the engine's own input keeps that check about the alignment.
+            var measured = MeasureSyncChange(engineInput, tempOutput);
 
             // Nothing destructive is ever written: a measured rescale that was not asked for (or that
             // is not a real framerate pair) means the engine moved the timeline, and the source
@@ -3934,7 +4016,15 @@ public class SubSyncService : IDisposable
                     + "- check the result; a shift this size usually means that track is not the same cut");
             }
 
-            if (measured is { IsNoChange: true } noChange)
+            // "Changed nothing" is about the subtitle the user has, so it is measured against that: when the
+            // plugin rescaled a framerate-mismatched subtitle, the engine's input and its output are identical by
+            // definition, and comparing those two reported "+0 ms offset - no sidecar written" while the user's
+            // own file was still PAL-timed. The alignment guards above keep using what the engine was given.
+            var changedForUser = engineInput == subtitleInputPath
+                ? measured
+                : MeasureSyncChange(subtitleInputPath, tempOutput);
+
+            if (changedForUser is { IsNoChange: true } noChange)
             {
                 _logger.LogInformation(
                     "Sync job {JobId}: the sync changed nothing ({Change}) \u2014 no sidecar written",
@@ -4101,6 +4191,21 @@ public class SubSyncService : IDisposable
             if (job.OutputPath is not null)
             {
                 job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
+                if (engineInput != subtitleInputPath)
+                {
+                    // The subtitle the user had and the corrected file are on differently scaled timelines, so
+                    // describing the difference between them reports about half the film's drift ("change=+55388 ms")
+                    // for a correction that did what it was asked to. Say what was done instead: the factor, and the
+                    // alignment's own change measured on the timeline the engine worked in.
+                    var before = ParseSrtCueStarts(subtitleInputPath);
+                    var after = ParseSrtCueStarts(engineInput);
+                    var factor = before is { Count: > 2 } && after is { Count: > 2 }
+                        ? (after[^1] - after[0]) / (before[^1] - before[0])
+                        : 1.0;
+                    var aligned = DescribeSyncChange(engineInput, job.OutputPath);
+                    job.Outcome = $"stretched to {factor:0.#####}x onto the reference's timeline"
+                        + (string.IsNullOrEmpty(aligned) ? string.Empty : ", " + aligned);
+                }
             }
 
             if (cuesNote is not null)

@@ -541,6 +541,15 @@ Check("opt-in framerate: golden section is only passed with correction on",
     && !SubSyncService.FramerateArgs(false, true).Contains("--gss"),
     string.Join(" ", SubSyncService.FramerateArgs(false, true)));
 
+// Which side is off the file's timeline decides whether a framerate rescale happens at all. A subtitle timed for
+// PAL on a 23.976 fps file spans ~0.959 of the film; a reference taken from such a release does too. Rescaling the
+// subtitle onto a mis-timed reference would move a correct subtitle off the video, and in a bulk run every
+// subtitle of that file uses the same reference.
+Check("a PAL-timed subtitle is the side to rescale", SubSyncService.IsTargetOffTheVideo(0.959 * 3000, 3000, 3000));
+Check("a correct subtitle against a PAL-timed reference is left alone", !SubSyncService.IsTargetOffTheVideo(3000, 0.959 * 3000, 3000));
+Check("two subtitles that both match the file are not rescaled", !SubSyncService.IsTargetOffTheVideo(3000, 2990, 3000));
+Check("an unusable duration leaves the decision to the pair rule", SubSyncService.IsTargetOffTheVideo(3000, 0.959 * 3000, 30));
+
 // The guard that decides whether a measured result may be written. Without correction asked for, any
 // rescale is the failure this exists for: a 4% scale ruins a whole file rather than a few seconds.
 foreach (var (ratio, shiftMs, fix, expected, why) in new (double, long, bool, bool, string)[]
@@ -1367,8 +1376,12 @@ def run_page_checks():
            and "On by default" in pages['subsyncMain.html']
            and 'id="ss-fixfps"' in pages['subsyncMain.html'])
     report('a subtitle reference rescales a framerate-mismatched subtitle before aligning',
-           'private string? RescaleOntoReferenceSpan(string targetPath, string referencePath, string tempDir, SyncJob job)' in service_source
-           and 'RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, tempDir, job)' in service_source
+           'private string? RescaleOntoReferenceSpan(' in service_source
+           and 'TimeSpan videoDuration,' in service_source
+           and 'RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job)' in service_source
+           and 'IsTargetOffTheVideo(targetSpan, referenceSpan, videoSeconds)' in service_source
+           and 'so the reference is the odd one' in service_source
+           and 'stretched to {factor:0.#####}x onto the reference' in service_source
            and 'rescaling it onto the reference\'s time base' in service_source
            and 'a different cut, left for the alignment to report' in service_source
            and 'BuildFfSubSyncArgs(config, referenceArg, engineInput' in service_source)
