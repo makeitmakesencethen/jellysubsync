@@ -20,6 +20,7 @@ const LABEL = process.argv[2] || 'f29-confirm';
 const ITEM = process.argv[3] || IDS.movie;
 const OUT = __dirname + '/' + LABEL + '.json';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const say = (msg) => console.log(new Date().toISOString().slice(11, 19) + ' ' + msg);
 const results = { label: LABEL, steps: [] };
 
 const readButton = (page) => page.evaluate(() => {
@@ -61,6 +62,7 @@ const readButton = (page) => page.evaluate(() => {
     const started = await page.evaluate(() => /ffsubsync source/.test((document.querySelector('#ss-status') || {}).textContent || ''));
     if (started) break;
   }
+  say('page up: ' + JSON.stringify(await readButton(page)));
   results.steps.push({ step: 'the page is up', button: await readButton(page) });
 
   // Queue with the page's own session, using tracks that exist (a sidecar renumbers them — S14).
@@ -85,11 +87,15 @@ const readButton = (page) => page.evaluate(() => {
       await wait(1000);
       const active = await (await fetch(BASE + '/SubSync/Active', { headers: { Authorization: auth } })).json();
       runningSeen = (active.running || []).length;
-      if (runningSeen > 0) break;
+      if (runningSeen > 0) { say('a task is running after ' + i + ' s'); break; }
+      if (i % 15 === 0) { say('waiting for a task to start (' + i + ' s, running=' + runningSeen + ')'); }
     }
+    say('queued: ' + JSON.stringify(queued));
+    say('running when cancelled: ' + runningSeen);
     results.steps.push({ step: 'queued a run (attempt ' + attempt + ')', queued, runningWhenCancelled: runningSeen });
     if (!runningSeen) continue;
     // Cancel drops the queue but not the job that is already running: the button becomes the global kill.
+    say('pressing cancel');
     await page.evaluate(() => { const b = document.querySelector('#ss-cancel'); if (b) b.click(); });
     for (let i = 0; i < 25; i++) {
       await wait(800);
