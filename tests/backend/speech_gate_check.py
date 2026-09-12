@@ -49,7 +49,16 @@ def main():
     print("method=speech-cache lines: %d" % len(fromcache))
     print("ffsubsync runs: %d, durations ms: %s" % (len(starts), exits))
     print("waiting messages: %d" % len([l for l in fresh if "harvested by another job" in l]))
-    print("\nverdict:", "PASS" if len(audio) <= 1 and len(starts) <= len(tasks) else "CHECK")
+    # A run where the jobs took the subtitle-reference path exercises nothing here: the first version of this
+    # script printed PASS for that, which is the kind of green that hides the thing the check exists for.
+    exercised = len(audio) + len(fromcache) >= 1
+    ok = exercised and len(audio) <= 1
+    if not exercised:
+        print("\nverdict: NOT EXERCISED - these jobs aligned against a subtitle, not the audio; use an item "
+              "whose only text track is external (no sibling to align against)")
+    else:
+        print("\nverdict:", "PASS" if ok else "CHECK")
+    print("analysis on the audio: %d (must be 1 for the jobs of one file)" % len(audio))
     for l in (audio + fromcache)[:4]:
         print("  ", l.split("INFO", 1)[-1].strip()[:180])
 
