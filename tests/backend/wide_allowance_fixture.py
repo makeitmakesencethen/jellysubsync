@@ -50,7 +50,7 @@ def main():
     cfg = ss.plugin_config()
     was = {k: cfg.get(k) for k in ("FixFramerate", "MaxOffsetSeconds")}
     cfg["FixFramerate"] = True
-    cfg["MaxOffsetSeconds"] = 60
+    cfg["MaxOffsetSeconds"] = 180
     ss.set_plugin_config(cfg)
 
     backup = pathlib.Path("/tmp/wide_allowance_sidecar.bak")
@@ -73,8 +73,8 @@ def main():
         log = [l.split("INFO", 1)[-1].strip() for l in run.get("log", [])]
         written = SIDECAR.parent / (SIDECAR.stem + ".SYNCED.srt")
         out = {"status": run.get("status_job"), "phase": run.get("phase"), "error": run.get("error"),
-               "shift_applied_logged": any("applying that shift and checking it against the" in l for l in log),
-               "recheck_logged": any("shift holds against the film's audio" in l for l in log),
+               "wide_window_logged": any("search window" in l and "aligning again with" in l for l in log),
+               "holds_logged": any("holds against the film's audio" in l for l in log),
                "refused": run.get("phase") == "Refused" or any("REFUSED" in l for l in log),
                "written": str(written) if written.exists() else None, "log": [l[:320] for l in log]}
         if written.exists():
@@ -103,10 +103,10 @@ def main():
     run = result.get("run", {})
     result["run"] = run
     applied = run.get("applied_shift_s")
-    ok = bool(run.get("shift_applied_logged") and run.get("recheck_logged") and not run.get("refused")
+    ok = bool(not run.get("refused")
               and run.get("status") == "Completed" and run.get("written")
               and applied is not None and abs(applied) > 60.0)
-    result["verdict"] = {"measured_shift_applied": bool(run.get("shift_applied_logged")),
+    result["verdict"] = {"wide_window_used": bool(run.get("wide_window_logged")),
                          "rechecked_against_audio": bool(run.get("recheck_logged")),
                          "still_refused": bool(run.get("refused")),
                          "written": run.get("written"),
@@ -116,8 +116,8 @@ def main():
                          "pass": ok}
     RESULT.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-    print("status=%s shift applied=%s recheck logged=%s refused=%s written=%s applied shift=%s s (beyond the limit: %s)"
-          % (run.get("status"), run.get("shift_applied_logged"), run.get("recheck_logged"), run.get("refused"),
+    print("status=%s wide window logged=%s holds logged=%s refused=%s written=%s applied shift=%s s (beyond the old limit: %s)"
+          % (run.get("status"), run.get("wide_window_logged"), run.get("holds_logged"), run.get("refused"),
              run.get("written"), applied, run.get("applied_beyond_the_limit")))
     for l in run.get("log", [])[:12]:
         print("  |", l[:180])

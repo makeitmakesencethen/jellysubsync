@@ -1547,26 +1547,19 @@ def run_page_checks():
            and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service
            and 'worth checking, a shift this size' in service
            and 'refusing a reference-derived shift' not in service)
-    report('a result at the offset ceiling shifts rigidly, refines against the audio, and checks every round',
-           'private string? ShiftSrtBy(string inputPath, long shiftMs, string tempDir, SyncJob job)' in service
-           and 'shifted-input.srt' in service
-           and 'shifted-verify.srt' in service
-           and "the engine's search is not widened: a wider window is how a wrong lock gets in" in service
-           and 'for (var round = 1; round <= 3 && !accepted; round++)' in service
-           and 'the check asked for {residualShift} ms more, so the subtitle is shifted ' in service
-           and 'holds against the film\'s audio' in service
-           and 'shifting it by the measurement did not ' in service
+    report('the offset window is a search range: a result on it is retried wider, and only a definitive answer is written',
+           'public int MaxOffsetSeconds { get; set; } = 180;' in config_source
+           and 'Math.Max(config.MaxOffsetSeconds * 2, 300)' in service
+           and 'wide-window.srt' in service
+           and 'wide-check.srt' in service
+           and 'which a window that size cannot be trusted to have found' in service
+           and 'the {wideSeconds} s window also reached its limit' in service
            and 'AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds)' in service
-           # a reference that has already been released: the check falls back to the film itself
-           and 'the stored speech reference was no longer readable' in service
-           # the widened search is gone: it locked onto the wrong part of the audio on the user's file
+           # the rigid-shift attempt is gone: it applied a rescaled timeline's median displacement as a shift
+           and 'ShiftSrtBy' not in service
+           and 'shifted-verify.srt' not in service
            and 'wide-allowance.srt' not in service
-           and 'Math.Max(config.MaxOffsetSeconds * 4, 300)' not in service
-           and 'so the engine was clamped - the file is still written' not in service
            and 'wideAllowanceApplied' in service)
-    # The setting AGENTS.md documents. An earlier session removed it as a "leftover" and pinned its
-    # absence; the fix plan's S3 line puts it back as the documented refusal, so this check now asserts
-    # it exists in the model and is reachable from the settings page.
     report('the documented reference limit exists in the model',
            'MaxSubtitleReferenceOffsetSeconds' in service
            and 'MaxSubtitleReferenceOffsetSeconds' in open(

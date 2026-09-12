@@ -114,12 +114,20 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   sibling reference reads the track from this run's memory, then the extracted-subtitle cache, then
   the container index (`TryReadReferenceTextAsync`), under a per-file gate so only one job builds it.
   A reference that *cannot be built* is not fatal: the job syncs against the audio instead.
-- **Never write a result that is pinned to `MaxOffsetSeconds`,** and never write a big shift that came
-  from a subtitle reference (`MaxSubtitleReferenceOffsetSeconds`, default 30 s). Both are refused with
-  the measured numbers: a clamped or reference-inherited offset is a wrong file that looks like a
-  success. This is the one place the plugin deliberately does not finish a job — settled 2026-09-11
-  against the older "never refuse a job" wording, which applies to a reference that cannot be *built*
-  (that job still runs, against the audio), not to one that is provably from another cut.
+- **`MaxOffsetSeconds` is ffsubsync's search window, not a trust limit** (180 s by default as of 2.0.20;
+  it mirrors `--max-offset-seconds`, whose own default is 60 s). An answer outside the window cannot be
+  found at all, which is how a subtitle needing ~112 s came back as 56 s: the engine returns its best
+  *wrong* answer. So a result that lands on the window is retried once with twice the window, and that
+  result is written only when it is **not** pinned to the wider window either and one alignment against
+  the film's audio asks for nothing more. If the wider window is also pinned, the job refuses and tells
+  the user to raise the setting. Do not "fix" a big offset by applying the measured displacement as a
+  shift: when the engine also re-times the subtitle, that number is the median displacement of a
+  rescaled timeline, and applying it as a shift is wrong by construction (tried in 2.0.19, wrong on the
+  user's file).
+- **Never write a big shift that came from a subtitle reference** (`MaxSubtitleReferenceOffsetSeconds`,
+  default 30 s): past it that track is not the same cut, so it is discarded as a ruler and the subtitle
+  is aligned against the audio instead (2.0.17+). A reference that cannot be *built* is not fatal
+  either — that job still runs, against the audio.
 - **The scheduler's per-file checks must not touch storage.** `SpeechIsCached` is memoised because it
   used to be answered by stat-ing the media file for every queued job while holding `_queueLock`, which
   the enqueue path needs: 240 tasks took 105-424 s to queue. Any new predicate in `PlanStart` gets the

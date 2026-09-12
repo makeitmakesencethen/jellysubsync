@@ -188,7 +188,7 @@
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-maxoffset" label="Max offset seconds" min="1" max="600" />
-                                    <div class="fieldDescription">Maximum allowed offset in seconds for any subtitle segment. Default: 60. A result clamped to this ceiling is refused rather than written.</div>
+                                    <div class="fieldDescription">How far from the video's audio the alignment may look for a subtitle's position. 180 by default: a subtitle can genuinely be minutes out, and an answer outside this window cannot be found. Too large invites matching the wrong place. A result that lands on the window is retried with twice it, and only written when the film's audio agrees.</div>
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-maxrefoffset" label="Max shift from a subtitle reference" min="1" max="600" />

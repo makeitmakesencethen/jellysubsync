@@ -3003,54 +3003,6 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Writes a copy of a subtitle with every timestamp moved by a fixed amount.
-    /// </summary>
-    /// <remarks>
-    /// Used for a subtitle further out than the offset limit allows: the shift the engine already measured is applied
-    /// here, rigidly, so that nothing in a search can lock onto the wrong part of the audio. The result is then
-    /// aligned against the film's audio to see whether the shift was right.
-    /// </remarks>
-    /// <param name="inputPath">The subtitle to shift.</param>
-    /// <param name="shiftMs">Milliseconds to add (negative moves the subtitles earlier).</param>
-    /// <param name="tempDir">Directory for the copy.</param>
-    /// <param name="job">The job, for the log.</param>
-    /// <returns>The path of the shifted copy, or null when it could not be written.</returns>
-    private string? ShiftSrtBy(string inputPath, long shiftMs, string tempDir, SyncJob job)
-    {
-        try
-        {
-            var shifted = Path.Combine(tempDir, "shifted-input.srt");
-            using (var writer = new StreamWriter(shifted, false, new System.Text.UTF8Encoding(false)))
-            {
-                foreach (var line in File.ReadLines(inputPath))
-                {
-                    var arrow = line.IndexOf("-->", StringComparison.Ordinal);
-                    if (arrow > 0
-                        && TryParseSrtTime(line[..arrow].Trim(), out var startMs)
-                        && TryParseSrtTime(line[(arrow + 3)..].Trim(), out var endMs))
-                    {
-                        writer.WriteLine(
-                            $"{SrtWriter.FormatTime((long)Math.Round(startMs) + shiftMs)} --> "
-                            + SrtWriter.FormatTime((long)Math.Round(endMs) + shiftMs));
-                    }
-                    else
-                    {
-                        writer.WriteLine(line);
-                    }
-                }
-            }
-
-            return shifted;
-        }
-        catch (Exception ex) when (ex is not OperationCanceledException)
-        {
-            _logger.LogWarning(ex, "Could not shift {Path} by {Shift} ms for the check", inputPath, shiftMs);
-            PluginLog.Info($"[{job.Id}] offsets: could not write the shifted copy of the subtitle ({ex.Message})");
-            return null;
-        }
-    }
-
-    /// <summary>
     /// Reads one SRT timestamp ("00:01:02,345") as milliseconds.
     /// </summary>
     /// <param name="text">The timestamp, optionally followed by cue coordinates.</param>
@@ -4090,57 +4042,66 @@ public class SubSyncService : IDisposable
                 }
             }
 
-            // The engine clamps the shift at the configured ceiling, so a result sitting at or past it is the most it
-            // was allowed to apply, not what the file needed - and writing it would present a guess as a synced
-            // subtitle. Widening the engine's search instead is worse: tried on the user's file, a 300 s allowance let
-            // the engine lock onto a different part of the audio (56 s where the first pass measured 94 s), and the
-            // result was wrong from the first line. So the shift the first pass measured is applied rigidly - pure
-            // timestamp arithmetic, nothing to lock onto - and then aligned against the film's audio with the normal
-            // allowance: a correct shift leaves almost nothing, a wrong one does not, and the job refuses rather than
-            // writing a confidently wrong subtitle.
+            // This ceiling is ffsubsync's search window, not a safety limit: an answer outside it cannot be seen, and
+            // the engine then returns the best wrong one - which is how a subtitle needing ~112 s came back as 56 s.
+            // So a result that reaches the window gets one more alignment with a wider one, and that result is only
+            // accepted when it is *not* pinned to the wider window either. A definitive answer, then one alignment
+            // against the film's audio as a last check: anything a wide window matched wrongly shows up there as a
+            // large remaining shift, and the job refuses with both numbers instead of writing it.
             var ceilingMs = config.MaxOffsetSeconds * 1000.0;
             if (!wideAllowanceApplied && measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
             {
-                var shiftedInput = ShiftSrtBy(engineInput, onCeiling.ShiftMs, tempDir, job);
-                if (shiftedInput is null)
-                {
-                    job.Status = SyncJobStatus.Failed;
-                    job.Phase = "Refused";
-                    job.Error = $"refused: this subtitle is further out than the {config.MaxOffsetSeconds} s limit and "
-                        + "the shifted copy of it could not be written for the check. Nothing was written.";
-                    job.Progress = 1.0;
-                    job.FinishedAtUtc = DateTime.UtcNow;
-                    job.OutputPath = null;
-                    SafeDelete(tempOutput);
-                    return;
-                }
+                var wideSeconds = Math.Max(config.MaxOffsetSeconds * 2, 300);
+                var wideLimitMs = wideSeconds * 1000.0;
+                var wideOutput = Path.Combine(tempDir, "wide-window.srt");
+                SafeDelete(wideOutput);
+                var wideArgs = BuildFfSubSyncArgs(
+                    config, referenceArg, engineInput, wideOutput, tempDir, serializeSpeech, referenceStream);
+                wideArgs[wideArgs.IndexOf("--max-offset-seconds") + 1] =
+                    wideSeconds.ToString(CultureInfo.InvariantCulture);
 
-                var verifyOutput = Path.Combine(tempDir, "shifted-verify.srt");
-                var totalShift = onCeiling.ShiftMs;
-                var shifted = shiftedInput;
-                var accepted = false;
-                var lastWhy = string.Empty;
+                _logger.LogInformation(
+                    "Sync job {JobId}: the result reached the {Window} s search window - aligning again with {Wide} s",
+                    job.Id,
+                    config.MaxOffsetSeconds,
+                    wideSeconds);
+                PluginLog.Info(
+                    $"[{job.Id}] offsets: the alignment reached the {config.MaxOffsetSeconds} s search window "
+                    + $"(it measured {onCeiling.ShiftMs} ms, which a window that size cannot be trusted to have found) "
+                    + $"\u2014 aligning again with {wideSeconds} s and checking the result against the film's audio");
 
-                // Three rounds at most: apply what the film's audio asks for, rigidly, and check again.
-                for (var round = 1; round <= 3 && !accepted; round++)
-                {
-                    if (round == 1)
+                var wideErrors = new List<string>();
+                var wideExit = await RunProcessWithStderrCallbackAsync(
+                    ffsubsyncExe,
+                    wideArgs,
+                    tempDir,
+                    line =>
                     {
-                        _logger.LogInformation(
-                            "Sync job {JobId}: the result reached the {Ceiling} s ceiling - applying the measured {Shift} ms and checking it against the audio",
-                            job.Id,
-                            config.MaxOffsetSeconds,
-                            onCeiling.ShiftMs);
-                        PluginLog.Info(
-                            $"[{job.Id}] offsets: the alignment wanted {onCeiling.ShiftMs} ms, at or past the "
-                            + $"{config.MaxOffsetSeconds} s ceiling \u2014 applying that shift and checking it against the "
-                            + "film's audio (the engine's search is not widened: a wider window is how a wrong lock gets in)");
-                    }
+                        lock (wideErrors)
+                        {
+                            wideErrors.Add(line);
+                            if (wideErrors.Count > 8)
+                            {
+                                wideErrors.RemoveAt(0);
+                            }
+                        }
+                    },
+                    cancellationToken).ConfigureAwait(false);
 
+                var wideChange = wideExit == 0 && File.Exists(wideOutput)
+                    ? MeasureSyncChange(engineInput, wideOutput)
+                    : null;
+
+                if (wideChange is { } wider && Math.Abs(wider.ShiftMs) < wideLimitMs - 500)
+                {
+                    // The wider window produced an answer inside itself: the engine is not clamped any more.
+                    var verifyOutput = Path.Combine(tempDir, "wide-check.srt");
                     SafeDelete(verifyOutput);
                     var verifyArgs = BuildFfSubSyncArgs(
-                        config, referenceArg, shifted, verifyOutput, tempDir, serializeSpeech, referenceStream);
-                    // Verification, not a search: no rescaling, and the configured allowance.
+                        config, referenceArg, wideOutput, verifyOutput, tempDir, serializeSpeech, referenceStream);
+                    // A check, not a search: the configured window and no rescaling.
+                    verifyArgs[verifyArgs.IndexOf("--max-offset-seconds") + 1] =
+                        config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture);
                     foreach (var flag in FramerateArgs(false, false))
                     {
                         if (!verifyArgs.Contains(flag))
@@ -4151,65 +4112,10 @@ public class SubSyncService : IDisposable
 
                     verifyArgs.Remove("--gss");
 
-                    var verifyErrors = new List<string>();
                     var verifyExit = await RunProcessWithStderrCallbackAsync(
-                        ffsubsyncExe,
-                        verifyArgs,
-                        tempDir,
-                        line =>
-                        {
-                            lock (verifyErrors)
-                            {
-                                verifyErrors.Add(line);
-                                if (verifyErrors.Count > 8)
-                                {
-                                    verifyErrors.RemoveAt(0);
-                                }
-                            }
-                        },
-                        cancellationToken).ConfigureAwait(false);
-
-                    if (verifyExit != 0 && speechKey is not null)
-                    {
-                        // The reference the alignment used may already be gone (the plugin drops the speech cache link
-                        // once it has harvested it), which the engine reports as "unable to read reference". The film
-                        // itself is always readable, so the check falls back to it: one more decode, correct either way.
-                        SafeDelete(verifyOutput);
-                        var directArgs = BuildFfSubSyncArgs(
-                            config, videoPath, shifted, verifyOutput, tempDir, serializeSpeech: false, referenceStream: null);
-                        foreach (var flag in FramerateArgs(false, false))
-                        {
-                            if (!directArgs.Contains(flag))
-                            {
-                                directArgs.Add(flag);
-                            }
-                        }
-
-                        directArgs.Remove("--gss");
-                        verifyErrors.Clear();
-                        verifyExit = await RunProcessWithStderrCallbackAsync(
-                            ffsubsyncExe,
-                            directArgs,
-                            tempDir,
-                            line =>
-                            {
-                                lock (verifyErrors)
-                                {
-                                    verifyErrors.Add(line);
-                                    if (verifyErrors.Count > 8)
-                                    {
-                                        verifyErrors.RemoveAt(0);
-                                    }
-                                }
-                            },
-                            cancellationToken).ConfigureAwait(false);
-                        PluginLog.Info(
-                            $"[{job.Id}] offsets: the stored speech reference was no longer readable, so the check ran "
-                            + $"against the file itself instead (exit={verifyExit})");
-                    }
-
+                        ffsubsyncExe, verifyArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
                     var residual = verifyExit == 0 && File.Exists(verifyOutput)
-                        ? MeasureSyncChange(shifted, verifyOutput)
+                        ? MeasureSyncChange(wideOutput, verifyOutput)
                         : null;
                     var residualRatio = residual?.Ratio ?? 1.0;
                     var residualShift = residual?.ShiftMs ?? 0;
@@ -4217,67 +4123,68 @@ public class SubSyncService : IDisposable
                     if (verifyExit == 0
                         && AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds))
                     {
-                        accepted = true;
                         wideAllowanceApplied = true;
-                        tempOutput = File.Exists(verifyOutput) ? verifyOutput : shifted;
-                        measured = MeasureSyncChange(engineInput, tempOutput);
+                        tempOutput = wideOutput;
+                        measured = wider;
                         PluginLog.Info(
-                            $"[{job.Id}] offsets: the {totalShift} ms shift holds against the film's audio "
+                            $"[{job.Id}] offsets: the {wider.ShiftMs} ms result holds against the film's audio "
                             + $"(a further {residualShift} ms, no rescale) \u2014 writing it");
                         _logger.LogInformation(
-                            "Sync job {JobId}: the applied shift holds against the audio ({Shift} ms more)",
+                            "Sync job {JobId}: the wider-window result holds against the audio ({Shift} ms more)",
                             job.Id,
                             residualShift);
-                        break;
                     }
-
-                    if (verifyExit != 0)
+                    else
                     {
-                        lock (verifyErrors)
-                        {
-                            lastWhy = $"the check did not run (exit {verifyExit})"
-                                + (verifyErrors.Count == 0 ? string.Empty : " · engine said: " + string.Join(" | ", verifyErrors).Trim());
-                        }
-
-                        break;
+                        var why = verifyExit != 0
+                            ? $"the check did not run (exit {verifyExit})"
+                            : $"the film's audio still asked for {residualShift} ms more (ratio {residualRatio:0.0000})";
+                        _logger.LogWarning(
+                            "Sync job {JobId}: refusing after the wider window ({Why}) — nothing written",
+                            job.Id,
+                            why);
+                        PluginLog.Info(
+                            $"job {job.Id} REFUSED: this subtitle needed {onCeiling.ShiftMs} ms with a "
+                            + $"{config.MaxOffsetSeconds} s window and {wider.ShiftMs} ms with {wideSeconds} s, and {why}; "
+                            + $"nothing written, source untouched, file={video.Path}");
+                        job.Status = SyncJobStatus.Failed;
+                        job.Phase = "Refused";
+                        job.Error = $"refused: this subtitle is further out than the {config.MaxOffsetSeconds} s search "
+                            + $"window ({onCeiling.ShiftMs} ms reached it), the {wideSeconds} s window measured "
+                            + $"{wider.ShiftMs} ms, and that did not hold up against the film's audio: {why}. Nothing "
+                            + "was written.";
+                        job.Progress = 1.0;
+                        job.FinishedAtUtc = DateTime.UtcNow;
+                        job.OutputPath = null;
+                        SafeDelete(tempOutput);
+                        return;
                     }
-
-                    lastWhy = $"the film's audio still asked for {residualShift} ms more (ratio {residualRatio:0.0000})";
-                    if (round == 3)
-                    {
-                        break;
-                    }
-
-                    // Apply what the check asked for on top of the rigid shift, and check again.
-                    totalShift += residualShift;
-                    var next = ShiftSrtBy(engineInput, totalShift, tempDir, job);
-                    if (next is null)
-                    {
-                        lastWhy = "the refined copy of the subtitle could not be written";
-                        break;
-                    }
-
-                    shifted = next;
-                    PluginLog.Info(
-                        $"[{job.Id}] offsets: the check asked for {residualShift} ms more, so the subtitle is shifted "
-                        + $"by {totalShift} ms in total and checked again (round {round + 1})");
                 }
-
-                if (!accepted)
+                else
                 {
+                    string engineTail;
+                    lock (wideErrors)
+                    {
+                        engineTail = wideErrors.Count == 0
+                            ? string.Empty
+                            : " · engine said: " + string.Join(" | ", wideErrors).Trim();
+                    }
+
+                    var detail = wideChange is { } stillClamped
+                        ? $"the {wideSeconds} s window also reached its limit ({stillClamped.ShiftMs} ms)"
+                        : $"the {wideSeconds} s window produced nothing (exit {wideExit}){engineTail}";
                     _logger.LogWarning(
-                        "Sync job {JobId}: refusing after the check ({Why}) — nothing written",
+                        "Sync job {JobId}: refusing after the wider window ({Detail}) — nothing written",
                         job.Id,
-                        lastWhy);
+                        detail);
                     PluginLog.Info(
-                        $"job {job.Id} REFUSED: this subtitle needs {onCeiling.ShiftMs} ms, past the "
-                        + $"{config.MaxOffsetSeconds} s limit, and {lastWhy}; nothing written, source untouched, "
-                        + $"file={video.Path}");
+                        $"job {job.Id} REFUSED: this subtitle is further out than the plugin is searching "
+                        + $"({detail}); raise \"Maximum offset\" and run it again, or sync it by hand. Nothing "
+                        + $"written, source untouched, file={video.Path}");
                     job.Status = SyncJobStatus.Failed;
                     job.Phase = "Refused";
-                    job.Error = $"refused: this subtitle is further out than the {config.MaxOffsetSeconds} s limit "
-                        + $"(the alignment measured {onCeiling.ShiftMs} ms), and shifting it by the measurement did not "
-                        + $"hold up against the film's audio: {lastWhy}. Nothing was written.";
+                    job.Error = $"refused: {detail}. Raise \"Maximum offset\" in the plugin settings (it is the search "
+                        + "window the alignment may look in) and run it again. Nothing was written.";
                     job.Progress = 1.0;
                     job.FinishedAtUtc = DateTime.UtcNow;
                     job.OutputPath = null;

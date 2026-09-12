@@ -64,7 +64,7 @@ public class PluginConfiguration : BasePluginConfiguration
     /// <summary>
     /// Gets or sets the maximum allowed offset in seconds for any subtitle segment.
     /// </summary>
-    public int MaxOffsetSeconds { get; set; } = 60;
+    public int MaxOffsetSeconds { get; set; } = 180;
 
     /// <summary>
     /// Gets or sets how far (in seconds) a subtitle may be moved by an alignment that was taken from
