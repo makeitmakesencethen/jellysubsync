@@ -195,6 +195,21 @@ Evidence, both shapes:
   `DirectoryNotFoundException` in that run's log, and it is gone again after the last consumer
   (`s19-shared-dir.json`).
 
+### F29 — both halves measured, one page-side gap left (2026-09-12)
+
+- **The page asks before it kills** and the wording is what the brief asked for: first press →
+  "Confirm: kill all syncing" plus "Press again to stop every sync on this server — that includes runs other
+  users started. Nothing has been stopped yet."; second press → one `POST /SubSync/Kill`
+  (`tests/gui/f29-confirm3.json`).
+- **The server stops what is running**: with 4 jobs running and four `ffmpeg -i …` readers on the episode,
+  the kill answered `{"queuedCancelled": 2, "runningKilled": 4, "stillRunning": 0, "stillQueued": 0}`, every
+  engine process was gone 5.1 s later and `/SubSync/Active` was empty (`tests/backend/f29-kill.json`).
+- **Open, page-side**: in that browser session the page did not update its own state after the kill — the
+  label stayed on "Confirm: kill all syncing" and the phase line went empty, i.e. the kill handler's success
+  path did not run (its `.catch` would have said "Kill request failed."). Next step: log the kill response in
+  the page (`diag`) and check whether the request is refused for the page's own session — the earlier probes
+  saw one `Error: HTTP 403` from a page call while the same endpoint answers 200 for the harness token.
+
 ## Ask the user before coding these
 
 - **D1** — `POST /SubSync/Kill` is kill-everything; there is no per-job kill, and any authenticated user can call it
