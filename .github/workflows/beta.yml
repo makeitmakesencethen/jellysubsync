@@ -26,6 +26,7 @@ jobs:
           dotnet-version: '10.0.x'
 
       - name: Refuse to republish an already-published beta version
+        id: guard
         shell: bash
         run: |
           set -euo pipefail
@@ -34,14 +35,19 @@ jobs:
           git fetch --depth=1 origin gh-pages >/dev/null 2>&1 || true
           if git show origin/gh-pages:beta/manifest.json >/tmp/published.json 2>/dev/null; then
             if grep -q "\"$V\"" /tmp/published.json; then
-              echo "::error::Version $V is already published in the beta catalog. Jellyfin will not offer it as a download because it looks already-installed. Bump <Version>/<AssemblyVersion>/<FileVersion> in Jellyfin.Plugin.SubSync.csproj first."
-              exit 1
+              # A skip, not a failure. This used to exit 1, which mailed a "run failed" notice for a run that was
+              # doing the right thing (the version in the tree was already published, e.g. after a documentation or
+              # test-only commit). The remaining steps are skipped, so nothing is built or deployed.
+              echo "::warning::Version $V is already published in the beta catalog. Jellyfin will not offer it as a download because it looks already-installed. Bump <Version>/<AssemblyVersion>/<FileVersion> in Jellyfin.Plugin.SubSync.csproj to publish a new build - this run stops here."
+              echo "skip=true" >> "$GITHUB_OUTPUT"
             fi
           fi
 
       - name: Restore
+        if: steps.guard.outputs.skip != 'true'
         run: dotnet restore Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj
       - name: Build
+        if: steps.guard.outputs.skip != 'true'
         run: dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj --configuration Release --no-restore
 
       - name: Build bundled ffsubsync binary (linux-x64)

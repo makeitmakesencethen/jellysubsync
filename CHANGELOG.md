@@ -4,6 +4,24 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.20 (beta)
+
+The offset ceiling is a search window, so it now has room - and the rigid-shift attempt is gone.
+
+A real file syncs when "Maximum offset" is 150 and not when it is 60, and that is the whole story: ffsubsync's
+`--max-offset-seconds` is the range the alignment may look in. With 60 s the engine could not see an answer at ~112 s
+and returned the best *wrong* one it could find (56 s, then 60 s). No plugin logic can repair an answer that is
+outside the searched range.
+
+- **Default raised to 180 s.** It mirrors upstream's 60 s default, which is simply too small for real libraries.
+- **A result that lands on the window is retried once with twice it**, and written only when it is not pinned to the
+  wider window either and one alignment against the film's audio asks for nothing more. If the wider window is pinned
+  too, the job refuses and says to raise the setting.
+- **The rigid-shift path is deleted.** It applied the measured displacement as a pure shift, but when the engine also
+  re-times a subtitle (a framerate correction) that number is the median displacement of a rescaled timeline, and
+  applying it as a shift is wrong by construction. Tried in 2.0.19; wrong on the file it was written for.
+- The setting's description and AGENTS.md now say what the value is: a search range, not a trust limit.
+
 ## 2.0.19 (beta)
 
 A subtitle further out than the offset limit is shifted by the measurement the engine already made, and then checked
