@@ -700,7 +700,7 @@ public static class MkvSubtitleExtractor
                     // is set per read, not once: a big window is right for walking a file and
                     // catastrophic here. Measured on a real server after it leaked: every cue read a
                     // 4 MB window, so 779 cues moved 3.2 GB to collect ~50 KB of text.
-                    reader.WindowSize = IndexedWindowSize;
+                    reader.WindowSize = reader.IndexWindow;
                     if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
                         && track.BlocksFound != blocksBefore)
                     {
@@ -1153,12 +1153,62 @@ public static class MkvSubtitleExtractor
         var fastest = samples[samples.Count / 2];
 
         var window = fastest >= 1.0 ? BlobReader.MaxWindowSize : 4 * 1024;
+
+        // The cue-indexed path reads one small piece per cue, so a file with 800 cues pays 800 reads and
+        // that is the whole cost when a read is a round trip (one measured share spent ~12 s per file in
+        // exactly those reads, carrying 5 MB in total). How much to read at once is then a bandwidth-delay
+        // product: the bytes one round trip can carry. Reading a whole megabyte is only right if the
+        // storage moves a megabyte while the round trip is in flight - otherwise the extra bytes cost more
+        // than the reads saved, which is the failure mode of simply raising the window on slow *throughput*.
+        var largeMs = MeasureLargeRead(reader, out var largeKb);
+        var perRoundTrip = largeMs > 0 && largeKb > 0 ? largeKb / largeMs : 0;
+        // Only storage that charges per round trip gains from reading more at once: a 1 MB read that costs
+        // about what a 16 KB read costs is paying for the trip, not the bytes. Where a big read costs
+        // proportionally more - a local disk, or a share limited by throughput - 4 KB stays right, because
+        // it moves the fewest bytes. That is the 2.0.5 lesson (a walk-sized window leaking into the cue
+        // reads moved 3.2 GB to collect 50 KB of text), and this must not undo it.
+        reader.IndexWindow = largeMs > 0 && largeMs <= fastest * 3
+            ? (int)Math.Clamp((long)(perRoundTrip * fastest), IndexedWindowSize, 1024 * 1024)
+            : IndexedWindowSize;
         PluginLog.Info(
-            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file -> walk window {window / 1024} KB "
+            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file, a {largeKb / 1024:0} KB read in {largeMs:0.0} ms, {perRoundTrip:0.0} KB per round trip -> walk window {window / 1024} KB, cue window {reader.IndexWindow / 1024} KB "
             + (fastest >= 1.0
                 ? "(reads are expensive here, so the file is read in big pieces)"
                 : "(reads are cheap here, so only the block headers are read)"));
         return window;
+    }
+
+    /// <summary>
+    /// How many KB one round trip to the storage carries: a 1 MB read timed end to end, converted with
+    /// the measured round-trip cost. Returns 0 when the file is too small to measure.
+    /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="kb">KB the read returned, for the caller's cost model.</param>
+    /// <returns>Milliseconds the read took, or 0 when the file was too small to measure.</returns>
+    private static double MeasureLargeRead(BlobReader reader, out double kb)
+    {
+        const int ProbeBytes = 1024 * 1024;
+        kb = 0;
+        if (reader.Length < ProbeBytes * 2)
+        {
+            return 0;
+        }
+
+        var buffer = new byte[ProbeBytes];
+        // Somewhere the walk will never read, so this cannot leave the page cache warmer for the work
+        // that follows - the point is to learn the storage, not to help one read along.
+        var offset = (long)((reader.Length - ProbeBytes) * 0.97);
+        var watch = Stopwatch.StartNew();
+        var read = reader.ReadAt(offset, buffer);
+        watch.Stop();
+        if (read <= 0)
+        {
+            return 0;
+        }
+
+        var ms = watch.Elapsed.TotalMilliseconds;
+        kb = read / 1024.0;
+        return ms;
     }
 
     private static void MarkIoBaseline()
@@ -2647,6 +2697,14 @@ public static class MkvSubtitleExtractor
         // costs, not the bytes. Callers that want to read as few bytes as possible (the per-cue path,
         // where the exact block position is known) set WindowSize small instead.
         public const int MaxWindowSize = 4 * 1024 * 1024;
+
+        /// <summary>
+        /// Window for the cue-indexed reads (one small read per cue). Hard-coded at 4 KB it cost one read
+        /// per cue: on storage that answers a read in ~15 ms, a file with 800 cues spent ~12 s waiting for
+        /// reads that carried 5 MB in total. Sized from the storage probe like the scan window, because
+        /// which is cheaper - many small reads or fewer big ones - is a property of the storage.
+        /// </summary>
+        public int IndexWindow { get; set; } = 4 * 1024;
 
         private readonly FileStream _stream;
         private readonly byte[] _window = new byte[MaxWindowSize];

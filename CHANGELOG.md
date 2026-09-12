@@ -4,6 +4,30 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.21 (beta)
+
+Extraction stops paying for one round trip per subtitle cue.
+
+A cue-indexed file reads one small piece per cue, and that window was hard-coded to 4 KB. On a share that
+charges per round trip - the log shows 29,84 ms per 16 KB read - a file with 850 cues spent ~12 s of pure
+waiting on reads that carried 5 MB in total, and a pass over one file measured 21 s while the sync work
+that followed it took 1,5-2 s.
+
+- **The window is now sized from the storage, both halves of it.** The probe already timed a small read;
+  it now also times a 1 MB read, so the window becomes the bytes one round trip can carry (the
+  bandwidth-delay product, clamped to 4 KB … 1 MB). A share that charges ~13 ms per round trip carries a
+  megabyte in one, so its cues come back a few dozen reads at a time instead of one read each; local
+  storage where a read is free stays at 4 KB and reads no more than before.
+- **The probe line says what it measured**, so the choice is visible in the log rather than implied:
+  ms per 16 KB read, KB per round trip, and both chosen windows.
+- **Nothing else about a pass changed**: the multi-track pass keeps its bounded window, the scan window
+  keeps its own rule, and the extracted subtitles are the same bytes.
+
+Worth saying plainly, since it looked like a worker shortage: three extraction lanes were already running
+in the batch that prompted this (the log shows all three starting), and the syncs between them were 1,5-2 s
+each. One job ran at a time because a file's job cannot start until that file's pass finishes - the pass
+was the queue.
+
 ## 2.0.20 (beta)
 
 The offset ceiling is a search window, so it now has room - and the rigid-shift attempt is gone.

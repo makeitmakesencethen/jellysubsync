@@ -431,9 +431,15 @@ foreach (var scenario in mkvScenarios)
     if (scenario.Method == "seekhead-cues")
     {
         // Video payloads are holes in the fixture: a reader that touched block payloads for a
-        // track it does not want would read the whole file here.
-        Check("cue-index extraction stays under 1 MB", mkvStats.BytesRead < 1_000_000,
-            $"{mkvStats.BytesRead / 1e6:0.000} MB in {mkvStats.ReadCalls} reads");
+        // track it does not want would read the whole file here. The 2.0.5 leak moved 3.2 GB to collect
+        // 50 KB of text, and what guards against that is the fraction assertion above. A flat 1 MB
+        // ceiling would forbid what the cue window now does on purpose: where a read is a round trip
+        // (12,9-29,8 ms per 16 KB measured on the storages this was tuned on) the window is sized up so
+        // that 800 cues cost tens of reads instead of 800 - spending bytes to save round trips. The
+        // window is bounded at 1 MB, so a pass cannot read more than the file plus one window.
+        Check("a cue-indexed pass reads no more than the file plus one window",
+            mkvStats.BytesRead < fileMb * 1e6 + 1_100_000,
+            $"{mkvStats.BytesRead / 1e6:0.000} MB in {mkvStats.ReadCalls} reads of a {fileMb:0.0} MB file");
 
         // A cue costs at most two reads: the cluster header that locates the block (the index
         // stores the block's offset relative to the cluster's data) and the block itself. Anything
@@ -1638,10 +1644,20 @@ def run_page_checks():
     # small window, and the shared pass must never use the whole-file window.
     extractor_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                          'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
-    report('a read at a known position sets its own small window',
-           extractor_source.count('WindowSize = IndexedWindowSize') == 1
+    report('a read at a known position sets its own window',
+           extractor_source.count('WindowSize = reader.IndexWindow') == 1
            and 'catastrophic here' in extractor_source,
-           extractor_source.count('WindowSize = IndexedWindowSize'))
+           extractor_source.count('WindowSize = reader.IndexWindow'))
+    # ...and that window is chosen from a measurement, not from one storage's behaviour: the probe times
+    # both a small read (round-trip cost) and a large one (what a round trip carries), and the cue window
+    # is the bytes one round trip can carry. Hard-coded at 4 KB this cost one round trip per cue on a
+    # share that charges per round trip - 784 reads carrying 5,4 MB in a 21 s pass.
+    report('the cue window is sized from the storage probe',
+           'reader.IndexWindow = largeMs > 0 && largeMs <= fastest * 3' in extractor_source
+           and 'Math.Clamp((long)(perRoundTrip * fastest), IndexedWindowSize, 1024 * 1024)' in extractor_source)
+    report('a larger cue window is still served from the window cache, not one read per cue',
+           'TryReadAhead(position, destination)' in extractor_source
+           and extractor_source.count('_windowStart + _windowLength') >= 1)
     report('the shared pass reads a cluster-sized region, never the whole file',
            'Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024)' in extractor_source
            and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
