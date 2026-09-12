@@ -4,6 +4,29 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.16 (beta)
+
+A stretch is tested against the film's own audio, and only when something was stretched.
+
+The spans cannot tell a subtitle timed for another framerate from one taken from a different cut - both show the
+same few percent - so a stretch could be applied to the wrong kind of difference, leaving a subtitle that reads
+correctly for the first minutes and is minutes out by the end (measured: a 4.17% span difference became a 0.960x
+scale with -104 s of drift). The film's audio can tell them apart.
+
+- After the plugin rescaled a subtitle, ffsubsync is pointed at the media file (its audio, default stream) with the
+  **stretched** subtitle as input and rescaling forbidden, so what comes back is the residual rather than a second
+  opinion about the ratio. If little is left (10 s, or 0.5% of the runtime) the stretch holds and the audio-aligned
+  result is written; if a large shift or a second rescale is asked for, the stretch is dropped, the subtitle you have
+  is aligned against the audio with offsets only, and both the log and the outcome say the stretch was dropped.
+- It runs **only when a stretch happened**, so an ordinary offset-only sync is untouched, and only the first
+  stretched subtitle of a file pays for the audio analysis, which is cached per file like every other audio path.
+- Observed on the fixture: `the subtitle was stretched, so the stretch is tested against the film's own audio` then
+  `the audio confirms the stretch (a further 0 ms, no rescale)`, about two seconds.
+
+The limit, stated plainly: this catches a differently cut subtitle whose error is not a uniform scale (an extra
+scene, longer credits, a re-edit), which is the usual shape. A cut that differs by exactly a uniform ~4% is
+numerically the same problem as a PAL mismatch and no cheap measurement separates the two.
+
 ## 2.0.15 (beta)
 
 Framerate correction works on every reference path, and is on by default.

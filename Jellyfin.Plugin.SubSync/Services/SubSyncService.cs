@@ -2946,6 +2946,30 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Whether a stretch holds up against the film's own audio.
+    /// </summary>
+    /// <remarks>
+    /// The audio is the film: a subtitle stretched by the right factor needs almost nothing further to line up with
+    /// the speech, while a stretch applied to a subtitle from a different cut - which looks identical in the spans -
+    /// still needs a large shift, because its error is not a uniform scale. Ten seconds, or half a percent of the
+    /// runtime, is the room left for a genuine difference in intro or outro length.
+    /// </remarks>
+    /// <param name="ratio">Time ratio the audio alignment asked for after the stretch (1.0 = none).</param>
+    /// <param name="shiftMs">Shift the audio alignment asked for after the stretch.</param>
+    /// <param name="videoSeconds">The file's duration.</param>
+    /// <returns>True when the stretch holds.</returns>
+    internal static bool StretchHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)
+    {
+        if (Math.Abs(ratio - 1.0) > 0.005)
+        {
+            return false;
+        }
+
+        var ceiling = Math.Max(10.0, videoSeconds * 0.005);
+        return Math.Abs(shiftMs) <= ceiling * 1000.0;
+    }
+
+    /// <summary>
     /// Whether the subtitle being synced is the one that sits off the file's own timeline.
     /// </summary>
     /// <remarks>
@@ -3373,6 +3397,7 @@ public class SubSyncService : IDisposable
         // against the audio. Such a result is only ever as good as that track, so it is checked
         // before anything is written.
         var usedSubtitleReference = false;
+        var stretchDropped = false;
 
         // Which track became the reference, for both log lines and the outcome text.
         string? referenceSpec = null;
@@ -3865,6 +3890,33 @@ public class SubSyncService : IDisposable
 
             ReleaseSpeechGate(job, videoPath);
 
+            // A stretch is a claim about the whole timeline, and only the film's audio can test it: another
+            // subtitle shows the same few percent whether the subtitle is from a different framerate or from a
+            // different cut. Runs only when something was stretched.
+            if (engineInput != subtitleInputPath)
+            {
+                var (verifiedPath, dropped, verifiedInput) = await VerifyStretchAgainstAudioAsync(
+                    job,
+                    config,
+                    ffsubsyncExe,
+                    videoPath,
+                    engineInput,
+                    subtitleInputPath,
+                    tempDir,
+                    videoDuration.TotalSeconds,
+                    cancellationToken).ConfigureAwait(false);
+                stretchDropped = dropped;
+                if (verifiedPath is not null)
+                {
+                    tempOutput = verifiedPath;
+                    engineInput = verifiedInput;
+                }
+                else if (dropped)
+                {
+                    job.Outcome = "the stretch did not hold against the audio and the offset-only alignment produced nothing";
+                }
+            }
+
             if (!File.Exists(tempOutput) && engineInput != subtitleInputPath && File.Exists(engineInput))
             {
                 // The engine suppressed its write because the subtitle it was handed - the copy the plugin
@@ -4191,7 +4243,12 @@ public class SubSyncService : IDisposable
             if (job.OutputPath is not null)
             {
                 job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
-                if (engineInput != subtitleInputPath)
+                if (stretchDropped)
+                {
+                    job.Outcome = "the stretch did not hold against the film's audio, so the subtitle was aligned with "
+                        + "offsets only" + (string.IsNullOrEmpty(job.Outcome) ? string.Empty : " \u00b7 " + job.Outcome);
+                }
+                else if (engineInput != subtitleInputPath)
                 {
                     // The subtitle the user had and the corrected file are on differently scaled timelines, so
                     // describing the difference between them reports about half the film's drift ("change=+55388 ms")
@@ -5456,6 +5513,111 @@ public class SubSyncService : IDisposable
     /// Runs a process and calls back with each stderr line in real-time.
     /// Used for ffsubsync to parse tqdm progress and phase messages.
     /// </summary>
+    /// <summary>
+    /// Tests a stretch against the film's audio and says what to write.
+    /// </summary>
+    /// <remarks>
+    /// Called only when a stretch happened. If it holds, the engine's own output - the stretched subtitle with that
+    /// small residual applied - is the result, or the stretched copy when the engine suppressed a write it judged
+    /// too small to save. If it does not hold, the subtitle the user has is aligned against the audio with offsets
+    /// only. The caller is told which input that result came from, because the guards downstream compare the result
+    /// with what the engine was given.
+    /// </remarks>
+    /// <param name="job">The job.</param>
+    /// <param name="config">The plugin configuration.</param>
+    /// <param name="ffsubsyncExe">The engine.</param>
+    /// <param name="videoPath">The media file, which supplies the audio.</param>
+    /// <param name="stretchedInput">The rescaled subtitle the alignment used.</param>
+    /// <param name="originalInput">The subtitle the user has.</param>
+    /// <param name="tempDir">The job's temporary directory.</param>
+    /// <param name="videoSeconds">The file's duration.</param>
+    /// <param name="cancellationToken">Cancellation.</param>
+    /// <returns>The path to use as the result, whether the stretch was dropped, and the input that result came from.</returns>
+    private async Task<(string? Path, bool Dropped, string Input)> VerifyStretchAgainstAudioAsync(
+        SyncJob job,
+        Configuration.PluginConfiguration config,
+        string ffsubsyncExe,
+        string videoPath,
+        string stretchedInput,
+        string originalInput,
+        string tempDir,
+        double videoSeconds,
+        CancellationToken cancellationToken)
+    {
+        var verifyOutput = Path.Combine(tempDir, "audio-check.srt");
+        SafeDelete(verifyOutput);
+        var args = new List<string>
+        {
+            videoPath,
+            "-i", stretchedInput,
+            "-o", verifyOutput,
+            "--max-offset-seconds", config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture),
+            "--max-subtitle-seconds", config.MaxSubtitleSeconds.ToString(CultureInfo.InvariantCulture),
+            "--vad", AllowedVadMethods.Contains(config.VadMethod) ? config.VadMethod : "subs_then_webrtc",
+            "--output-encoding", AllowedOutputEncodings.Contains(config.OutputEncoding) ? config.OutputEncoding : "utf-8",
+            "--ffmpeg-path", ResolveFfmpegPath(),
+            "--no-fix-framerate",
+            "--skip-infer-framerate-ratio",
+            "--log-dir-path", tempDir
+        };
+
+        _logger.LogInformation("Sync job {JobId}: testing the stretch against the film's audio", job.Id);
+        PluginLog.Info(
+            $"[{job.Id}] framerate: the subtitle was stretched, so the stretch is tested against the film's own "
+            + "audio (offsets only) \u2014 a differently cut subtitle looks the same as a framerate mismatch in the spans");
+
+        var exitCode = await RunProcessWithStderrCallbackAsync(
+            ffsubsyncExe, args, tempDir, null, cancellationToken).ConfigureAwait(false);
+        if (exitCode != 0)
+        {
+            _logger.LogWarning(
+                "Sync job {JobId}: the audio check could not run (exit {Code}) - keeping the stretched result",
+                job.Id,
+                exitCode);
+            PluginLog.Info($"[{job.Id}] framerate: the audio check could not run (exit={exitCode}) - keeping the stretched result");
+            return (stretchedInput, false, stretchedInput);
+        }
+
+        var measured = File.Exists(verifyOutput) ? MeasureSyncChange(stretchedInput, verifyOutput) : null;
+        var ratio = measured?.Ratio ?? 1.0;
+        var shiftMs = measured?.ShiftMs ?? 0;
+        if (StretchHoldsAgainstAudio(ratio, shiftMs, videoSeconds))
+        {
+            _logger.LogInformation(
+                "Sync job {JobId}: the stretch holds - the audio asked for {Shift} ms more and no rescale",
+                job.Id,
+                shiftMs);
+            PluginLog.Info(
+                $"[{job.Id}] framerate: the audio confirms the stretch (a further {shiftMs} ms, no rescale)");
+            return File.Exists(verifyOutput) ? (verifyOutput, false, stretchedInput) : (stretchedInput, false, stretchedInput);
+        }
+
+        // The stretch does not hold: align the subtitle the user has against the audio, offsets only.
+        var fallbackOutput = Path.Combine(tempDir, "audio-fallback.srt");
+        SafeDelete(fallbackOutput);
+        var fallbackArgs = new List<string>(args);
+        fallbackArgs[fallbackArgs.IndexOf("-i") + 1] = originalInput;
+        fallbackArgs[fallbackArgs.IndexOf("-o") + 1] = fallbackOutput;
+
+        _logger.LogWarning(
+            "Sync job {JobId}: the stretch does not hold against the audio ({Ratio:0.0000}x, {Shift} ms) - aligning with offsets only",
+            job.Id,
+            ratio,
+            shiftMs);
+        PluginLog.Info(
+            $"[{job.Id}] framerate: the stretch does NOT hold against the audio ({ratio:0.0000}x, {shiftMs} ms) "
+            + "\u2014 a different cut looks the same in the spans, so the subtitle is aligned with offsets only");
+
+        var fallbackExit = await RunProcessWithStderrCallbackAsync(
+            ffsubsyncExe, fallbackArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
+        if (fallbackExit == 0 && File.Exists(fallbackOutput))
+        {
+            return (fallbackOutput, true, originalInput);
+        }
+
+        return (null, true, originalInput);
+    }
+
     private async Task<int> RunProcessWithStderrCallbackAsync(
         string executable, IReadOnlyList<string> arguments, string? workingDir,
         Action<string>? onStderrLine, CancellationToken cancellationToken)
