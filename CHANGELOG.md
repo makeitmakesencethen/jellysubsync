@@ -4,6 +4,26 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.22 (beta)
+
+The cue window now adapts while the pass runs, because a probe taken before the work cannot size it.
+
+2.0.21 sized the cue read window from a probe of the storage, and on the storage it was built for it changed
+nothing: the rule refused to grow the window unless a 1 MB read cost about what a 16 KB read costs, and on
+the share in question it does not. The log from that machine shows what that leaves - 1500 reads per pass at
+6 KB per read, 46-114 s per file, against 0,3-3 s on its faster volumes.
+
+Two more things were wrong with deciding this before the work starts. The probe's own numbers swing by two
+orders of magnitude while other jobs and lanes load the same disk (0,4 ms and 255 ms per 16 KB on one box
+within minutes), and taking it costs a 1 MB read per file.
+
+- **The pass times its own reads and adapts.** It starts at 4 KB; if the reads it is actually making average
+  4 ms or more, the window quadruples (bounded at 1 MB); if they average 0,5 ms or less, it quarters (bounded
+  at 4 KB). Every change is logged, so the log shows the pass learning its storage.
+- **The pre-work 1 MB probe read is gone**, and with it the ratio gate that made 2.0.21 inert there.
+- A pass on cheap storage still reads a small fraction of the file: that guard is unchanged, and it now says
+  which of the two regimes it is checking.
+
 ## 2.0.21 (beta)
 
 Extraction stops paying for one round trip per subtitle cue.

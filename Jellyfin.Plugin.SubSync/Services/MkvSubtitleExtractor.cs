@@ -1160,55 +1160,17 @@ public static class MkvSubtitleExtractor
         // product: the bytes one round trip can carry. Reading a whole megabyte is only right if the
         // storage moves a megabyte while the round trip is in flight - otherwise the extra bytes cost more
         // than the reads saved, which is the failure mode of simply raising the window on slow *throughput*.
-        var largeMs = MeasureLargeRead(reader, out var largeKb);
-        var perRoundTrip = largeMs > 0 && largeKb > 0 ? largeKb / largeMs : 0;
-        // Only storage that charges per round trip gains from reading more at once: a 1 MB read that costs
-        // about what a 16 KB read costs is paying for the trip, not the bytes. Where a big read costs
-        // proportionally more - a local disk, or a share limited by throughput - 4 KB stays right, because
-        // it moves the fewest bytes. That is the 2.0.5 lesson (a walk-sized window leaking into the cue
-        // reads moved 3.2 GB to collect 50 KB of text), and this must not undo it.
-        reader.IndexWindow = largeMs > 0 && largeMs <= fastest * 3
-            ? (int)Math.Clamp((long)(perRoundTrip * fastest), IndexedWindowSize, 1024 * 1024)
-            : IndexedWindowSize;
+        // The cue window is not decided here. A probe taken before the work is useless for it: on one box
+        // the same probe reported 0,4 ms and 255 ms per 16 KB within minutes, because other jobs were
+        // loading the same disk. It starts at 4 KB - cheap storage keeps it, and the pass grows it if the
+        // reads turn out to cost round trips (see BlobReader.NoteReadCost).
+        reader.IndexWindow = IndexedWindowSize;
         PluginLog.Info(
-            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file, a {largeKb / 1024:0} KB read in {largeMs:0.0} ms, {perRoundTrip:0.0} KB per round trip -> walk window {window / 1024} KB, cue window {reader.IndexWindow / 1024} KB "
+            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file -> walk window {window / 1024} KB, cue window starts at {reader.IndexWindow / 1024} KB "
             + (fastest >= 1.0
                 ? "(reads are expensive here, so the file is read in big pieces)"
                 : "(reads are cheap here, so only the block headers are read)"));
         return window;
-    }
-
-    /// <summary>
-    /// How many KB one round trip to the storage carries: a 1 MB read timed end to end, converted with
-    /// the measured round-trip cost. Returns 0 when the file is too small to measure.
-    /// </summary>
-    /// <param name="reader">File reader.</param>
-    /// <param name="kb">KB the read returned, for the caller's cost model.</param>
-    /// <returns>Milliseconds the read took, or 0 when the file was too small to measure.</returns>
-    private static double MeasureLargeRead(BlobReader reader, out double kb)
-    {
-        const int ProbeBytes = 1024 * 1024;
-        kb = 0;
-        if (reader.Length < ProbeBytes * 2)
-        {
-            return 0;
-        }
-
-        var buffer = new byte[ProbeBytes];
-        // Somewhere the walk will never read, so this cannot leave the page cache warmer for the work
-        // that follows - the point is to learn the storage, not to help one read along.
-        var offset = (long)((reader.Length - ProbeBytes) * 0.97);
-        var watch = Stopwatch.StartNew();
-        var read = reader.ReadAt(offset, buffer);
-        watch.Stop();
-        if (read <= 0)
-        {
-            return 0;
-        }
-
-        var ms = watch.Elapsed.TotalMilliseconds;
-        kb = read / 1024.0;
-        return ms;
     }
 
     private static void MarkIoBaseline()
@@ -2706,6 +2668,57 @@ public static class MkvSubtitleExtractor
         /// </summary>
         public int IndexWindow { get; set; } = 4 * 1024;
 
+        /// <summary>Smallest and largest cue read window.</summary>
+        private const int MinIndexWindow = 4 * 1024;
+        private const int MaxIndexWindow = 1024 * 1024;
+
+        private double _timedMs;
+        private int _timedReads;
+
+        /// <summary>
+        /// Adjusts the cue window from what the reads actually cost, rather than from a probe taken before
+        /// the work started. While several jobs and lanes run, that probe swings by two orders of
+        /// magnitude on the same machine - it reported 0,4 ms and 255 ms per 16 KB on one box - so a
+        /// measurement taken first was wrong about half the time in both directions. Eight reads at 4 ms
+        /// are 32 KB moved for a third of a second of waiting: that is when a bigger window pays.
+        /// </summary>
+        /// <param name="ms">Milliseconds the read took.</param>
+        private void NoteReadCost(double ms)
+        {
+            if (WindowSize != IndexWindow)
+            {
+                // Only the cue-indexed phase sizes its window from IndexWindow; the walk and the shared
+                // pass set their own, and their reads say nothing about this decision.
+                return;
+            }
+
+            _timedMs += ms;
+            _timedReads++;
+            if (_timedReads < 8)
+            {
+                return;
+            }
+
+            var average = _timedMs / _timedReads;
+            _timedMs = 0;
+            _timedReads = 0;
+            if (average >= 4.0 && IndexWindow < MaxIndexWindow)
+            {
+                var was = IndexWindow;
+                IndexWindow = Math.Min(IndexWindow * 4, MaxIndexWindow);
+                PluginLog.Info($"extract: cue window {was / 1024} KB -> {IndexWindow / 1024} KB (reads are taking {average:0.0} ms each)");
+            }
+            else if (average <= 0.5 && IndexWindow > MinIndexWindow)
+            {
+                var was = IndexWindow;
+                IndexWindow = Math.Max(IndexWindow / 4, MinIndexWindow);
+                PluginLog.Info($"extract: cue window {was / 1024} KB -> {IndexWindow / 1024} KB (reads are taking {average:0.00} ms each)");
+            }
+
+            // The phase re-reads IndexWindow per cue, so a change here is in effect from the next cue.
+            WindowSize = IndexWindow;
+        }
+
         private readonly FileStream _stream;
         private readonly byte[] _window = new byte[MaxWindowSize];
         private long _windowStart = -1;
@@ -2947,6 +2960,7 @@ public static class MkvSubtitleExtractor
             }
 
             _stream.Position = position;
+            var watch = Stopwatch.StartNew();
             var read = 0;
             while (read < destination.Length)
             {
@@ -2959,8 +2973,10 @@ public static class MkvSubtitleExtractor
                 read += got;
             }
 
+            watch.Stop();
             BytesRead += read;
             ReadCalls++;
+            NoteReadCost(watch.Elapsed.TotalMilliseconds);
             return read;
         }
 
