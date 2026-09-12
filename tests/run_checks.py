@@ -1283,6 +1283,9 @@ def run_page_checks():
            and 'URL.createObjectURL(new Blob([src]' in pages['subsync.js'])
     report('the page script does nothing when it is loaded a second time',
            'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
+    report('the cancel control works for a run the page did not start',
+           'var target = watchedBatchId || mirroredBatchId;' in pages['subsyncMain.html']
+           and "api('SubSync/Batch/' + target + '/Cancel'" in pages['subsyncMain.html'])
     report('a refusal is reported as a refusal, not as a failure',
            'private static string StatusOf(SyncJob job)' in controller_source
            and 'StatusOf(j),' in controller_source

@@ -1861,7 +1861,7 @@
             $('ss-phase').textContent = 'Cancelled \u2014 nothing is running any more.';
             setCancelButton('Cancel', false);
             logLine('Cancel: everything stopped (' + queued + ' queued task(s) dropped).');
-            if (watchedBatchId) refreshHistory();
+            if (watchedBatchId || mirroredBatchId) refreshHistory();
         }).catch(function () {
             setCancelButton('Kill all syncing', true);
         });
@@ -1874,12 +1874,16 @@
             return;
         }
 
-        if (!watchedBatchId) return;
+        // The page also shows runs it did not start (the mirror). The Cancel button is visible in that state,
+        // and pressing it used to do nothing at all — no request, no line, no explanation, which reads as a
+        // broken button. The batch the mirror is following is cancelled by its id instead.
+        var target = watchedBatchId || mirroredBatchId;
+        if (!target) return;
         if (el) el.disabled = true;
         $('ss-run-label').textContent = 'Cancelling queued tasks\u2026';
         $('ss-phase').textContent = 'Dropping tasks that have not started yet\u2026';
         logLine('Cancel requested \u2014 dropping queued tasks of this run.');
-        api('SubSync/Batch/' + watchedBatchId + '/Cancel', { method: 'POST' }).then(function () {
+        api('SubSync/Batch/' + target + '/Cancel', { method: 'POST' }).then(function () {
             // Give the server a moment to reflect the running job's state.
             setTimeout(reportStillRunning, 700);
         }).catch(function (e) {
