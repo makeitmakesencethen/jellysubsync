@@ -1,0 +1,38 @@
+{
+  "item": "1c0799b1407a2e7714b9e6e0bffbd6e2",
+  "tasks": 6,
+  "batch_id": "2882768c03f14d8aa25bd7ef4fef1a9c",
+  "running_when_killed": 4,
+  "kill_status": 200,
+  "kill_response": {
+    "queuedCancelled": 2,
+    "runningKilled": 4,
+    "stillRunning": 0,
+    "stillQueued": 0
+  },
+  "engines_before": [],
+  "engines_while_running": [
+    [
+      "147145",
+      "ffmpeg -i /opt/data/jf12test/media-slow/Helikopterr\u00e5net S01E01.mkv"
+    ],
+    [
+      "147147",
+      "ffmpeg -i /opt/data/jf12test/media-slow/Helikopterr\u00e5net S01E01.mkv"
+    ],
+    [
+      "147148",
+      "ffmpeg -i /opt/data/jf12test/media-slow/Helikopterr\u00e5net S01E01.mkv"
+    ],
+    [
+      "147149",
+      "ffmpeg -i /opt/data/jf12test/media-slow/Helikopterr\u00e5net S01E01.mkv"
+    ]
+  ],
+  "engines_gone_after_s": 5.1,
+  "active_after": {
+    "running": 0,
+    "queued": 0
+  },
+  "page_half": "tests/gui/f29-confirm3.json (first press asks, second press kills)"
+}
