@@ -97,7 +97,10 @@ const readButton = (page) => page.evaluate(() => {
       await wait(1000);
       const active = await (await fetch(BASE + '/SubSync/Active', { headers: { Authorization: auth } })).json();
       runningSeen = (active.running || []).length;
-      if (runningSeen > 0) { say('a task is running after ' + i + ' s'); break; }
+      // Two running, not one, and a moment into their run: the page only shows the global kill when a cancel
+      // cannot stop what is left, so the press has to happen while a job is genuinely mid-flight (the last two
+      // attempts pressed when nothing or almost nothing was running and never reached the state).
+      if (runningSeen >= 2) { say('two tasks running after ' + i + ' s'); await wait(15000); break; }
       if (i % 15 === 0) { say('waiting for a task to start (' + i + ' s, running=' + runningSeen + ')'); }
     }
     say('queued: ' + JSON.stringify(queued));
@@ -111,6 +114,7 @@ const readButton = (page) => page.evaluate(() => {
       await wait(800);
       const b = await readButton(page);
       if (b.kill === true) { reachedKill = b; break; }
+      if (i % 5 === 4) { say('waiting for the global kill state (' + ((i + 1) * 0.8).toFixed(1) + ' s): ' + JSON.stringify(b).slice(0, 120)); }
     }
     results.steps.push({ step: 'after the cancel', button: reachedKill || (await readButton(page)) });
   }

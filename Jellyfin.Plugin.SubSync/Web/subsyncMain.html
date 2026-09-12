@@ -95,6 +95,10 @@
             .ss-diag.err { color: #ff6b6b; background: rgba(255,80,80,.08); }
             .ss-hidden { display: none; }
             .ss-muted { opacity: .7; }
+            /* The same spinner the sync dialog in the item menu uses, so a run that is working looks the same
+               wherever it is shown. */
+            .ss-spinner { width: 12px; height: 12px; border: 2px solid #444; border-top-color: #3d7bd6; border-radius: 50%; display: inline-block; animation: ss-spin .8s linear infinite; vertical-align: -1px; }
+            @keyframes ss-spin { to { transform: rotate(360deg); } }
             @media (max-width: 760px) { .ss-layout { flex-direction: column; } .ss-nav { flex: none; width: 100%; flex-direction: row; flex-wrap: wrap; position: static; } .ss-nav-brand, .ss-nav-sep { display: none; } }
         </style>
 
@@ -125,7 +129,7 @@
                     <div class="ss-main">
                         <div id="ss-runbox" class="ss-hidden" style="margin:0 0 14px;background:rgba(255,255,255,.03);border-radius:8px;padding:10px 12px;">
                             <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
-                                <div id="ss-run-label" class="ss-muted"></div>
+                                <div class="ss-muted"><span id="ss-spinner" class="ss-spinner ss-hidden"></span> <span id="ss-run-label"></span></div>
                                 <button is="emby-button" type="button" id="ss-cancel" class="raised emby-button ss-hidden"><span>Cancel</span></button>
                             </div>
                             <div class="ss-progress-wrap"><div class="ss-progress-bar" id="ss-progress"></div></div>

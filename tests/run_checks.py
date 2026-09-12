@@ -1346,6 +1346,21 @@ def run_page_checks():
            and 'could not start: ' in pages['subsyncMain.html']
            and "'catch'](initFailed)" in pages['subsyncMain.html'] or
            ".then(init)['catch'](initFailed)" in pages['subsyncMain.html'])
+    # A queued run used to say "waiting to start", which is not an answer: on network storage the wait is the
+    # file's extraction pass, and the job knows that (it is the planner's own predicate).
+    report('a queued run says why it is waiting, and shows the plugin\'s own spinner',
+           'function queuedReason(view, elsewhereBusy)' in pages['subsyncMain.js']
+           and 'waiting to start' not in pages['subsyncMain.js']
+           and 'runSpinner(true);' in pages['subsyncMain.js']
+           and 'runSpinner(false);' in pages['subsyncMain.js']
+           and 'starting as soon as a worker is free' in pages['subsyncMain.js']
+           and '.ss-spinner { width: 12px; height: 12px' in pages['subsyncMain.html']
+           and 'id="ss-spinner"' in pages['subsyncMain.html'])
+    report('the queued job carries the reason the interface shows',
+           'private string QueuedReason(SyncJob job, int running, int limit)' in service_source
+           and 'Reading subtitles from the video' in service_source
+           and 'Waiting for a free worker ({running} of {limit} busy)' in service_source
+           and 'waiting.Phase = QueuedReason(waiting, running, limit);' in service_source)
     report('the page reads and writes settings through the plugin, not the web client',
            "api('SubSync/Configuration')" in pages['subsyncMain.html']
            and 'getPluginConfiguration' not in pages['subsyncMain.html']

@@ -1434,6 +1434,33 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Why a queued job has not started, in words the interface can show.
+    /// </summary>
+    /// <param name="job">The queued job.</param>
+    /// <param name="running">Jobs running right now.</param>
+    /// <param name="limit">Worker slots in force.</param>
+    /// <returns>The reason.</returns>
+    private string QueuedReason(SyncJob job, int running, int limit)
+    {
+        if (!_jobContexts.TryGetValue(job.Id, out var context))
+        {
+            return "Queued";
+        }
+
+        var path = context.Video?.Path ?? string.Empty;
+        if (!context.Stream.IsExternal && path.Length > 0 && !ExtractionReady(job))
+        {
+            return _passInFlight.ContainsKey(path)
+                ? "Reading subtitles from the video \u2014 this one starts as soon as its track is out"
+                : "Waiting for this file's subtitles to be read";
+        }
+
+        return running >= limit
+            ? $"Waiting for a free worker ({running} of {limit} busy)"
+            : "Starting\u2026";
+    }
+
+    /// <summary>
     /// Releases a job's hold on its file's audio analysis, if it has one.
     /// </summary>
     /// <param name="job">The job that may be holding it.</param>
@@ -2417,6 +2444,18 @@ public class SubSyncService : IDisposable
                 if (!stillNeededForIt && finishedVideo is not null)
                 {
                     _referenceGates.TryRemove(finishedVideo, out _);
+                }
+            }
+
+            // Every job that is still waiting says *why*, in the interface. "waiting to start" told the user
+            // nothing, and on network storage the wait they were looking at was the file's extraction pass
+            // (measured: 46-96 s before the first job of a file can start). The planner already knows both
+            // reasons, so it hands them to the job's phase.
+            foreach (var waiting in _runOrder)
+            {
+                if (waiting.Status == SyncJobStatus.Queued)
+                {
+                    waiting.Phase = QueuedReason(waiting, running, limit);
                 }
             }
 

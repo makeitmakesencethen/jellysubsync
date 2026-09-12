@@ -1576,6 +1576,7 @@
                     bits.push(failed + ' failed');
                 }
                 $('ss-run-label').textContent = bits.join(' \u00b7 ');
+                runSpinner(true);
 
                 if (current) {
                     var phase = current.Phase || current.phase || '';
@@ -1587,14 +1588,14 @@
                     $('ss-progress').style.width = Math.round(Math.min(overall, 1) * 100) + '%';
                 } else if (status === 'Queued') {
                     var elsewhereBusy = (lastActive.running || []).length;
-                    $('ss-phase').textContent = elsewhereBusy
-                        ? elsewhereBusy + ' subtitle' + (elsewhereBusy === 1 ? '' : 's') + ' running from an earlier run'
-                        : 'waiting to start';
+                    $('ss-phase').textContent = queuedReason(view, elsewhereBusy);
+                    runSpinner(true);
                     $('ss-progress').style.width = Math.round((total ? pos / total : 0) * 100) + '%';
                 } else {
                     $('ss-run-label').textContent = 'Finished: ' + ok + '/' + total + ' succeeded.';
                     $('ss-phase').textContent = '';
                     $('ss-progress').style.width = '100%';
+                    runSpinner(false);
                 }
 
                 var terminal = status === 'Completed' || status === 'Failed' || status === 'Partial' || status === 'Cancelled';
@@ -1646,8 +1647,9 @@
         if (failed > 0) bits.push(failed + ' failed');
         $('ss-run-label').textContent = bits.join(' \u00b7 ');
         $('ss-phase').textContent = runningTasks.length === 0
-            ? ((view.Status || view.status) === 'Queued' ? 'waiting to start' : 'starting\u2026')
+            ? ((view.Status || view.status) === 'Queued' ? queuedReason(view, 0) : 'starting\u2026')
             : '';
+        runSpinner((view.Status || view.status) === 'Queued' || runningTasks.length > 0);
         $('ss-progress').style.width = Math.round((total ? pos / total : 0) * 100) + '%';
         renderWorkerRows(view);
 
@@ -1668,6 +1670,7 @@
     }
 
     function showIdlePanel() {
+        runSpinner(false);
         var active = (lastActive.running || []);
         if (active.length > 0) {
             return; // workers are busy elsewhere: keep showing them
@@ -1728,6 +1731,7 @@
         $('ss-log').textContent = '';
         $('ss-progress').style.width = '0%';
         $('ss-run-label').textContent = 'Attaching to run\u2026';
+        runSpinner(true);
         var taskLines = {};
         pollBatchView(batchId, taskLines);
     }
@@ -1862,6 +1866,28 @@
     // Cancel drops queued work. Cancelling cannot interrupt a running ffsubsync,
     // so if processes are still alive the button turns into Kill, which terminates
     // them (SubSync/Kill) — with live feedback either way.
+    // A run that is queued or running shows the same small spinner as the item dialog: the page can look
+    // idle for a long time before the first subtitle of a file is out, and a still page reads as a stall.
+    // Why a queued run has not started, straight from the server: it sets a phase on every queued job
+    // ("Reading subtitles from the video - this one starts as soon as its track is out", "Waiting for a free
+    // worker (3 of 4 busy)"), which is the answer the old vague wording never gave.
+    function queuedReason(view, elsewhereBusy) {
+        var tasks = (view && (view.Tasks || view.tasks)) || [];
+        for (var i = 0; i < tasks.length; i++) {
+            var st = tasks[i].Status || tasks[i].status;
+            if (st === 'Queued' && tasks[i].Phase) { return tasks[i].Phase; }
+        }
+        if (elsewhereBusy > 0) {
+            return elsewhereBusy + ' subtitle' + (elsewhereBusy === 1 ? '' : 's') + ' running from an earlier run';
+        }
+        return 'Queued \u2014 starting as soon as a worker is free';
+    }
+
+    function runSpinner(on) {
+        var el = document.getElementById('ss-spinner');
+        if (el) { el.classList.toggle('ss-hidden', !on); }
+    }
+
     function setCancelButton(label, isKill) {
         var el = $('ss-cancel');
         if (!el) return;

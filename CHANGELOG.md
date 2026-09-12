@@ -4,6 +4,21 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.13 (beta)
+
+The run indicator, and a queue that says what it is waiting for.
+
+- **A queued run says why it is waiting.** "waiting to start" was not an answer - on network storage the wait
+  is the file's subtitle extraction (46-96 s before the first job of a file can start), and the planner knows
+  both reasons. The interface now shows the reason the job itself carries:
+  * `Reading subtitles from the video - this one starts as soon as its track is out` while the file is being
+    read;
+  * `Waiting for a free worker (3 of 4 busy)` when the subtitle is ready and the slots are full;
+  * `Queued - starting as soon as a worker is free` when the server has not said more.
+- **The page shows that it is working**, not just that it is waiting: the same small spinner the sync dialog
+  in the item menu uses (12 px ring, .8 s) runs next to the run line while a run is queued or working, and
+  stops when the run finishes. A page that looks idle for a minute reads as a stall.
+
 ## 2.0.12 (beta)
 
 Makes a bulk run start instead of stalling, measured on your server.
