@@ -116,9 +116,9 @@ def main():
                          "pass": ok}
     RESULT.write_text(json.dumps(result, indent=2), encoding="utf-8")
 
-    print("status=%s retry logged=%s recheck logged=%s refused=%s written=%s median offset vs reference=%s s"
+    print("status=%s retry logged=%s recheck logged=%s refused=%s written=%s applied shift=%s s (beyond the limit: %s)"
           % (run.get("status"), run.get("retry_logged"), run.get("recheck_logged"), run.get("refused"),
-             run.get("written"), offset))
+             run.get("written"), applied, run.get("applied_beyond_the_limit")))
     for l in run.get("log", [])[:12]:
         print("  |", l[:180])
     print("\nwrote", RESULT)
