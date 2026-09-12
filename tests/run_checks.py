@@ -1280,6 +1280,12 @@ def run_page_checks():
            and 'function attachPluginPageScript()' in pages['subsync.js'])
     report('the page script does nothing when it is loaded a second time',
            'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
+    report('a refusal is reported as a refusal, not as a failure',
+           'private static string StatusOf(SyncJob job)' in controller_source
+           and 'StatusOf(j),' in controller_source
+           and 'job.Phase = "Refused";' in open(
+               os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SubSyncService.cs'),
+               encoding='utf-8').read())
     report('a page that fails to start says so instead of showing a dead surface',
            'function initFailed(ex)' in pages['subsyncMain.html']
            and 'could not start: ' in pages['subsyncMain.html']

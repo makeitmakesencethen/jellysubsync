@@ -277,7 +277,7 @@ public class SubSyncController : ControllerBase
                     BatchIndex = j.BatchIndex,
                     ItemId = j.ItemId,
                     Title = j.Label,
-                    Status = j.Status.ToString(),
+                    Status = StatusOf(j),
                     Progress = j.Progress,
                     Phase = j.Phase,
                     Error = j.Error,
@@ -291,7 +291,7 @@ public class SubSyncController : ControllerBase
                 BatchIndex = current.BatchIndex,
                 ItemId = current.ItemId,
                 Title = current.Label,
-                Status = current.Status.ToString(),
+                Status = StatusOf(current),
                 Progress = current.Progress,
                 Phase = current.Phase,
                 Error = current.Error,
@@ -304,7 +304,7 @@ public class SubSyncController : ControllerBase
                 BatchIndex = j.BatchIndex,
                 ItemId = j.ItemId,
                 Title = j.Label,
-                Status = j.Status.ToString(),
+                Status = StatusOf(j),
                 Progress = j.Progress,
                 Phase = j.Phase,
                 Error = j.Error,
@@ -537,6 +537,23 @@ public class SubSyncController : ControllerBase
         Plugin.Instance!.UpdateConfiguration(wanted);
         return Ok(Plugin.Instance.Configuration);
     }
+
+    /// <summary>
+    /// The outcome of a job as the API reports it.
+    /// </summary>
+    /// <remarks>
+    /// A refusal is not a failure: the plugin decided, on purpose, that it will not write what it
+    /// measured (a reference taken from another cut, or a rescaled result). Both used to be reported as
+    /// <c>Failed</c>, so a bulk run of 100 tracks read as "2 failed" when nothing had gone wrong — and
+    /// the plan's acceptance criterion is "zero failures". The job's phase already says "Refused", so the
+    /// status says it too, and a caller can tell the two apart.
+    /// </remarks>
+    /// <param name="job">The job to describe.</param>
+    /// <returns>The status name.</returns>
+    private static string StatusOf(SyncJob job)
+        => (job.Status == SyncJobStatus.Failed && string.Equals(job.Phase, "Refused", StringComparison.Ordinal))
+            ? "Refused"
+            : job.Status.ToString();
 
     private static readonly JsonSerializerOptions CaseInsensitiveJson =
         new JsonSerializerOptions { PropertyNameCaseInsensitive = true };

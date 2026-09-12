@@ -145,6 +145,10 @@ def main():
     for t in tasks_out:
         by_status[t.get("Status")] = by_status.get(t.get("Status"), 0) + 1
 
+    # A refusal is the plugin deciding not to write what it measured; it is counted apart from a failure,
+    # because "2 failed" in a 100-track run is a different claim from "2 refused" (see StatusOf in the
+    # controller: the status carries the phase, so a caller does not have to guess).
+
     failures = [{"index": t.get("SubtitleIndex"), "status": t.get("Status"),
                  "error": (t.get("Error") or "")[:300], "outcome": (t.get("Outcome") or "")[:200]}
                 for t in tasks_out if t.get("Status") == "Failed"]
@@ -186,6 +190,7 @@ def main():
         "statuses": by_status,
         "completed": by_status.get("Completed", 0),
         "failed": by_status.get("Failed", 0),
+        "refused": by_status.get("Refused", 0),
         "wall_s": round(wall, 1),
         "wall_per_task_s": round(wall / max(1, len(tasks)), 2),
         "failures": failures[:12],

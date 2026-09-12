@@ -1,0 +1,72 @@
+{
+  "label": "A7-handpick",
+  "episodes": [
+    {
+      "item": "09ec2bcb5fe2907ba657aff310c07b9e",
+      "tracks": [
+        7,
+        10,
+        13,
+        16,
+        19,
+        22,
+        25,
+        28
+      ]
+    },
+    {
+      "item": "1cc6d368b4bedff44f247e42a3ab3730",
+      "tracks": [
+        8,
+        11,
+        14,
+        17,
+        20,
+        23,
+        26,
+        29
+      ]
+    }
+  ],
+  "tasks": 16,
+  "batch_id": "ece9f48065c2454fbed345b5a94118a8",
+  "wall_s": 7.4,
+  "wall_per_task": 0.46,
+  "statuses": {
+    "Failed": 2,
+    "Completed": 14
+  },
+  "completed": 14,
+  "failed": 2,
+  "refused": 0,
+  "empty_outputs": [],
+  "notes": [
+    [
+      "Completed",
+      ""
+    ],
+    [
+      "Completed",
+      ""
+    ],
+    [
+      "Completed",
+      ""
+    ],
+    [
+      "Completed",
+      ""
+    ],
+    [
+      "Completed",
+      ""
+    ],
+    [
+      "Completed",
+      ""
+    ]
+  ],
+  "workers": 4,
+  "workers_before": 4,
+  "cache": "cleared"
+}
