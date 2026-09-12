@@ -4,6 +4,26 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.19 (beta)
+
+A subtitle further out than the offset limit is shifted by the measurement the engine already made, and then checked
+against the film's audio. The widened search is gone.
+
+2.0.18 enlarged the search window to 300 s to reach a subtitle two minutes out. On a real file that was wrong: with
+the wider window the engine locked onto a **different** part of the audio (56 s where the first pass had measured
+94 s), so the subtitle it wrote was wrong from the first line - and the check it was paired with re-ran the *same*
+configuration, so it agreed with itself and could not object. A wider window invites a wrong lock; that is the lesson
+this release is built on.
+
+- The shift the first pass measured is now applied **rigidly** - pure timestamp arithmetic, nothing to lock onto -
+  and that shifted subtitle is aligned against the film's audio with the **normal** allowance. A correct shift leaves
+  almost nothing, and the engine's own output is the result; a wrong shift leaves a large residual, and the job
+  **refuses and writes nothing** instead of handing over a confidently wrong subtitle.
+- `--max-offset-seconds` is never enlarged, which also removes the 300 s value that made one of the retries exit 1.
+- Order fixed: the subtitle-reference ceiling (the bad-ruler check) now runs **before** the offset work. In the
+  user's log the retry ran first and aligned against a ruler already known to be from a different cut.
+- A failed alignment run now reports what the engine said (its last lines), not just the exit code.
+
 ## 2.0.18 (beta)
 
 A subtitle further out than the offset limit gets one wide retry, checked against the audio again.

@@ -1547,13 +1547,21 @@ def run_page_checks():
            and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service
            and 'worth checking, a shift this size' in service
            and 'refusing a reference-derived shift' not in service)
-    report('a result at the offset ceiling gets one wide retry, checked against the audio again',
-           'Math.Max(config.MaxOffsetSeconds * 4, 300)' in service
-           and 'wide-allowance.srt' in service
-           and 'wide-verify.srt' in service
-           and 'retrying this subtitle with a {wideSeconds} s' in service
+    report('a result at the offset ceiling shifts rigidly, refines against the audio, and checks every round',
+           'private string? ShiftSrtBy(string inputPath, long shiftMs, string tempDir, SyncJob job)' in service
+           and 'shifted-input.srt' in service
+           and 'shifted-verify.srt' in service
+           and "the engine's search is not widened: a wider window is how a wrong lock gets in" in service
+           and 'for (var round = 1; round <= 3 && !accepted; round++)' in service
+           and 'the check asked for {residualShift} ms more, so the subtitle is shifted ' in service
+           and 'holds against the film\'s audio' in service
+           and 'shifting it by the measurement did not ' in service
            and 'AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds)' in service
-           and 'the alignment is not stable' in service
+           # a reference that has already been released: the check falls back to the film itself
+           and 'the stored speech reference was no longer readable' in service
+           # the widened search is gone: it locked onto the wrong part of the audio on the user's file
+           and 'wide-allowance.srt' not in service
+           and 'Math.Max(config.MaxOffsetSeconds * 4, 300)' not in service
            and 'so the engine was clamped - the file is still written' not in service
            and 'wideAllowanceApplied' in service)
     # The setting AGENTS.md documents. An earlier session removed it as a "leftover" and pinned its

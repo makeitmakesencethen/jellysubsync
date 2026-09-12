@@ -1,0 +1,47 @@
+{
+  "label": "page-library-probe",
+  "user": "guitest-lib-mtxxwtaj",
+  "final": {
+    "dataline": "19 items in All Libraries · Select all · right-click a row to pick it, shift+right-click for a range",
+    "diag": "",
+    "badge": "no bundled binary · v2.0.17.0",
+    "libOptions": 5,
+    "listRows": 19,
+    "hasPageScript": true,
+    "bodyText": "SubSync playlist_playSync historyHistory tuneSettings Sync from your library no bundled binary · v2.0.17.0 Click any movie or series to select it — the Sync options appear on that row. Movies can sync"
+  },
+  "snapshots": [
+    {
+      "dataline": "19 items in All Libraries · Select all · right-click a row to pick it, shift+right-click for a range",
+      "diag": "",
+      "badge": "no bundled binary · v2.0.17.0",
+      "libOptions": 5,
+      "listRows": 19,
+      "hasPageScript": true,
+      "bodyText": "SubSync playlist_playSync historyHistory tuneSettings Sync from your library no bundled binary · v2.0.17.0 Click any movie or series to select it — the Sync options appear on that row. Movies can sync"
+    }
+  ],
+  "calls": [
+    "200 GET /SubSync/ClientScript",
+    "200 GET /SubSync/MainScript",
+    "200 GET /SubSync/Configuration",
+    "200 GET /SubSync/Active",
+    "200 GET /SubSync/Batches",
+    "200 GET /SubSync/Batches",
+    "200 GET /SubSync/Batches",
+    "200 GET /SubSync/InstallationStatus"
+  ],
+  "errors": [
+    "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+    "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+    "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+    "CONSOLE Failed to load resource: the server responded with a status of 404 (Not Found)"
+  ],
+  "verdict": {
+    "dataline_still_loading": false,
+    "library_select_filled": true,
+    "items_rendered": true,
+    "error_count": 4,
+    "pass": false
+  }
+}
