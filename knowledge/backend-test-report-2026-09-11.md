@@ -570,3 +570,5 @@ open**, 4. ~~S3~~ (`9c9514e`), 5. ~~S4~~ (`0a2b23d`), 6. D13/D14 (browser), 7. t
 F27, F28, D2, D6, D11), 8. stuck/destructive controls (F29, F24, D1/F2), 9. unusable paths (D18, D7,
 F4, S5, **S12 new**), 10. the settings surface (D4/F15 answered, D3/F10–F13, F14), 11. S8 + S12,
 12. layout, robustness, hygiene.
+
+- `MaxSubtitleReferenceOffsetSeconds` bounds what a *subtitle* reference is trusted for. A shift past it means that track is not the same cut: the reference is discarded as a ruler and the subtitle is aligned against the audio instead (one audio analysis per file, cached), rather than the file being refused. Changed in 2.0.17; before that the ceiling ended the job.

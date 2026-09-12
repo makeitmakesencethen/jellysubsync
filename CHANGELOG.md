@@ -4,6 +4,30 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.17 (beta)
+
+A subtitle reference that is not the same cut is replaced by the audio, instead of ending the job.
+
+A file's own subtitle track is a free and exact ruler - 265 ms and 8.7 MB to read, against minutes of audio analysis
+- so it is used when it exists. When it is from a different cut, the alignment it produces is nonsense: on the file
+this came from, the embedded track demanded a 111.9 s shift of the user's subtitle. That is what the
+`MaxSubtitleReferenceOffsetSeconds` ceiling (30 s by default) exists to catch, and until now it refused the subtitle.
+
+- The ceiling still governs what a subtitle reference is trusted for. Past it, the track is now **discarded as a
+  ruler** - so the file's other subtitles do not repeat the same measurement - and the subtitle is aligned against
+  the **audio** instead, which cannot be a wrong cut. The result is written.
+- Cost lands only on files with a bad reference: one audio analysis per file, cached like every other audio path, and
+  a log line saying so. Files whose reference is fine are untouched.
+- The outcome says it plainly: "the file's own subtitle track is not the same cut, so this was aligned against the
+  audio".
+- If the audio alignment after a bad reference produces nothing, the job still refuses and writes nothing.
+- **Contract change**: `MaxSubtitleReferenceOffsetSeconds` was documented as a refusal; it is now the trigger for the
+  audio alignment. AGENTS.md is updated with it.
+
+Verified with `tests/backend/bad_reference_fallback.py`: the fixture's subtitle is the file's own track 45 s out -
+past the 30 s a subtitle reference is trusted for and inside the audio path's 60 s - and the run completes with the
+written subtitle 0.0 s from the film's own track, where before it refused.
+
 ## 2.0.16 (beta)
 
 A stretch is tested against the film's own audio, and only when something was stretched.

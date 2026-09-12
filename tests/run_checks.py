@@ -1393,6 +1393,16 @@ def run_page_checks():
            and 'rescaling it onto the reference\'s time base' in service_source
            and 'a different cut, left for the alignment to report' in service_source
            and 'BuildFfSubSyncArgs(config, referenceArg, engineInput' in service_source)
+    report('a subtitle reference that is not the same cut is replaced by the audio, not refused',
+           'ReferenceStore.Discard(videoPath, referenceSpec);' in service_source
+           and 'discarding that ' in service_source
+           and 'the reference subtitle is not the same cut as the video' in service_source
+           and 'audioFallback = true;' in service_source
+           and 'method=audio why=the reference subtitle was not the same cut' in service_source
+           and 'the file\'s own subtitle track is not the same cut' in service_source
+           and 'aligning against the audio instead' in service_source
+           and 'audioArgs' in service_source
+           and 'ReleaseSpeechGate(job, videoPath);' in service_source)
     report('a stretch is tested against the film\'s audio, and only when something was stretched',
            'private async Task<(string? Path, bool Dropped, string Input)> VerifyStretchAgainstAudioAsync(' in service_source
            and 'internal static bool StretchHoldsAgainstAudio(double ratio, long shiftMs, double videoSeconds)' in service_source
@@ -1531,10 +1541,12 @@ def run_page_checks():
     # never-refuse rule applies to a reference that cannot be *built* (S11 falls back to the audio);
     # a reference that exists and is provably from another cut is refused rather than used to write a
     # wrong file. See AGENTS.md, "Key Patterns & Gotchas".
-    report('a reference-derived shift past the limit is refused, not written',
-           'refusing a reference-derived shift' in service
-           and 'MaxSubtitleReferenceOffsetSeconds' in service
-           and 'worth checking, a shift this size' in service)
+    report('a reference-derived shift past the limit drops the reference and uses the audio',
+           'MaxSubtitleReferenceOffsetSeconds' in service
+           and 'it demanded {fromReference.ShiftMs} ms' in service
+           and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service
+           and 'worth checking, a shift this size' in service
+           and 'refusing a reference-derived shift' not in service)
     report('a result pinned to the offset ceiling is refused too, with the measured number',
            'refusing a result pinned to the offset ceiling' in service
            and 'so the engine was clamped - the file is still written' not in service)

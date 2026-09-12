@@ -1,0 +1,32 @@
+{
+  "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "shift_s": 45.0,
+  "run": {
+    "status": "Completed",
+    "phase": "Complete",
+    "error": null,
+    "audio_fallback_logged": true,
+    "audio_method_logged": true,
+    "refused": false,
+    "written": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+    "log": [
+      "queued: job=24156c75f20e414b92ffcf490e800871 item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 mode=normal batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[24156c75f20e414b92ffcf490e800871] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "[24156c75f20e414b92ffcf490e800871] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/3b79f94a216c72d63c2dfdc002fbe22a.ref.srt -i /opt/data/jf12test/media/Helikopterr\u00e5net S01E0",
+      "[24156c75f20e414b92ffcf490e800871] ffsubsync exit=0 after 7675 ms",
+      "job 24156c75f20e414b92ffcf490e800871: the reference subtitle s:1 is not the same cut (aligned to the reference subtitle s:1 at -45000 ms, over the 30 s limit for a subtitle reference) \u2014 discarding that track as a ruler and aligning against the audio instead, file=/opt/data/jf12test/media/Helikopterr",
+      "[24156c75f20e414b92ffcf490e800871] reference: method=speech-cache why=the reference subtitle is not the same cut as the video",
+      "[24156c75f20e414b92ffcf490e800871] reference: method=audio why=the reference subtitle was not the same cut (it demanded -45000 ms)",
+      "job 24156c75f20e414b92ffcf490e800871 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=56767 change=the file's own subtitle track is not the same cut, so this was aligned against the audio \u00b7 -45000 ms offset extraction=n/a"
+    ],
+    "cues": 803,
+    "median_offset_vs_reference_s": 0.0
+  },
+  "verdict": {
+    "audio_fallback_used": true,
+    "still_refused": false,
+    "written": "/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt",
+    "median_offset_vs_reference_s": 0.0,
+    "pass": true
+  }
+}

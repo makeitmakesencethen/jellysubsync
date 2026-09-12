@@ -223,3 +223,5 @@ Evidence, both shapes:
 - a **full disk** and a **separate filesystem for staging** both need a small filesystem, which
   needs root. Record them as `blocked` with the reason instead of working around them.
 
+
+- `MaxSubtitleReferenceOffsetSeconds` bounds what a *subtitle* reference is trusted for. A shift past it means that track is not the same cut: the reference is discarded as a ruler and the subtitle is aligned against the audio instead (one audio analysis per file, cached), rather than the file being refused. Changed in 2.0.17; before that the ceiling ended the job.

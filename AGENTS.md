@@ -131,3 +131,5 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
 - Per-track results log `OK/FAIL <title> → <output path>`; paths come from the job's
   OutputPath so the user can verify what the engine wrote.
 - Dashboard History is server-side (`/SubSync/Batches`), shared by all viewers.
+
+- `MaxSubtitleReferenceOffsetSeconds` bounds what a *subtitle* reference is trusted for. A shift past it means that track is not the same cut: the reference is discarded as a ruler and the subtitle is aligned against the audio instead (one audio analysis per file, cached), rather than the file being refused. Changed in 2.0.17; before that the ceiling ended the job.
