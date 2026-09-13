@@ -857,7 +857,9 @@ public static class MkvSubtitleExtractor
             var (walkBytesBefore, walkCallsBefore) = (reader.BytesRead, reader.ReadCalls);
             reader.Apply(walkPlan, cancellationToken);
             PluginLog.Info("extract plan: " + walkPlan.Describe());
-            if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress, policy, cancellationToken))
+            if (!ScanClusters(
+                    reader, firstClusterPosition, searchEnd, track, cues, stats, progress, policy,
+                    kernelCallsAtStart, cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -1613,6 +1615,7 @@ public static class MkvSubtitleExtractor
     /// <param name="stats">Cost counters.</param>
     /// <param name="progress">Progress callback, or null.</param>
     /// <param name="policy">Read policy, which prices the window the walk reads with.</param>
+    /// <param name="kernelCallsAtStart">Kernel read calls when the pass started, for the live progress line.</param>
     /// <param name="cancellationToken">Cancels the walk.</param>
     /// <returns>True when the walk completed.</returns>
     private static bool ScanClusters(
@@ -1624,6 +1627,7 @@ public static class MkvSubtitleExtractor
         MkvExtractionStats stats,
         Action<string>? progress,
         ReadPolicy policy,
+        long kernelCallsAtStart,
         CancellationToken cancellationToken = default)
     {
         var cursor = startPosition;
@@ -1658,7 +1662,26 @@ public static class MkvSubtitleExtractor
                 }
                 if (progress is not null && visited % ProgressEveryClusters == 0)
                 {
-                    progress($"scanning clusters ({visited} read, {stats.BytesRead / 1e6:0.0} MB, {cues.Count} subtitles found)");
+                    // The scan is the one route that reads most of the file, so this is the line someone
+                    // spends minutes watching - and it read "0,0 MB" for the whole pass, because it printed
+                    // the stats field that only the cue-indexed loop fills. The numbers come from the reader
+                    // the pass is reading through (through the kernel counters where the platform provides
+                    // them, the reader's own count otherwise), which is what the other routes' live lines
+                    // report, and the pass's own counters are brought up to date with it so the summary at
+                    // the end carries the same figures the live lines showed.
+                    stats.BytesRead = reader.BytesRead;
+                    stats.ReadCalls = reader.ReadCalls;
+                    var (kernelBytesNow, kernelCallsNow) = KernelIo();
+                    var liveBytes = kernelBytesNow >= 0 && _kernelBytesAtStart >= 0
+                        ? kernelBytesNow - _kernelBytesAtStart
+                        : reader.BytesRead;
+                    if (kernelBytesNow >= 0 && kernelCallsNow >= 0 && kernelCallsAtStart >= 0)
+                    {
+                        stats.KernelBytesRead = kernelBytesNow - _kernelBytesAtStart;
+                        stats.KernelReadCalls = kernelCallsNow - _kernelCallsAtStart;
+                    }
+
+                    progress($"scanning clusters ({visited} read, {liveBytes / 1e6:0.0} MB, {cues.Count} subtitles found)");
                 }
 
                 if (visited - lastPriceAt >= ProgressEveryClusters)
