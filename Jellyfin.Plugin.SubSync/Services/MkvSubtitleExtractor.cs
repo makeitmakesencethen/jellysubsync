@@ -705,14 +705,22 @@ public static class MkvSubtitleExtractor
             reader.Apply(cuePlan, cancellationToken);
             PluginLog.Info("extract plan: " + cuePlan.Describe());
 
-            var seen = new HashSet<long>();
+            // The pair itself, not a hash of it. The key used to be `position * 31 + relative`, which
+            // collides for two cue points whose cluster positions are d bytes apart and whose relative
+            // offsets differ by exactly -31d: the second cue point was then skipped without its cluster
+            // ever being read, and its subtitle was lost silently (reproduced with
+            // tests/fixtures/make_collision.py - clusters 67 bytes apart, one cue point carrying a relative
+            // offset of 31 * 67 that points outside its own cluster, the next one sitting at relative 0).
+            // A foreign or damaged cue index is exactly where such a pair comes from, and this project has
+            // met two of those already.
+            var seen = new HashSet<(long ClusterPosition, long RelativePosition)>();
             var index = 0;
             var missedCuePoints = 0;
             foreach (var cueRef in cueRefs)
             {
                 var position = segmentDataStart + cueRef.ClusterOffset;
                 if (position < 0 || position >= reader.Length
-                    || !seen.Add(position * 31 + cueRef.RelativePosition))
+                    || !seen.Add((position, cueRef.RelativePosition)))
                 {
                     continue;
                 }
