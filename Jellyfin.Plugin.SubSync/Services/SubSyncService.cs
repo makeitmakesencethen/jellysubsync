@@ -934,11 +934,17 @@ public class SubSyncService : IDisposable
             throw new InvalidOperationException($"Subtitle stream index {subtitleIndex} not found.");
         }
 
-        // Embedded extraction never trusts Jellyfin's stream numbering: the real
-        // container stream index is resolved at run time by probing the file with
-        // ffmpeg (see ResolveContainerSubtitleIndexAsync). Kept here only as a
-        // display/logging handle on the originally selected stream.
-        var subtitleOrdinal = subtitleStream.Index;
+        // Embedded extraction never trusts Jellyfin's stream numbering: the real container
+        // stream index is resolved at run time by probing the file with ffmpeg (see
+        // ResolveContainerSubtitleIndexAsync). What the rest of the service means by "the
+        // subtitle's ordinal" is its position among the file's embedded subtitle tracks - the
+        // numbering the extraction lane, the subtitle cache and ffmpeg's own 0:s:N speak. That is
+        // not Jellyfin's MediaStream.Index, which counts every stream in the file, video and audio
+        // included, so the two differ by however many streams sit in front of the subtitles.
+        // Handing the index to code that wanted an ordinal refused five jobs on a real run
+        // ("subtitle ordinal 11 out of range (11 tracks)"), and on files where the index happened
+        // to land inside the range it made the lane read a neighbouring track instead.
+        var subtitleOrdinal = EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream);
 
         var config = Services.SettingsSource.Current() ?? new Configuration.PluginConfiguration();
         sourcesMs = phase.ElapsedMilliseconds;
@@ -964,7 +970,7 @@ public class SubSyncService : IDisposable
         _jobs[job.Id] = job;
         _jobContexts[job.Id] = (video, subtitleStream, subtitleOrdinal, config);
         PluginLog.Info(
-            $"queued: job={job.Id} item={itemId} stream={subtitleIndex} mode={job.Mode} "
+            $"queued: job={job.Id} item={itemId} stream={subtitleIndex} ordinal={subtitleOrdinal} mode={job.Mode} "
             + $"batch={batchId ?? "(standalone)"} language={subtitleStream.Language ?? "und"} "
             + $"external={subtitleStream.IsExternal} forced={subtitleStream.IsForced} "
             + $"codec={subtitleStream.Codec} video={video.Path}");
@@ -2029,6 +2035,42 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Position of a subtitle stream among the file's embedded subtitle tracks.
+    ///
+    /// This is the number everything downstream means by "the subtitle's ordinal": the extraction lane,
+    /// the subtitle cache, and ffmpeg's own <c>0:s:N</c>. Jellyfin's <c>MediaStream.Index</c> is not that
+    /// number - it counts every stream in the file, video and audio included - so a file whose subtitles
+    /// sit behind them has both, differing by the number of streams in front. Passing the index where an
+    /// ordinal is expected refused five jobs on a real run ("subtitle ordinal 11 out of range (11
+    /// tracks)"), and read a neighbouring track on the files where the index landed inside the range.
+    /// </summary>
+    /// <param name="streams">The media source's streams.</param>
+    /// <param name="target">The subtitle stream that was chosen.</param>
+    /// <returns>The 0-based ordinal among embedded subtitle streams, or -1 when there is none.</returns>
+    public static int EmbeddedSubtitleOrdinal(
+        IEnumerable<MediaBrowser.Model.Entities.MediaStream> streams,
+        MediaBrowser.Model.Entities.MediaStream target)
+    {
+        if (target.IsExternal)
+        {
+            return -1; // a sidecar file is not one of the file's embedded tracks
+        }
+
+        var embedded = streams
+            .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
+            .OrderBy(s => s.Index)
+            .ToList();
+
+        var pos = embedded.FindIndex(s => s.Index == target.Index);
+        if (pos < 0 && embedded.Count == 1)
+        {
+            pos = 0; // single embedded track — safe positional fallback
+        }
+
+        return pos;
+    }
+
+    /// <summary>
     /// Reads the subtitle position out of an ffmpeg stream specifier such as <c>s:1</c>.
     /// </summary>
     /// <param name="streamSpec">Stream specifier from <see cref="SelectReferenceStream"/>.</param>
@@ -2814,16 +2856,15 @@ public class SubSyncService : IDisposable
         var subtitleCodecs = ParseProbeSubtitleCodecs(stderr);
 
         var mediaSources = video.GetMediaSources(true);
-        var jellyfinEmbedded = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
+        var jellyfinStreams = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
+            ?? new List<MediaBrowser.Model.Entities.MediaStream>();
+        var jellyfinEmbedded = jellyfinStreams
             .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
-            .OrderBy(s => s.Index)
-            .ToList() ?? new List<MediaBrowser.Model.Entities.MediaStream>();
+            .ToList();
 
-        var pos = jellyfinEmbedded.FindIndex(s => s.Index == target.Index);
-        if (pos < 0 && jellyfinEmbedded.Count == 1)
-        {
-            pos = 0; // single embedded track — safe positional fallback
-        }
+        // The ordinal comes from the same definition the enqueue path uses, so the track a job was
+        // queued for and the track this resolver finds cannot drift apart.
+        var pos = EmbeddedSubtitleOrdinal(jellyfinStreams, target);
 
         if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
         {

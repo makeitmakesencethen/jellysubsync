@@ -669,6 +669,115 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
         string.Join(" | ", manyStats.PlanLines));
 }
 
+// ---------------- S14: the queue's ordinal is a subtitle ordinal, not a stream index ----------------
+// The extraction lane counts subtitle tracks (0-based, as ffmpeg's 0:s:N). Jellyfin's MediaStream.Index
+// counts every stream in the file, video and audio included, so the two numbers agree only when a file's
+// subtitles happen to be its first streams. On the 2.0.27 run they did not agree on five jobs, which were
+// refused with "subtitle ordinal 11 out of range (11 tracks)" - a file with eleven subtitle tracks behind
+// a video and an audio stream, whose eleventh subtitle is stream index 13.
+var ordinalPath = Environment.GetEnvironmentVariable("MKV_FIX_ORDINALS");
+if (!string.IsNullOrEmpty(ordinalPath) && File.Exists(ordinalPath))
+{
+    // The failed file's shape: one video stream, one audio stream, eleven subtitle tracks. Stream index
+    // 11 is the tenth subtitle - ordinal 9 - and the ordinals stop at 10.
+    var streams = new List<MediaBrowser.Model.Entities.MediaStream>
+    {
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 0 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Audio, Index = 1 }
+    };
+    for (var i = 0; i < 11; i++)
+    {
+        streams.Add(new()
+        {
+            Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle,
+            Index = 2 + i,
+            IsExternal = false
+        });
+    }
+
+    var selected = streams.First(s => s.Index == 11 && s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle);
+    // The text the fixture writes for ordinal 9 (track number 12), so the lane's result can be identified.
+    const string SelectedText = "Track 9 line";
+    var queueOrdinal = SubSyncService.EmbeddedSubtitleOrdinal(streams, selected); // what the enqueue path stores
+    Check("the enqueue path names the subtitle it queued as an ordinal, not a stream index",
+        queueOrdinal == 9, $"stream index {selected.Index} -> ordinal {queueOrdinal}");
+
+    var laneTexts = new Dictionary<int, string>();
+    var laneOk = MkvSubtitleExtractor.TryExtractMany(
+        ordinalPath, new[] { queueOrdinal }, out laneTexts, out var laneReason, out _, default, null);
+    Check("the extraction lane resolves the ordinal the enqueue path stored", laneOk, laneReason);
+    if (laneOk && laneTexts.TryGetValue(queueOrdinal, out var laneText))
+    {
+        Check("the lane produced the track the queue meant, not a neighbour",
+            laneText.Contains(SelectedText, StringComparison.Ordinal),
+            $"{laneText.Length} chars, expected the track carrying \"{SelectedText}\"");
+    }
+
+    // The trap itself, kept as a check so the reason this translation exists cannot be quietly undone:
+    // a stream index handed to the lane is refused, in the same words the real run logged.
+    var rawTexts = new Dictionary<int, string>();
+    var rawOk = MkvSubtitleExtractor.TryExtractMany(
+        ordinalPath, new[] { selected.Index }, out rawTexts, out var rawReason, out _, default, null);
+    Check("a stream index is refused where the lane wants a subtitle ordinal",
+        !rawOk && rawReason == "subtitle ordinal 11 out of range (11 tracks)", rawReason);
+
+    // The other shapes the translation has to survive. A sidecar track has no ordinal among the file's
+    // tracks, and a stream Jellyfin lists but the container's embedded set does not hold gets no ordinal
+    // rather than a wrong one.
+    var subsFirst = new List<MediaBrowser.Model.Entities.MediaStream>
+    {
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 0 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 1 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 2 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 3 }
+    };
+    Check("a file whose subtitles are its first streams keeps its ordinal",
+        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, subsFirst[2]) == 2);
+
+    // Thunder in My Heart: four streams in front of ten subtitle tracks, so the track at stream 13 is
+    // the tenth subtitle - the queued stream=13 that was refused as "out of range (10 tracks)".
+    var thunder = new List<MediaBrowser.Model.Entities.MediaStream>
+    {
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 0 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Audio, Index = 1 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Audio, Index = 2 },
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Audio, Index = 3 }
+    };
+    for (var i = 0; i < 10; i++)
+    {
+        thunder.Add(new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 4 + i });
+    }
+
+    Check("ten subtitle tracks behind four other streams: stream 13 is ordinal 9",
+        SubSyncService.EmbeddedSubtitleOrdinal(thunder, thunder[13]) == 9,
+        $"ordinal {SubSyncService.EmbeddedSubtitleOrdinal(thunder, thunder[13])}");
+
+    Check("a sidecar subtitle has no ordinal among the file's embedded tracks",
+        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, new()
+        {
+            Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle,
+            Index = 7,
+            IsExternal = true
+        }) == -1);
+
+    Check("an embedded subtitle the container's set does not hold gets no ordinal, not a wrong one",
+        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, new()
+        {
+            Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle,
+            Index = 99
+        }) == -1);
+
+    Check("a lone embedded track is ordinal 0 even when Jellyfin numbers it otherwise",
+        SubSyncService.EmbeddedSubtitleOrdinal(
+            new List<MediaBrowser.Model.Entities.MediaStream>
+            {
+                new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 0 },
+                new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Audio, Index = 1 },
+                new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 2 }
+            },
+            new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, Index = 5 }) == 0);
+}
+
 // ---------------- The read policy: one decision, asserted across the matrix ----------------
 // One component decides the route and the cost of a pass. These cells are synthetic on purpose: a cue
 // index that locates its blocks and one that does not, one track and 32, against four storage profiles
@@ -2088,6 +2197,16 @@ def run_page_checks():
            'ReferenceOrdinalsFor' in service and 'foreach (var referenceOrdinal in ReferenceOrdinalsFor' in service)
     report('a track with no text is asked for once, not every pass',
            '_extractTried' in service)
+
+    # S14: the enqueue path stored the selected stream's own Index as the subtitle's ordinal. Those are
+    # different numbers on any file whose subtitles are not its first streams: the lane counts subtitle
+    # tracks, Jellyfin counts every stream, video and audio included. Measured on the 2.0.27 run, that
+    # refused five jobs with "subtitle ordinal 11 out of range (11 tracks)".
+    report('the queue translates a stream index into a subtitle ordinal before dispatching',
+           'EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream)' in service
+           and 'var subtitleOrdinal = subtitleStream.Index' not in service)
+    report('the enqueue path and the run-time resolver share one definition of the ordinal',
+           service.count('EmbeddedSubtitleOrdinal(') >= 3)
     report('a failed ffsubsync says why, not just the exit code',
            'throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}")' in service)
 
@@ -2193,6 +2312,15 @@ def main():
                    check=True, capture_output=True)
     env['MKV_FIX_MULTI'] = multi_path
     env['MKV_FIX_MULTI_EXPECT'] = str(expected)
+
+    # S14: eleven subtitle tracks behind one video and one audio stream, so a container stream index and a
+    # subtitle ordinal are different numbers in the same file. This is the shape of the file that produced
+    # "subtitle ordinal 11 out of range (11 tracks)" on the 2.0.27 run.
+    ordinals_path = os.path.join(fixtures, 'ordinals.mkv')
+    subprocess.run(['python3', generator, ordinals_path, '--clusters', str(clusters),
+                    '--payload', '1', '--sub-every', str(sub_every), '--sub-tracks', '11'],
+                   check=True, capture_output=True)
+    env['MKV_FIX_ORDINALS'] = ordinals_path
     ENV.clear()
     ENV.update(env)
 
