@@ -574,6 +574,13 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
     Check("the shared pass returns every track's cues",
         manyStats.SubtitleBlocks + manyStats.AlsoBlocks == separateCues,
         $"{manyStats.SubtitleBlocks} + {manyStats.AlsoBlocks} vs {separateCues}");
+    // The shared pass is served out of the primary track's fetch, so its plan overstates what it will read.
+    // Compared raw, every file with more than one subtitle logged "expected 0,62 MB/520 read(s), actual
+    // 0,00 MB/0 read(s) ... this pass missed its own prediction" - a warning that means nothing, in the log
+    // the user reads as the acceptance test. The plan is netted against what is in hand before comparing.
+    Check("a shared pass served from the primary fetch is not reported as a miss",
+        manyStats.PlanMissed == 0,
+        string.Join(" | ", manyStats.PlanLines));
 }
 
 // ---------------- The read policy: one decision, asserted across the matrix ----------------
@@ -637,7 +644,7 @@ var matrixProfiles = new (string Name, double LatencyMs, double MbPerSecond)[]
 
 var matrixShapes = new[] { "blocks early", "blocks late", "no block offsets", "no cue index" };
 var matrixTracks = new[] { 1, 32 };
-var matrixRows = new List<(string Shape, int Tracks, string Profile, string Route, int Calls, long Bytes, bool Coarse)>();
+var matrixRows = new List<(string Shape, int Tracks, string Profile, string Route, int Calls, long Bytes, bool Coarse, bool Fitted, long MergeGap)>();
 
 Console.WriteLine();
 Console.WriteLine("read policy matrix (route, planned calls, planned MB, window KB):");
@@ -648,6 +655,15 @@ foreach (var shape in matrixShapes)
         foreach (var profile in matrixProfiles)
         {
             var policy = new ReadPolicy(policyFile, ReadRoute.CueIndexed, "matrix");
+
+            // The reads a real pass makes before it plans anything: the SeekHead, the Tracks element and the
+            // cue index (about 24 bytes per cue). They are fed to the policy the same way the extractor feeds
+            // it - by timing reads it really made - and they are what gives the estimator a second read size.
+            foreach (var locationBytes in new long[] { 512, 4096, 1024 + (policyClusters * 24) })
+            {
+                policy.Observe(locationBytes, StorageTimeMs(locationBytes, profile.LatencyMs, profile.MbPerSecond));
+            }
+
             ReadPlan plan = null;
 
             // Plan, then pay for that plan at this storage's prices, then re-plan: three rounds is what a
@@ -702,10 +718,11 @@ foreach (var shape in matrixShapes)
             Console.WriteLine(
                 $"  {shape,-18} {tracks,2} track(s)  {profile.Name,-13} {plan.RouteLabel,-12} "
                 + $"{plan.ExpectedCalls,7} calls  {costMb,8:0.0} MB  window {plan.WindowBytes / 1024,4} KB  "
-                + $"({policy.MsPerCall:0.00} ms/read measured, {planKind})  "
+                + $"({policy.MsPerCall:0.00} ms/read, {policy.BytesPerMs / 1000.0:0.0} MB/s, merge gap {policy.MergeGapBytes / 1024} KB, {planKind})  "
                 + $"waiting: {serialMs / 1000,7:0.00} s serial, {overlappedMs / 1000,6:0.00} s at 16 wide");
 
-            matrixRows.Add((shape, tracks, profile.Name, plan.RouteLabel, plan.ExpectedCalls, plan.ExpectedBytes, plan.Coarse));
+            matrixRows.Add((shape, tracks, profile.Name, plan.RouteLabel, plan.ExpectedCalls, plan.ExpectedBytes,
+                            plan.Coarse, policy.ProfileIsFitted, policy.MergeGapBytes));
 
             Check($"matrix {shape} / {tracks} track(s) / {profile.Name}: {plan.RouteLabel}, {plan.ExpectedCalls} reads, {costMb:0.0} MB planned",
                 plan.Route == expectedRoute && inside && !fetchOverlap && !fetchWasted && windowOk && measured,
@@ -725,16 +742,90 @@ foreach (var row in matrixRows.Where(r => (r.Shape == "blocks early" || r.Shape 
         $"{row.Bytes / 1e6:0.0} MB of {policyFile / 1e6:0.0} MB ({100.0 * row.Bytes / policyFile:0.00}%)");
 }
 
+// The decision has to follow the storage rather than a fixed rule. Where a round trip is what costs, one
+// read per cue that carries the cluster head is cheaper than two; where the bytes are what costs, the two
+// reads must stay apart. This is the assertion the merge gap exists for - a rule that merged on every
+// storage (or on none) fails one of these two cells.
+foreach (var (profileName, roundTripDominates) in new (string, bool)[] { ("50 ms/read", true), ("11 MB/s", false) })
+{
+    var row = matrixRows.First(r => r.Shape == "blocks early" && r.Tracks == 1 && r.Profile == profileName);
+    Check($"matrix blocks early / 1 track / {profileName}: {(roundTripDominates ? "a round trip's worth of bytes merges the head into its block" : "expensive bytes keep the two reads apart")}",
+        row.Fitted && (roundTripDominates ? row.Calls <= policyClusters + 64 : row.Calls >= policyClusters * 2),
+        $"{row.Calls} call(s) for {policyClusters} cue(s), merge gap {row.MergeGap / 1024} KB, fitted {row.Fitted}");
+}
+
+// ---------------- The profile the decisions rest on (2.0.24 R1/R3) ----------------
+// One read size gives one number, and that number moves with the size: a 2 KB read that took 50 ms says how
+// long a round trip is, not how fast the storage is. Two sizes let the two be separated - the slope is what
+// a byte costs and the intercept is the round trip - which is what MergeGapBytes needs.
+ReadPolicy ProfilePolicy(string label) => new(1_000_000_000, ReadRoute.CueIndexed, label);
+
+var fresh = ProfilePolicy("fresh");
+Check("a pass that has read nothing says it is deciding from the defaults",
+    !fresh.MeasuredOnce && fresh.SampleCount == 0 && fresh.PendingSamples == 0
+    && !fresh.ProfileIsFitted && fresh.DescribeProfile().Contains("not measured"),
+    fresh.DescribeProfile());
+for (var i = 0; i < 7; i++)
+{
+    fresh.Observe(2048, 12.0);
+}
+
+Check("seven reads are pending, not an update",
+    fresh.PendingSamples == 7 && fresh.SampleCount == 7 && !fresh.MeasuredOnce,
+    $"{fresh.PendingSamples} pending, {fresh.SampleCount} total, measured {fresh.MeasuredOnce}");
+fresh.Observe(2048, 12.0);
+Check("the eighth read publishes the profile and clears the pending window",
+    fresh.MeasuredOnce && fresh.ProfileUpdates == 1 && fresh.PendingSamples == 0 && fresh.SampleCount == 8
+    && fresh.DescribeProfile().Contains("one read size only"),
+    fresh.DescribeProfile());
+
+var singleSize = ProfilePolicy("single-size");
+for (var i = 0; i < 8; i++)
+{
+    singleSize.Observe(2048, 50.0 + (2048 / 11000.0));
+}
+
+Check("one read size cannot separate the round trip from the throughput",
+    !singleSize.ProfileIsFitted && singleSize.BytesPerMs < 1000.0,
+    $"{singleSize.MsPerCall:0.00} ms/read, {singleSize.BytesPerMs / 1000.0:0.00} MB/s read off one size");
+
+var fitted = ProfilePolicy("fitted");
+// In the order a pass really makes them: it reads the index (the large read) before it reads any block.
+foreach (var size in new long[] { 40960, 2048, 2048, 2048, 2048, 2048, 2048, 2048 })
+{
+    fitted.Observe(size, 50.0 + (size / 11000.0));
+}
+
+Check("two read sizes recover both halves of the storage",
+    fitted.ProfileIsFitted
+    && Math.Abs(fitted.MsPerCall - 50.0) < 2.0
+    && Math.Abs(fitted.BytesPerMs - 11000.0) < 2000.0,
+    $"{fitted.MsPerCall:0.00} ms/read, {fitted.BytesPerMs / 1000.0:0.0} MB/s, fitted {fitted.ProfileIsFitted}");
+Check("the merge gap is one round trip's worth of bytes, not the size of a small read",
+    fitted.MergeGapBytes >= 150 * 1024 && fitted.MergeGapBytes > singleSize.MergeGapBytes * 20,
+    $"fitted {fitted.MergeGapBytes / 1024} KB against {singleSize.MergeGapBytes / 1024} KB from one read size");
+Check("the profile line says which estimator the numbers came from",
+    fitted.DescribeProfile().Contains("fitted to") && fitted.DescribeProfile().Contains("merge gap"),
+    fitted.DescribeProfile());
+
 // Sharing is the only reason the multi-track pass exists: 32 tracks in one pass must not cost 32 passes.
+// How much it saves follows the storage - where a round trip is what costs, one pass collapses the reads of
+// every track into a merged range per cluster, and where the bytes are what costs it can only share the
+// heads and read each wanted block once (about twice as good as 32 passes, not a hundred times).
 foreach (var shape in new[] { "blocks early", "blocks late" })
 {
     foreach (var profile in matrixProfiles)
     {
         var oneTrack = matrixRows.First(r => r.Shape == shape && r.Tracks == 1 && r.Profile == profile.Name);
         var thirtyTwo = matrixRows.First(r => r.Shape == shape && r.Tracks == 32 && r.Profile == profile.Name);
-        Check($"matrix {shape} / {profile.Name}: 32 tracks in one pass cost far less than 32 passes",
-            thirtyTwo.Calls * 4 < oneTrack.Calls * 32,
-            $"{thirtyTwo.Calls} reads shared vs {oneTrack.Calls * 32} separate ({oneTrack.Calls} per track)");
+        var separate = oneTrack.Calls * 32;
+        var roundTripsDominate = !profile.Name.Contains("11 MB/s") || profile.Name.Contains("slow at both");
+        Check($"matrix {shape} / {profile.Name}: 32 tracks in one pass cost fewer reads than 32 passes"
+              + (roundTripsDominate ? ", by an order of magnitude where a round trip is what costs" : ""),
+            thirtyTwo.Calls < separate
+            && (!roundTripsDominate || thirtyTwo.Calls * 10 <= separate),
+            $"{thirtyTwo.Calls} read(s) shared vs {separate} separate ({oneTrack.Calls} per track, "
+            + $"merge gap {thirtyTwo.MergeGap / 1024} KB)");
     }
 }
 

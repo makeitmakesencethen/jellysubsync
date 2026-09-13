@@ -345,6 +345,11 @@ public sealed class ReadPolicy
     private const int SamplesBeforeTrusting = 8;
     private const double DefaultMsPerCall = 0.05;
     private const double DefaultBytesPerMs = 1500;
+
+    // How far apart two observed reads have to be before their two timings can be read as a line
+    // (time = latency + bytes x slope): a factor of two and at least 4 KB, or the slope is noise.
+    private const double FitSizeFactor = 2.0;
+    private const long FitMinSpreadBytes = 4 * 1024;
     private const long MaxPrefetchBytes = 64L * 1024 * 1024;
 
     private double _msPerCall = DefaultMsPerCall;
@@ -352,6 +357,18 @@ public sealed class ReadPolicy
     private long _sampleBytes;
     private double _sampleMs;
     private int _sampleCount;
+
+    // The pass's own reads, kept as two extremes: the smallest read it has made and the largest. One read
+    // size can only give one number, and that number moves with the size - a 2 KB read that takes 50 ms
+    // says nothing about how fast the storage is, only how long the round trip is. Two sizes separate them:
+    // the latency is what does not grow with the read, and the throughput is what does.
+    private long _smallBytes;
+    private double _smallMs;
+    private long _bigBytes;
+    private double _bigMs;
+    private int _samples;
+    private int _updates;
+    private bool _fitted;
 
     /// <summary>Initializes a new instance of the <see cref="ReadPolicy"/> class.</summary>
     /// <param name="fileLength">Length of the file being read, in bytes.</param>
@@ -374,24 +391,59 @@ public sealed class ReadPolicy
     /// <summary>Gets the pass's name, for the log.</summary>
     public string Label { get; }
 
-    /// <summary>Gets the measured cost of one read, in milliseconds.</summary>
+    /// <summary>
+    /// Gets what one read costs in waiting, in milliseconds - the round trip, separated from the bytes
+    /// when the pass has measured two read sizes, and the whole average of one read when it has not.
+    /// </summary>
     public double MsPerCall => _msPerCall;
 
-    /// <summary>Gets the measured bytes the storage delivers per millisecond.</summary>
+    /// <summary>
+    /// Gets the bytes the storage delivers per millisecond: fitted from two read sizes where the pass has
+    /// made them, and a lower bound (the window average, which folds the round trip into the throughput)
+    /// where it has not.
+    /// </summary>
     public double BytesPerMs => _bytesPerMs;
 
-    /// <summary>Gets how many reads the current profile was measured from.</summary>
-    public int Samples => _sampleCount;
+    /// <summary>
+    /// Gets how many reads have been observed since the profile was last updated. It is the pending half
+    /// of a window, not the pass's measurement state: it goes back to zero every
+    /// <see cref="SamplesBeforeTrusting"/> reads, so it must not be read as "this pass has measured the
+    /// storage" - <see cref="MeasuredOnce"/> and <see cref="SampleCount"/> answer that.
+    /// </summary>
+    public int PendingSamples => _sampleCount;
 
-    /// <summary>Gets a value indicating whether the profile has been measured rather than assumed.</summary>
-    public bool Measured => _sampleCount >= SamplesBeforeTrusting;
+    /// <summary>Gets how many reads this pass has observed in total.</summary>
+    public int SampleCount => _samples;
+
+    /// <summary>
+    /// Gets a value indicating whether the profile has been measured at all, as opposed to still being
+    /// the class defaults. True from the first published update onwards.
+    /// </summary>
+    public bool MeasuredOnce => _updates > 0;
+
+    /// <summary>Gets how many times the profile has been updated from the pass's own reads.</summary>
+    public int ProfileUpdates => _updates;
+
+    /// <summary>
+    /// Gets a value indicating whether latency and throughput were separated by fitting the two read sizes
+    /// the pass has measured, rather than being read off one contaminated average.
+    /// </summary>
+    public bool ProfileIsFitted => _fitted;
+
+    /// <summary>Gets the latency the profile rests on, in milliseconds - the part of a read that does not grow with it.</summary>
+    public double LatencyMs => _msPerCall;
+
+    /// <summary>Gets the throughput the profile rests on, in bytes per millisecond.</summary>
+    public double ThroughputBytesPerMs => _bytesPerMs;
 
     /// <summary>Gets or sets the window the pass is reading with, so a re-pricing can be described.</summary>
     public int CurrentWindow { get; set; }
 
     /// <summary>
     /// Gets the number of bytes that may be fetched without the gap between two reads costing more than
-    /// the read it saves: one merged read costs one call and carries the gap, two reads cost two calls.
+    /// the read it saves: one merged read costs one call and carries the gap, two reads cost two calls, so
+    /// the gap is worth carrying while its transfer costs less than the round trip - i.e. one round trip's
+    /// worth of bytes, which is what a fitted profile can actually state.
     /// </summary>
     public long MergeGapBytes => Math.Clamp((long)(_msPerCall * _bytesPerMs), 0, 256L * 1024);
 
@@ -412,6 +464,22 @@ public sealed class ReadPolicy
             return;
         }
 
+        // The two extremes of the pass's own reads are kept because one read size gives one number, and
+        // that number moves with the size: a 2 KB read that took 50 ms says how long a round trip is, not
+        // how fast the storage is. Two sizes separate the two.
+        if (_samples == 0 || bytes < _smallBytes)
+        {
+            _smallBytes = bytes;
+            _smallMs = ms;
+        }
+
+        if (bytes > _bigBytes)
+        {
+            _bigBytes = bytes;
+            _bigMs = ms;
+        }
+
+        _samples++;
         _sampleBytes += bytes;
         _sampleMs += ms;
         _sampleCount++;
@@ -420,10 +488,44 @@ public sealed class ReadPolicy
             return;
         }
 
-        // Averaged over a window of reads rather than over the whole pass: a share that was busy while the
-        // first jobs ran is not the share that answers the last one.
-        _msPerCall = _sampleMs / SamplesBeforeTrusting;
-        _bytesPerMs = Math.Max(1.0, _sampleBytes / Math.Max(0.001, _sampleMs));
+        // The window average, as before: it is what the profile rests on when only one read size has been
+        // seen. Averaged over a window of reads rather than over the whole pass, because a share that was
+        // busy while the first jobs ran is not the share that answers the last one.
+        var windowMsPerRead = _sampleMs / SamplesBeforeTrusting;
+        var windowBytesPerMs = Math.Max(1.0, _sampleBytes / Math.Max(0.001, _sampleMs));
+
+        // Two sizes, one line: time = round trip + bytes / throughput. The slope is what a byte costs and
+        // the intercept is what the round trip costs, so the merge decision can ask what a round trip is
+        // worth in bytes rather than multiplying two numbers that came from the same small reads - which is
+        // how a share delivering 11 MB/s was measured as delivering 0,1 MB/s and never merged anything.
+        var spread = _bigBytes - _smallBytes;
+        var fitted = spread >= FitMinSpreadBytes
+                     && _bigBytes >= _smallBytes * FitSizeFactor
+                     && _bigMs > _smallMs;
+        if (fitted)
+        {
+            var msPerByte = (_bigMs - _smallMs) / spread;
+            var throughput = msPerByte > 0 ? 1.0 / msPerByte : windowBytesPerMs;
+            var latency = _smallMs - (msPerByte * _smallBytes);
+            if (throughput > 0 && latency >= 0)
+            {
+                _bytesPerMs = throughput;
+                _msPerCall = latency;
+            }
+            else
+            {
+                fitted = false;
+            }
+        }
+
+        if (!fitted)
+        {
+            _msPerCall = windowMsPerRead;
+            _bytesPerMs = windowBytesPerMs;
+        }
+
+        _fitted = fitted;
+        _updates++;
         _sampleBytes = 0;
         _sampleMs = 0;
         _sampleCount = 0;
@@ -697,14 +799,30 @@ public sealed class ReadPolicy
     }
 
     /// <summary>Human-readable description of the measured profile, for the log.</summary>
-    /// <returns>One line naming the numbers the decisions were made from.</returns>
-    public string DescribeProfile() => string.Format(
-        CultureInfo.InvariantCulture,
-        "{0}: storage {1:0.00} ms per read, {2:0.0} MB/s measured over the pass's own reads, merge gap {3} KB",
-        Label,
-        _msPerCall,
-        _bytesPerMs / 1000.0,
-        MergeGapBytes / 1024);
+    /// <returns>
+    /// One line naming the numbers the decisions were made from, whether they are measurements or still
+    /// the defaults, how many reads they rest on, and whether latency and throughput were separated.
+    /// </returns>
+    public string DescribeProfile() => MeasuredOnce
+        ? string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}: storage {1:0.00} ms per read and {2:0.0} MB/s ({3}, {4} read(s) over {5} update(s)); merge gap {6} KB",
+            Label,
+            _msPerCall,
+            _bytesPerMs / 1000.0,
+            _fitted
+                ? string.Format(CultureInfo.InvariantCulture, "fitted to {0} B and {1} B reads", _smallBytes, _bigBytes)
+                : "one read size only, so throughput is a lower bound",
+            _samples,
+            _updates,
+            MergeGapBytes / 1024)
+        : string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}: storage not measured yet - deciding from the defaults ({1:0.00} ms per read, {2:0.0} MB/s); merge gap {3} KB, no read observed",
+            Label,
+            _msPerCall,
+            _bytesPerMs / 1000.0,
+            MergeGapBytes / 1024);
 
     private static int WindowFor(IReadOnlyList<PlannedRead> reads)
     {

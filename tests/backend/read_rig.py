@@ -237,6 +237,14 @@ SHAPES = {
     # the shape 2.0.23's changelog measured at ~2 min for 1,3 GB on this share.
     'remux-walk': dict(name='remux-1.3gb-walk.mkv', clusters=260, payload_mb=5, sub_every=2,
                         extra=('--no-rel-pos', '--sub-position', 'late')),
+    # The same episode with its subtitle blocks near the start of their cluster: the shape where merging a
+    # cluster head and its block into one read is worth it, and therefore where the estimator's answer
+    # (a round trip's worth of bytes) changes the plan.
+    'early': dict(name='early-0.5gb.mkv', clusters=520, payload_mb=1, sub_every=2,
+                  extra=('--sub-position', 'early')),
+    # The same episode with four subtitle tracks, for the shared pass: run it with --tracks 4.
+    'arcane-4t': dict(name='arcane-4tracks-0.5gb.mkv', clusters=520, payload_mb=1, sub_every=2,
+                      extra=('--sub-position', 'late', '--sub-tracks', '4')),
     'quick': dict(name='quick.mkv', clusters=40, payload_mb=1, sub_every=2,
                   extra=('--sub-position', 'late')),
     'quick-walk': dict(name='quick-walk.mkv', clusters=40, payload_mb=1, sub_every=2,
@@ -253,6 +261,8 @@ def main():
                              "(beta releases are commits, not tags - e.g. e35cb2c is 2.0.23)")
     parser.add_argument('--label', default=None, help='name for this run')
     parser.add_argument('--shapes', default='arcane,remux-walk', help='comma-separated fixture shapes')
+    parser.add_argument('--tracks', type=int, default=1,
+                        help='subtitles to extract in one pass (1 = the cue-indexed route, >1 the shared one)')
     parser.add_argument('--profiles', default='slow', help='slow (fabji share), fast (local disk), both')
     parser.add_argument('--call-ms', type=float, default=10.0,
                         help='per-read latency of the modelled share (default 10, the user\'s Synology)')
@@ -279,7 +289,7 @@ def main():
     tag = (args.label or args.rev).replace('/', '_')
     dll = harness(repo, tag)
     print(f"# rig: rev={args.rev} ({repo}) tag={tag} "
-          f"share={args.call_ms:g} ms/read, {args.mb_per_second:g} MB/s")
+          f"share={args.call_ms:g} ms/read, {args.mb_per_second:g} MB/s, {args.tracks} track(s)")
 
     rows = []
     for shape in shapes:
@@ -288,8 +298,9 @@ def main():
         path = fixture(fixtures_dir, spec.pop('name'), spec.pop('clusters'), spec.pop('payload_mb'),
                        spec.pop('sub_every'), extra)
         for profile in profiles:
-            row = run(dll, path, [0], profile)
+            row = run(dll, path, list(range(args.tracks)), profile)
             row.update({'shape': shape, 'label': tag, 'rev': args.rev, 'profile': profile,
+                        'tracks': args.tracks,
                         'fileMb': path.stat().st_size / 1e6,
                         'profileCallMs': args.call_ms, 'profileMbPerSecond': args.mb_per_second})
             rows.append(row)

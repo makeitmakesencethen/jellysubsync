@@ -353,9 +353,18 @@ sets the window and issues the fetch - and the only windows set afterwards come 
 or `policy.WalkWindow` (the walk re-prices itself from its own reads).
 
 - **Nothing decides a window from a constant or from a pre-work probe.** `Observe(bytes, ms)` is called by
-  every read the pass makes; the policy averages it into milliseconds per call and bytes per millisecond,
-  and `Price(bytes, calls)` is what every choice is made against. A probe taken before the work reported
-  0,4 ms and 255 ms per 16 KB within minutes on one box, which is why the pass measures its own reads.
+  every read the pass makes, and `Price(bytes, calls)` is what every choice is made against. A probe taken
+  before the work reported 0,4 ms and 255 ms per 16 KB within minutes on one box, which is why the pass
+  measures its own reads.
+- **The profile is two numbers - a round trip and a throughput - and they come from two read sizes.**
+  One size gives one number that moves with the size: a 2 KB read that took 50 ms says how long a round
+  trip is, not how fast the storage is, and reading throughput off it reported 0,1 MB/s for a share that
+  delivers 11 MB/s - which is why `MergeGapBytes` (a round trip's worth of bytes) never grew and nothing
+  ever merged. `Observe` keeps the smallest and largest read it has seen, and when they are at least 4 KB
+  and 2x apart it fits `time = latency + bytes / throughput` to the pair (`ProfileIsFitted`); without that
+  spread it falls back to the window average and says so. The names are exact: `PendingSamples` is the
+  window that has not been published yet (it returns to zero every 8 reads), `SampleCount` is every read
+  the pass has observed, `MeasuredOnce` is whether the profile is a measurement or still the defaults.
 - **Windows are bounded by `ReadPolicy.MinWindow` (512 B) and `ReadPolicy.MaxWindow` (4 MB)**, both in the
   policy: `MkvSubtitleExtractor` names no window literal, and a check fails if one appears.
 - **`ReadLedger` is the accounting.** `RecordFetchedRange` / `RecordDiskRead` / `RecordServedFromMemory`
