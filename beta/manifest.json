@@ -8,10 +8,10 @@
     "category": "General",
     "versions": [
       {
-        "version": "2.0.25.0",
-        "checksum": "3637b1b99ea8ebcd02c34e59eb6bf338",
+        "version": "2.0.26.0",
+        "checksum": "1bc4ffc63b197d0a61eaf9c5dc311cf2",
         "targetAbi": "12.0.0.0",
-        "sourceUrl": "https://makeitmakesencethen.github.io/jellysubsync/beta/Jellyfin.Plugin.SubSync_2.0.25.0.zip",
+        "sourceUrl": "https://makeitmakesencethen.github.io/jellysubsync/beta/Jellyfin.Plugin.SubSync_2.0.26.0.zip",
         "changelog": "https://github.com/makeitmakesencethen/jellysubsync/tree/beta"
       }
     ],
