@@ -547,6 +547,53 @@ if (!string.IsNullOrEmpty(groupedFixture) && File.Exists(groupedFixture))
         $"{againSrt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length} cue(s) on the second pass");
 }
 
+// Where the index locates only some of a track's cue points, the pass walks the clusters it has to, and a
+// walk cannot know which of a cluster's blocks a neighbouring cue point already emitted. Measured on this
+// fixture before the pass remembered its own blocks: 10 cues for 5 located cue points plus 5 walked
+// clusters came out as cues the file does not hold, and on the D17 shape 843 cues came out of a file with
+// 803 blocks. Both faces of one defect: what reached the count had to be the file's blocks, once each.
+var mixedFixture = Environment.GetEnvironmentVariable("MKV_FIX_MIXED");
+if (!string.IsNullOrEmpty(mixedFixture) && File.Exists(mixedFixture))
+{
+    var mixedExpected = EnvInt("MKV_FIX_MIXED_EXPECT");
+    var mixedOk = MkvSubtitleExtractor.TryExtract(
+        mixedFixture, 0, out var mixedSrt, out var mixedReason, null, out var mixedStats);
+    var mixedFound = mixedSrt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length;
+    Check("a partly located index still yields every block once (mixed cue points)",
+        mixedOk && mixedFound == mixedExpected,
+        $"{mixedFound} of {mixedExpected}, {mixedReason}");
+    Check("no subtitle is emitted twice (mixed cue points)",
+        DuplicateCuePairs(mixedSrt) == 0,
+        DuplicateCuePairs(mixedSrt) + " repeated (start, text) pair(s)");
+    // Half the cue points still carry a block offset, so the index is used for those and the walk for
+    // the rest: the pass visits more clusters than the index located, and the count of cues stays the
+    // number of blocks the file holds.
+    Check("the index served what it located and the walk the rest (mixed cue points)",
+        mixedStats.BlockOffsets == mixedExpected / 2 && mixedStats.ClustersVisited > mixedStats.BlockOffsets,
+        $"{mixedStats.BlockOffsets} of {mixedExpected} located, {mixedStats.ClustersVisited} cluster visit(s)");
+}
+
+static int DuplicateCuePairs(string srt)
+{
+    var seen = new HashSet<string>();
+    var repeats = 0;
+    foreach (var block in srt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries))
+    {
+        var lines = block.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+        if (lines.Length < 2 || !lines[1].Contains("-->"))
+        {
+            continue;
+        }
+
+        var key = lines[1].Split("-->")[0].Trim() + "|" + string.Join("\n", lines.Skip(2));
+        if (!seen.Add(key))
+        {
+            repeats++;
+        }
+    }
+
+    return repeats;
+}
 
 // The indexed path must never read more than walking the clusters to find the same subtitles:
 // if CueRelativePosition handling ever regresses, the indexed path starts paying for clusters it
@@ -2122,6 +2169,19 @@ def main():
                     '--grouped-cues'], check=True, capture_output=True)
     env['MKV_FIX_GROUPED'] = grouped_path
     env['MKV_FIX_GROUPED_EXPECT'] = str(expected)
+
+    # The same file with half of the wanted track's block offsets removed, so the pass has to walk the
+    # clusters the index no longer locates. This is the D17 patch shape, and it is what made the walk
+    # hand back a block an adjacent cue point had already emitted.
+    mixed_path = os.path.join(fixtures, 'mixed.mkv')
+    patch = subprocess.run(['python3', os.path.join(REPO, 'tests', 'fixtures', 'patch_cues.py'),
+                            'patch', grouped_path, mixed_path, '3', '2'],
+                           capture_output=True, text=True)
+    if patch.returncode != 0 or not os.path.exists(mixed_path):
+        print(patch.stdout[-800:], patch.stderr[-800:])
+        return 1
+    env['MKV_FIX_MIXED'] = mixed_path
+    env['MKV_FIX_MIXED_EXPECT'] = str(expected)
 
     # One file with three subtitle tracks, for the multi-track pass.
     multi_path = os.path.join(fixtures, 'multi.mkv')

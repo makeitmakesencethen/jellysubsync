@@ -1782,7 +1782,11 @@ public static class MkvSubtitleExtractor
         }
 
         var text = Encoding.UTF8.GetString(payload);
-        AddCue(cues, clusterTimecode, relative, text, hasDuration, durationTicks, track);
+        if (track.MarkEmitted(dataStart))
+        {
+            AddCue(cues, clusterTimecode, relative, text, hasDuration, durationTicks, track);
+        }
+
         return true;
     }
 
@@ -2505,6 +2509,24 @@ public static class MkvSubtitleExtractor
         /// two apart, which is why the check is made here instead.
         /// </summary>
         public int BlocksFound { get; set; }
+
+        /// <summary>
+        /// True the first time this pass reaches the block whose payload starts at that position.
+        ///
+        /// A block is one subtitle, however many routes reach it: the cue index names it when the cue
+        /// point carries a block offset, and the walk over its cluster finds it whether or not the index
+        /// located it. Where the index locates only some of a track's cue points - the mixed-index shape
+        /// this project's fixtures and the D17 patch both produce - the walk of a cluster hands back a
+        /// block the cue point next to it already emitted, and the same subtitle came out twice with two
+        /// different ends (one from the block's own duration, one from the two-second default this
+        /// extractor uses when a block carries none). A block's identity is where it sits, so that is what
+        /// is remembered here, per pass.
+        /// </summary>
+        /// <param name="blockPosition">Start of the block's payload.</param>
+        /// <returns>True when this pass had not yet reached that block.</returns>
+        public bool MarkEmitted(long blockPosition) => _emitted.Add(blockPosition);
+
+        private readonly HashSet<long> _emitted = new();
 
         public bool IsSubtitle => TrackType == 17;
 
