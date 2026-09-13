@@ -568,8 +568,11 @@ if (!string.IsNullOrEmpty(mixedFixture) && File.Exists(mixedFixture))
     // Half the cue points still carry a block offset, so the index is used for those and the walk for
     // the rest: the pass visits more clusters than the index located, and the count of cues stays the
     // number of blocks the file holds.
+    // Every cue point is one visit, whether the index located its block or the walk found it, and the walk
+    // over a cluster the cue point already counted is not a second visit: counting it there as well is what
+    // reported 15 visits for 10 cue points here and 1205 for 803 on the D17 mixed index.
     Check("the index served what it located and the walk the rest (mixed cue points)",
-        mixedStats.BlockOffsets == mixedExpected / 2 && mixedStats.ClustersVisited > mixedStats.BlockOffsets,
+        mixedStats.BlockOffsets == mixedExpected / 2 && mixedStats.ClustersVisited == mixedExpected,
         $"{mixedStats.BlockOffsets} of {mixedExpected} located, {mixedStats.ClustersVisited} cluster visit(s)");
 }
 

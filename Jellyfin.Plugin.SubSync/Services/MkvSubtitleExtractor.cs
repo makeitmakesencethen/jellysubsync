@@ -783,6 +783,12 @@ public static class MkvSubtitleExtractor
                         continue;
                     }
 
+                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
+                        && track.BlocksFound != blocksBefore)
+                    {
+                        continue;
+                    }
+
                     stats.IndexedMisses++;
                 }
 
@@ -1480,7 +1486,10 @@ public static class MkvSubtitleExtractor
             reader.SetWindow(policy.ClusterWindow((long)size));
         }
 
-        stats.ClustersVisited++;
+        // The cluster is not counted here: every caller either counted it already (a cue point counting the
+        // cluster it names before walking it) or counts the clusters it iterates itself. Counting it here as
+        // well made a walked cluster read as two visits, which is why the mixed-index fixtures reported 15
+        // visits for 10 cue points and the D17 mixed index 1205 for 803 - both double the reference.
         var dataStart = clusterPosition + headerLength;
         var dataEnd = size == ulong.MaxValue ? reader.Length : dataStart + (long)size;
         return ReadClusterChildren(reader, dataStart, Math.Min(dataEnd, reader.Length), track, cues, stats);
