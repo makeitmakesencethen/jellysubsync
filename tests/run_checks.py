@@ -397,6 +397,117 @@ Check("WavePolicy has no per-volume budget",
     string.Join(",", typeof(SubSyncService.WavePolicy).GetProperties().Select(p => p.Name)));
 
 Console.WriteLine();
+// ---------------- The per-volume storage profile ----------------
+var mkvScenarioPath = Environment.GetEnvironmentVariable("MKV_FIX_CUES") ?? string.Empty;
+// It exists so a pass starts from what its volume has already shown rather than from the class defaults
+// (0,05 ms per read, 1500 bytes per millisecond), fed only by reads the extraction was making anyway. What
+// it must not be is a plain mean: this share answers in 13-46 ms with outliers to 1290 ms, and a mean over
+// eight reads that contains one of those reports a storage 160 ms slow - the reading that has already lied
+// here once (0,1 MB/s in one run, 11,1 MB/s in the next).
+{
+    var clock = new DateTimeOffset(2026, 9, 13, 12, 0, 0, TimeSpan.Zero);
+    var volume = new VolumeProfile("//nas/share", () => clock);
+
+    Check("a volume says nothing before anything has been read on it",
+        volume.MsPerCall() is null && volume.BytesPerMs() is null && volume.SampleCount == 0,
+        $"{volume.SampleCount} sample(s)");
+
+    var latencies = new List<double>();
+    for (var i = 0; i < 20; i++)
+    {
+        var ms = 20 + (i % 3);
+        latencies.Add(ms);
+        volume.Observe(2048, ms);
+    }
+
+    var median = volume.MsPerCall()!.Value;
+    var mean = latencies.Average();
+
+    // Three reads of the tail this share produces: the median must not move, and the contrast with the
+    // mean is the point of choosing it.
+    for (var i = 0; i < 3; i++)
+    {
+        latencies.Add(1290);
+        volume.Observe(2048, 1290);
+    }
+
+    var afterTail = volume.MsPerCall()!.Value;
+    var meanAfterTail = latencies.Average();
+    Check("the outlier tail this share produces does not move the profile's latency",
+        Math.Abs(afterTail - median) < 1.5,
+        $"median {median:0.00} -> {afterTail:0.00} ms, while the mean moved {mean:0.00} -> {meanAfterTail:0.00} ms");
+
+    // Throughput: bytes decide, and the slowest fifth is dropped rather than averaged in.
+    var throughput = new VolumeProfile("//nas/share", () => clock);
+    for (var i = 0; i < 8; i++)
+    {
+        throughput.Observe(100_000, 10);
+    }
+
+    for (var i = 0; i < 2; i++)
+    {
+        throughput.Observe(100_000, 1000);
+    }
+
+    var measuredMbPerSecond = throughput.BytesPerMs()!.Value / 1000.0;
+    Check("a byte-weighted, trimmed throughput ignores the slowest reads",
+        Math.Abs(measuredMbPerSecond - 10.0) < 0.5,
+        $"{measuredMbPerSecond:0.00} MB/s (a plain mean over the same reads is "
+        + $"{1000.0 * 100_000 / (8 * 10 + 2 * 1000):0.00} MB/s)");
+
+    // Decay: a sample counts half as much after a half-life, so a share that was busy ten minutes ago stops
+    // deciding what the shares answer now.
+    var decaying = new VolumeProfile("//nas/share", () => clock);
+    for (var i = 0; i < 3; i++)
+    {
+        decaying.Observe(2048, 5);
+    }
+
+    var stale = decaying.MsPerCall()!.Value;
+    clock = clock.Add(VolumeProfile.HalfLife).Add(VolumeProfile.HalfLife).Add(VolumeProfile.HalfLife);
+    decaying.Observe(2048, 100);
+    var refreshed = decaying.MsPerCall()!.Value;
+    Check("an old sample stops deciding the median once it has aged",
+        Math.Abs(stale - 5) < 0.01 && Math.Abs(refreshed - 100) < 0.01,
+        $"3 x 5 ms -> {stale:0.00} ms, then one 100 ms read three half-lives later -> {refreshed:0.00} ms");
+
+    // A pass starts from the volume and says so, without claiming it measured anything itself.
+    var seeded = new ReadPolicy(1024, ReadRoute.CueIndexed, "seeded pass", decaying);
+    Check("a pass starts from what its volume has already shown",
+        seeded.SeededFromVolume == "//nas/share" && Math.Abs(seeded.MsPerCall - 100) < 0.01,
+        $"seeded from {seeded.SeededFromVolume}, {seeded.MsPerCall:0.00} ms per read");
+    Check("the log says the numbers came from the volume, not from this pass",
+        !seeded.MeasuredOnce && seeded.DescribeProfile().Contains("already shown", StringComparison.Ordinal),
+        seeded.DescribeProfile());
+    seeded.Observe(4096, 12);
+    Check("a pass feeds its own reads back to the volume",
+        decaying.SampleCount == 5,
+        $"{decaying.SampleCount} sample(s) on the volume after one read by the pass");
+
+    var unseeded = new ReadPolicy(1024, ReadRoute.CueIndexed, "unseeded pass");
+    Check("a pass with no volume to ask still says it is deciding from the defaults",
+        unseeded.SeededFromVolume is null && !unseeded.MeasuredOnce
+        && unseeded.DescribeProfile().Contains("defaults", StringComparison.Ordinal),
+        unseeded.DescribeProfile());
+
+    // Two paths on one volume are one profile; the volume is what the storage says it is, not the path.
+    var fixtureDir = Path.GetDirectoryName(mkvScenarioPath) ?? ".";
+    var here = VolumeProfiles.KeyFor(Path.Combine(fixtureDir, "a.mkv"));
+    var alsoHere = VolumeProfiles.KeyFor(Path.Combine(fixtureDir, "sub", "b.mkv"));
+    Check("two paths on one volume resolve to one profile",
+        here == alsoHere
+        && VolumeProfiles.For(Path.Combine(fixtureDir, "a.mkv")) == VolumeProfiles.For(Path.Combine(fixtureDir, "b.mkv")),
+        $"{here} vs {alsoHere}");
+    var otherVolume = VolumeProfiles.KeyFor("/dev/shm/x.mkv");
+    if (Directory.Exists("/dev/shm"))
+    {
+        Check("a different volume is a different profile",
+            otherVolume != here,
+            $"{otherVolume} vs {here}");
+    }
+}
+
+Console.WriteLine();
 // ---------------- Matroska extraction: bytes read, not wall time ----------------
 // Fixtures are built by make_remux.py (the same generator used for the 60 GB benchmark) and
 // handed in through the environment. The assertions are about *bytes read*: on a fast local

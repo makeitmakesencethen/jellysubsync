@@ -456,7 +456,11 @@ public static class MkvSubtitleExtractor
         // One policy per pass. It is given the file's length and the route this pass starts by, and from
         // then on it is the only thing that decides a window, a fetch or a route: the cue-indexed loop, the
         // cluster walk and the shared multi-track pass all ask it and all follow what it returns.
-        var policy = new ReadPolicy(reader.Length, ReadRoute.CueIndexed, label);
+        var policy = new ReadPolicy(
+            reader.Length,
+            ReadRoute.CueIndexed,
+            label,
+            string.IsNullOrEmpty(reader.Path) ? null : VolumeProfiles.For(reader.Path));
         reader.Policy = policy;
 
         // --- EBML header, then the Segment ---
@@ -2696,13 +2700,20 @@ public static class MkvSubtitleExtractor
             return WindowSize;
         }
 
-        public BlobReader(FileStream stream)
+        public BlobReader(FileStream stream, string path = "")
         {
             _stream = stream;
             Length = stream.Length;
+            Path = path;
         }
 
         public long Length { get; }
+
+        /// <summary>
+        /// Gets the path the reader was opened from. The read policy asks it which volume the file sits on,
+        /// so the storage figures a pass starts with come from what that volume has already served.
+        /// </summary>
+        public string Path { get; }
 
         // Ranges fetched up front, kept sorted by start. The walk knows every cluster it needs before
         // it begins, and one read at a time is what makes extraction slow on network storage: measured

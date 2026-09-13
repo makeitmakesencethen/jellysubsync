@@ -347,6 +347,7 @@ public sealed class ReadPolicy
     private const double DefaultBytesPerMs = 1500;
     private const long MaxPrefetchBytes = 64L * 1024 * 1024;
 
+    private readonly VolumeProfile? _volume;
     private double _msPerCall = DefaultMsPerCall;
     private double _bytesPerMs = DefaultBytesPerMs;
     private long _sampleBytes;
@@ -359,12 +360,34 @@ public sealed class ReadPolicy
     /// <param name="fileLength">Length of the file being read, in bytes.</param>
     /// <param name="route">Route the pass starts by.</param>
     /// <param name="label">Name of the pass, for the log.</param>
-    public ReadPolicy(long fileLength, ReadRoute route, string label)
+    /// <param name="volume">
+    /// What this volume's storage has cost the reads already made on it, if the caller knows the file's
+    /// path. The pass starts from those numbers instead of the class defaults, and feeds its own reads back
+    /// into them, so the next pass on the same volume - and the next file on it - starts better informed.
+    /// The pass still measures itself as it goes: the volume's numbers are where it starts, not what it is
+    /// bound to.
+    /// </param>
+    public ReadPolicy(long fileLength, ReadRoute route, string label, VolumeProfile? volume = null)
     {
         FileLength = fileLength;
         Route = route;
         Label = label;
         CurrentWindow = InitialWindow;
+        _volume = volume;
+
+        // Seeded before the pass reads anything, which is the whole point: the first plan of a pass is the
+        // one that decides the window and whether two reads are worth merging, and until now it was priced
+        // from the defaults (0,05 ms per read, 1500 bytes per millisecond) on every share this plugin has
+        // ever run on.
+        var volumeMs = volume?.MsPerCall();
+        var volumeBytesPerMs = volume?.BytesPerMs();
+        if (volumeMs is > 0 && volumeBytesPerMs is > 0)
+        {
+            _msPerCall = volumeMs.Value;
+            _bytesPerMs = volumeBytesPerMs.Value;
+            SeededFromVolume = volume!.Key;
+            VolumeSamples = volume.SampleCount;
+        }
     }
 
     /// <summary>Gets the length of the file being read.</summary>
@@ -375,6 +398,15 @@ public sealed class ReadPolicy
 
     /// <summary>Gets the pass's name, for the log.</summary>
     public string Label { get; }
+
+    /// <summary>
+    /// Gets what these numbers were seeded from: the volume's key when the pass started from what that
+    /// volume has already shown, otherwise null for the class defaults.
+    /// </summary>
+    public string? SeededFromVolume { get; private set; }
+
+    /// <summary>Gets how many reads the volume had been fed when this pass started.</summary>
+    public int VolumeSamples { get; private set; }
 
     /// <summary>Gets the measured cost of one read, in milliseconds.</summary>
     public double MsPerCall => _msPerCall;
@@ -427,6 +459,11 @@ public sealed class ReadPolicy
         {
             return;
         }
+
+        // The volume hears about every read this pass makes, which is how a pass's knowledge outlives it
+        // without any read being taken to measure the storage: these are reads the extraction was making
+        // anyway.
+        _volume?.Observe(bytes, ms);
 
         _samples++;
         _sampleBytes += bytes;
@@ -719,23 +756,47 @@ public sealed class ReadPolicy
     /// One line naming the numbers the decisions were made from, whether they are measurements or still
     /// the defaults, and how many reads they rest on.
     /// </returns>
-    public string DescribeProfile() => MeasuredOnce
-        ? string.Format(
+    public string DescribeProfile()
+    {
+        if (MeasuredOnce)
+        {
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: storage {1:0.00} ms per read and {2:0.0} MB/s ({3} read(s) of this pass over {4} update(s)); merge gap {5} KB",
+                Label,
+                _msPerCall,
+                _bytesPerMs / 1000.0,
+                _samples,
+                _updates,
+                MergeGapBytes / 1024);
+        }
+
+        if (SeededFromVolume is not null)
+        {
+            // The distinction this line keeps: these numbers are measured, but not by this pass - they are
+            // what the volume has already shown, which is not the same as "the storage has not been
+            // measured" and must not read as either the defaults or the pass's own reading.
+            return string.Format(
+                CultureInfo.InvariantCulture,
+                "{0}: storage from what this volume has already shown ({1:0.00} ms per read, {2:0.0} MB/s over"
+                + " {3} read(s), {4}); this pass has read nothing yet; merge gap {5} KB",
+                Label,
+                _msPerCall,
+                _bytesPerMs / 1000.0,
+                VolumeSamples,
+                SeededFromVolume,
+                MergeGapBytes / 1024);
+        }
+
+        return string.Format(
             CultureInfo.InvariantCulture,
-            "{0}: storage {1:0.00} ms per read and {2:0.0} MB/s ({3} read(s) over {4} update(s)); merge gap {5} KB",
-            Label,
-            _msPerCall,
-            _bytesPerMs / 1000.0,
-            _samples,
-            _updates,
-            MergeGapBytes / 1024)
-        : string.Format(
-            CultureInfo.InvariantCulture,
-            "{0}: storage not measured yet - deciding from the defaults ({1:0.00} ms per read, {2:0.0} MB/s); merge gap {3} KB, no read observed",
+            "{0}: storage not measured yet - deciding from the defaults ({1:0.00} ms per read, {2:0.0} MB/s);"
+            + " merge gap {3} KB, no read observed",
             Label,
             _msPerCall,
             _bytesPerMs / 1000.0,
             MergeGapBytes / 1024);
+    }
 
     private static int WindowFor(IReadOnlyList<PlannedRead> reads)
     {

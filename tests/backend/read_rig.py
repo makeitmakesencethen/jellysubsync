@@ -71,8 +71,57 @@ using Jellyfin.Plugin.SubSync.Services;
 
 if (args.Length < 1)
 {
-    Console.Error.WriteLine("usage: readrig <file.mkv> [ordinal ...]");
+    Console.Error.WriteLine("usage: readrig <file.mkv> [ordinal ...]   (RIG_SEQUENCE=1: every argument is a file)");
     return 2;
+}
+
+// A sequence: one extraction per file, in this one process, in order. This is what the per-volume storage
+// profile is for - the first pass on a volume has nothing to go on, and every pass after it starts from what
+// the volume has already shown - so the rig has to be able to run several passes without a restart.
+var sequence = Environment.GetEnvironmentVariable("RIG_SEQUENCE") == "1";
+if (sequence)
+{
+    var sequenceWatch = Stopwatch.StartNew();
+    double totalBytes = 0, totalReads = 0;
+    foreach (var file in args)
+    {
+        var passWatch = Stopwatch.StartNew();
+        var passOk = MkvSubtitleExtractor.TryExtract(file, 0, out var passText, out var passReason, null, out var passStats);
+        passWatch.Stop();
+        var passFields = new Dictionary<string, object?>
+        {
+            ["sequence"] = true,
+            ["file"] = Path.GetFileName(file),
+            ["ok"] = passOk,
+            ["reason"] = passReason,
+            ["cues"] = passText.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length,
+            ["wallMs"] = passWatch.Elapsed.TotalMilliseconds,
+            ["method"] = passStats.Method,
+            ["route"] = typeof(MkvExtractionStats).GetProperty("Route")?.GetValue(passStats) ?? "n/a",
+            ["bytes"] = passStats.BytesRead,
+            ["reads"] = passStats.ReadCalls,
+            ["clusters"] = passStats.ClustersVisited,
+            ["msPerRead"] = passStats.MeasuredMsPerRead,
+            ["mbPerSecond"] = passStats.MeasuredMbPerSecond,
+            ["planLines"] = string.Join(" | ", passStats.PlanLines),
+        };
+        totalBytes += passStats.BytesRead;
+        totalReads += passStats.ReadCalls;
+        Console.WriteLine("RIG " + System.Text.Json.JsonSerializer.Serialize(passFields));
+        Console.Out.Flush();
+    }
+
+    sequenceWatch.Stop();
+    Console.WriteLine("RIG " + System.Text.Json.JsonSerializer.Serialize(new Dictionary<string, object?>
+    {
+        ["sequence"] = true,
+        ["total"] = true,
+        ["files"] = args.Length,
+        ["wallMs"] = sequenceWatch.Elapsed.TotalMilliseconds,
+        ["bytes"] = totalBytes,
+        ["reads"] = totalReads,
+    }));
+    return 0;
 }
 
 var path = args[0];
@@ -197,6 +246,8 @@ def fixture(directory, name, clusters, payload_mb, sub_every, extra=()):
 
 
 def run(dll, path, ordinals, profile):
+    files = path if isinstance(path, (list, tuple)) else [path]
+    first = pathlib.Path(files[0])
     env = dict(os.environ)
     env['DOTNET_SYSTEM_GLOBALIZATION_INVARIANT'] = '1'
     latencies = env.get('LD_LIBRARY_PATH')
@@ -207,14 +258,21 @@ def run(dll, path, ordinals, profile):
             raise SystemExit(f'build the shim first: gcc -shared -fPIC -O2 -o {SLOWREAD} '
                              f'{REPO / "tests" / "backend" / "slowread.c"} -ldl')
         env['LD_PRELOAD'] = str(SLOWREAD)
-        env['SLOWREAD_PREFIX'] = str(path.parent) + '/'
+        env['SLOWREAD_PREFIX'] = str(first.parent) + '/'
         env.update(SLOW)
-    result = subprocess.run([DOTNET, str(dll), str(path), *[str(o) for o in ordinals]],
-                            capture_output=True, text=True, env=env, timeout=3600)
-    for line in result.stdout.splitlines():
-        if line.startswith('RIG '):
-            return json.loads(line[4:])
-    raise SystemExit(f'no RIG line from {path} (exit {result.returncode})\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}')
+    if len(files) > 1:
+        env['RIG_SEQUENCE'] = '1'
+    prefixes = {str(pathlib.Path(f).parent) + '/' for f in files}
+    if len(prefixes) > 1:
+        raise SystemExit('a sequence has to run on one volume: ' + ', '.join(sorted(prefixes)))
+    command = [DOTNET, str(dll), *[str(f) for f in files]]
+    if len(files) == 1:
+        command += [str(o) for o in ordinals]
+    result = subprocess.run(command, capture_output=True, text=True, env=env, timeout=3600)
+    rows = [json.loads(line[4:]) for line in result.stdout.splitlines() if line.startswith('RIG ')]
+    if not rows:
+        raise SystemExit(f'no RIG line from {path} (exit {result.returncode})\n{result.stdout[-2000:]}\n{result.stderr[-2000:]}')
+    return rows if len(files) > 1 else rows[0]
 
 
 def describe(label, row, profile):
@@ -260,6 +318,9 @@ def main():
                         help='aggregate bandwidth of the modelled share (default 11)')
     parser.add_argument('--quick', action='store_true', help='small fixtures instead of the 0,5/1,3 GB ones')
     parser.add_argument('--json', default=None, help='append the rows to this file as JSON lines')
+    parser.add_argument('--sequence', default=None,
+                        help='comma-separated shapes extracted in sequence in ONE process, which is the only '
+                             'way to measure what one pass teaches the next about a volume')
     args = parser.parse_args()
 
     shapes = [s.strip() for s in args.shapes.split(',') if s.strip()]
@@ -282,6 +343,41 @@ def main():
           f"share={args.call_ms:g} ms/read, {args.mb_per_second:g} MB/s")
 
     rows = []
+    if args.sequence:
+        names = [s.strip() for s in args.sequence.split(',') if s.strip()]
+        paths = []
+        for name in names:
+            spec = dict(SHAPES[name])
+            extra = spec.pop('extra')
+            paths.append(fixture(fixtures_dir, spec.pop('name'), spec.pop('clusters'), spec.pop('payload_mb'),
+                                 spec.pop('sub_every'), extra))
+        for profile in profiles:
+            measured = run(dll, paths, [0], profile)
+            total = measured[-1]
+            passes = measured[:-1]
+            print(f"# rig sequence: {len(passes)} pass(es) in one process, {args.call_ms:g} ms/read, "
+                  f"{args.mb_per_second:g} MB/s", flush=True)
+            for index, row in enumerate(passes):
+                print(f"  pass {index + 1}  {row['file']:<22} {row['route']:<12} "
+                      f"{row['bytes'] / 1e6:8.2f} MB {int(row['reads']):>6} reads "
+                      f"{row['wallMs'] / 1000:8.2f} s  cues={row['cues']:<5} "
+                      f"{(row['reads'] / max(1, row['cues'])):5.2f} reads/cue", flush=True)
+            print(f"  total   {total['files']} pass(es)              "
+                  f"{total['bytes'] / 1e6:8.2f} MB {int(total['reads']):>6} reads "
+                  f"{total['wallMs'] / 1000:8.2f} s", flush=True)
+            for row in passes:
+                row.update({'shape': 'sequence', 'label': tag, 'rev': args.rev, 'profile': profile,
+                            'profileCallMs': args.call_ms, 'profileMbPerSecond': args.mb_per_second})
+                rows.append(row)
+            rows.append({'shape': 'sequence-total', 'label': tag, 'rev': args.rev, 'profile': profile,
+                         'profileCallMs': args.call_ms, 'profileMbPerSecond': args.mb_per_second, **total})
+        if args.json:
+            with open(args.json, 'a') as handle:
+                for row in rows:
+                    handle.write(json.dumps(row) + '\n')
+            print(f"# appended {len(rows)} row(s) to {args.json}")
+        return 0
+
     for shape in shapes:
         spec = dict(SHAPES[shape])
         extra = spec.pop('extra')
