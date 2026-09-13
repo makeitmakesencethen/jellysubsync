@@ -54,6 +54,17 @@ SLOWREAD = REPO / 'tests' / 'backend' / 'slowread.so'
 # "thousands of serial reads are cheap" while his server needed two minutes.
 SLOW = {'SLOWREAD_MS_PER_CALL': '10', 'SLOWREAD_MS_PER_16K': '1.46'}
 
+
+def slow_profile(call_ms, mb_per_second):
+    """The share as the shim models it: a round trip plus the bytes it carried.
+
+    Both halves are charged (see slowread.c). A profile with only the latency would call a 325 MB pass
+    cheap, and one with only the bytes would call thousands of small reads free, so a rig that wants to
+    mean what a real server's log means has to carry both.
+    """
+    return {'SLOWREAD_MS_PER_CALL': f'{call_ms:g}',
+            'SLOWREAD_MS_PER_16K': f'{16384.0 / (mb_per_second * 1000.0):g}'}
+
 PROGRAM = r"""
 using System.Diagnostics;
 using Jellyfin.Plugin.SubSync.Services;
@@ -137,7 +148,10 @@ def revision_dir(revision):
         return REPO, None
     target = WORK / f'rev-{revision}'
     if not (target / 'Jellyfin.Plugin.SubSync').is_dir():
-        subprocess.run(['git', 'worktree', 'add', '--detach', str(target), revision],
+        # run_checks.py clears .tests-work between runs, which deletes a worktree the repository still has
+        # registered: without the prune the add dies with "missing but already registered worktree".
+        subprocess.run(['git', 'worktree', 'prune'], cwd=REPO, capture_output=True, text=True)
+        subprocess.run(['git', 'worktree', 'add', '-f', '--detach', str(target), revision],
                        cwd=REPO, check=True, capture_output=True, text=True)
     return target, target
 
@@ -240,6 +254,10 @@ def main():
     parser.add_argument('--label', default=None, help='name for this run')
     parser.add_argument('--shapes', default='arcane,remux-walk', help='comma-separated fixture shapes')
     parser.add_argument('--profiles', default='slow', help='slow (fabji share), fast (local disk), both')
+    parser.add_argument('--call-ms', type=float, default=10.0,
+                        help='per-read latency of the modelled share (default 10, the user\'s Synology)')
+    parser.add_argument('--mb-per-second', type=float, default=11.0,
+                        help='aggregate bandwidth of the modelled share (default 11)')
     parser.add_argument('--quick', action='store_true', help='small fixtures instead of the 0,5/1,3 GB ones')
     parser.add_argument('--json', default=None, help='append the rows to this file as JSON lines')
     args = parser.parse_args()
@@ -250,6 +268,9 @@ def main():
                   for s in shapes]
     profiles = ['slow', 'fast'] if args.profiles == 'both' else [args.profiles]
 
+    SLOW.clear()
+    SLOW.update(slow_profile(args.call_ms, args.mb_per_second))
+
     WORK.mkdir(parents=True, exist_ok=True)
     fixtures_dir = WORK / 'rig-fixtures'
     fixtures_dir.mkdir(exist_ok=True)
@@ -257,7 +278,8 @@ def main():
     repo, _ = revision_dir(args.rev)
     tag = (args.label or args.rev).replace('/', '_')
     dll = harness(repo, tag)
-    print(f"# rig: rev={args.rev} ({repo}) tag={tag}")
+    print(f"# rig: rev={args.rev} ({repo}) tag={tag} "
+          f"share={args.call_ms:g} ms/read, {args.mb_per_second:g} MB/s")
 
     rows = []
     for shape in shapes:
@@ -268,7 +290,8 @@ def main():
         for profile in profiles:
             row = run(dll, path, [0], profile)
             row.update({'shape': shape, 'label': tag, 'rev': args.rev, 'profile': profile,
-                        'fileMb': path.stat().st_size / 1e6})
+                        'fileMb': path.stat().st_size / 1e6,
+                        'profileCallMs': args.call_ms, 'profileMbPerSecond': args.mb_per_second})
             rows.append(row)
             print(describe(shape, row, profile), flush=True)
 

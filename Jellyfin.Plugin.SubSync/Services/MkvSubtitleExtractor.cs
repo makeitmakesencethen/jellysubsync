@@ -54,6 +54,13 @@ public sealed class MkvExtractionStats
     /// <summary>Gets the expected-versus-actual line of every phase this pass planned.</summary>
     public List<string> PlanLines { get; } = new();
 
+    /// <summary>
+    /// Gets or sets how many of those lines report a bound rather than an estimate - a plan whose cost
+    /// cannot be known before the work (the walk stops once it has found what it came for). They carry
+    /// <see cref="ReadPolicy.BoundNote"/> in the log so the gap is visible instead of looking verified.
+    /// </summary>
+    public int PlanBound { get; set; }
+
     /// <summary>Gets or sets the route the pass read by.</summary>
     public string Route { get; set; } = "unknown";
 
@@ -799,6 +806,7 @@ public static class MkvSubtitleExtractor
 
             var (cueLine, cueMissed) = policy.Compare(cuePlan, reader.BytesRead - cueBytesBefore, reader.ReadCalls - cueCallsBefore);
             stats.PlanLines.Add(cueLine);
+            stats.PlanBound += cuePlan.Coarse ? 1 : 0;
             stats.PlanExpectedBytes += cuePlan.ExpectedBytes;
             stats.PlanExpectedCalls += cuePlan.ExpectedCalls;
             stats.PlanMissed += cueMissed ? 1 : 0;
@@ -858,6 +866,7 @@ public static class MkvSubtitleExtractor
 
             var (walkLine, walkMissed) = policy.Compare(walkPlan, reader.BytesRead - walkBytesBefore, reader.ReadCalls - walkCallsBefore);
             stats.PlanLines.Add(walkLine);
+            stats.PlanBound += walkPlan.Coarse ? 1 : 0;
             stats.PlanExpectedBytes += walkPlan.ExpectedBytes;
             stats.PlanExpectedCalls += walkPlan.ExpectedCalls;
             stats.PlanMissed += walkMissed ? 1 : 0;
@@ -1122,6 +1131,7 @@ public static class MkvSubtitleExtractor
 
             var (sharedLine, sharedMissed) = policy.Compare(sharedPlan, reader.BytesRead - sharedBytesBefore, reader.ReadCalls - sharedCallsBefore);
             stats.PlanLines.Add(sharedLine);
+            stats.PlanBound += sharedPlan.Coarse ? 1 : 0;
             stats.PlanExpectedBytes += sharedPlan.ExpectedBytes;
             stats.PlanExpectedCalls += sharedPlan.ExpectedCalls;
             stats.PlanMissed += sharedMissed ? 1 : 0;

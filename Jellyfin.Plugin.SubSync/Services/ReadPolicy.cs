@@ -308,6 +308,13 @@ public sealed class ReadLedger
 /// </summary>
 public sealed class ReadPolicy
 {
+    /// <summary>
+    /// What the log appends to a plan whose expected cost is an upper bound rather than an estimate. It is
+    /// public and constant because the checks assert it is present exactly where a bound is reported: a
+    /// prediction that silently passes whatever the pass does is worse than no prediction at all.
+    /// </summary>
+    public const string BoundNote = " [bound, not verified]";
+
     /// <summary>Smallest window the reader may use, in bytes.</summary>
     public const int MinWindow = 512;
 
@@ -659,7 +666,12 @@ public sealed class ReadPolicy
     /// <param name="plan">The plan the pass ran by.</param>
     /// <param name="actualBytes">Bytes the pass read.</param>
     /// <param name="actualCalls">Read calls the pass made.</param>
-    /// <returns>One line for the log, and a flag saying whether it missed by more than a factor of two.</returns>
+    /// <returns>
+    /// One line for the log, and a flag saying whether it missed by more than a factor of two. A plan that
+    /// is an upper bound returns false here and says so in the line: the walk stops once it has found what
+    /// it came for, so what it will cost is not knowable from the index and a bound tight enough to warn on
+    /// would warn wrongly. The line carries "bound, not verified" instead of reading as a verified check.
+    /// </returns>
     public (string Line, bool Missed) Compare(ReadPlan plan, long actualBytes, int actualCalls)
     {
         var expectedBytes = Math.Max(1, plan.ExpectedBytes);
@@ -669,7 +681,7 @@ public sealed class ReadPolicy
         var missed = !plan.Coarse && (byteRatio > 2.0 || byteRatio < 0.5 || callRatio > 2.0 || callRatio < 0.5);
         var line = string.Format(
             CultureInfo.InvariantCulture,
-            "extract plan: {0} {1} expected {2:0.00} MB/{3} read(s) ({4:0.0} ms), actual {5:0.00} MB/{6} read(s) ({7:0.0} ms) - bytes {8:0.00}x, reads {9:0.00}x",
+            "extract plan: {0} {1}{10} expected {2:0.00} MB/{3} read(s) ({4:0.0} ms), actual {5:0.00} MB/{6} read(s) ({7:0.0} ms) - bytes {8:0.00}x, reads {9:0.00}x",
             Label,
             plan.RouteLabel,
             expectedBytes / 1e6,
@@ -679,7 +691,8 @@ public sealed class ReadPolicy
             actualCalls,
             Price(actualBytes, actualCalls),
             byteRatio,
-            callRatio);
+            callRatio,
+            plan.Coarse ? BoundNote : string.Empty);
         return (line, missed);
     }
 

@@ -494,6 +494,22 @@ foreach (var scenario in mkvScenarios)
     Check($"the pass never reads more than the file plus one window ({scenario.Name})",
         mkvStats.BytesRead <= new FileInfo(scenario.Path).Length + ReadPolicy.MaxWindow,
         $"{mkvStats.BytesRead / 1e6:0.00} MB read of {fileMb:0.0} MB");
+
+    // A plan that is a bound rather than an estimate must not read as a verified check. The walk stops once
+    // it has found the blocks it came for, so what it will cost is not knowable from the index and a bound
+    // tight enough to warn on would warn wrongly - so the line says so, and these two checks keep the gap
+    // visible: exactly the bounded plans carry the marker, a plan the index fully locates never does, and
+    // the walk's cost is held to something that *can* fail (one window per cluster it visits).
+    var markedAsBound = mkvStats.PlanLines.Count(line => line.Contains(ReadPolicy.BoundNote));
+    Check($"the log marks exactly the plans that are bounds ({scenario.Name})",
+        markedAsBound == mkvStats.PlanBound,
+        $"{mkvStats.PlanBound} bounded plan(s), {markedAsBound} marked line(s) of {mkvStats.PlanLines.Count}");
+    Check($"a plan the index fully locates is not called a bound ({scenario.Name})",
+        scenario.Name != "with subtitle cue points" || mkvStats.PlanBound == 0,
+        mkvStats.PlanBound + " bounded plan(s)");
+    Check($"the walk reads about one window per cluster ({scenario.Name})",
+        scenario.Method != "metadata-scan" || mkvStats.ReadCalls <= (mkvStats.ClustersVisited * 3) + 64,
+        $"{mkvStats.ReadCalls} read(s) for {mkvStats.ClustersVisited} cluster(s)");
 }
 
 // The indexed path must never read more than walking the clusters to find the same subtitles:
@@ -606,12 +622,17 @@ bool AnyOverlap(IEnumerable<PlannedRead> reads)
     return false;
 }
 
+// The profiles are the storage classes the read pattern has to be right for: a local disk, a share that
+// charges per round trip (fabji's, ~10 ms), one that is merely slow at bytes (11 MB/s), one that is both,
+// and a share slow enough per read that no amount of parallel prefetch can hide a read per cue (50 ms is
+// where the cue-indexed route's 2 calls per cue stop being free - see knowledge/FIX_PLAN.md R1).
 var matrixProfiles = new (string Name, double LatencyMs, double MbPerSecond)[]
 {
     ("fast", 0.05, 1500),
     ("10 ms/read", 10.0, 1500),
     ("11 MB/s", 0.05, 11),
     ("slow at both", 10.0, 11),
+    ("50 ms/read", 50.0, 1500),
 };
 
 var matrixShapes = new[] { "blocks early", "blocks late", "no block offsets", "no cue index" };
@@ -673,10 +694,16 @@ foreach (var shape in matrixShapes)
             var costMb = plan.ExpectedBytes / 1e6;
             var planKind = plan.Coarse ? "bounded, not exact" : "exact";
 
+            // What the plan would cost on this storage if its reads went out one at a time, and what the
+            // prefetch width actually leaves: calls / 16 rounds of latency. Both matter - the second is why a
+            // read-per-cue route survives a slow share, and the first is what it costs when it does not.
+            var serialMs = plan.ExpectedCalls * policy.MsPerCall;
+            var overlappedMs = (double)plan.ExpectedCalls / ReadPolicy.PrefetchParallelism * profile.LatencyMs;
             Console.WriteLine(
                 $"  {shape,-18} {tracks,2} track(s)  {profile.Name,-13} {plan.RouteLabel,-12} "
                 + $"{plan.ExpectedCalls,7} calls  {costMb,8:0.0} MB  window {plan.WindowBytes / 1024,4} KB  "
-                + $"({policy.MsPerCall:0.00} ms/read measured, {planKind})");
+                + $"({policy.MsPerCall:0.00} ms/read measured, {planKind})  "
+                + $"waiting: {serialMs / 1000,7:0.00} s serial, {overlappedMs / 1000,6:0.00} s at 16 wide");
 
             matrixRows.Add((shape, tracks, profile.Name, plan.RouteLabel, plan.ExpectedCalls, plan.ExpectedBytes, plan.Coarse));
 

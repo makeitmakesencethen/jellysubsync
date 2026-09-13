@@ -365,8 +365,13 @@ or `policy.WalkWindow` (the walk re-prices itself from its own reads).
   Bytes a fetch covers that the *location* phase read before it (`BytesFetchedOverDisk`) are unavoidable
   and bounded by one window.
 - **The plan is compared with the result** (`Compare`): each phase prints expected MB/reads beside actual,
-  a miss beyond 2x logs a warning, and a plan that is an upper bound rather than an estimate
-  (`PlanWalk`, a cue plan that has clusters to walk) says `coarse: true` so the log does not cry wolf.
+  and a miss beyond 2x logs a warning. A plan that is an upper bound rather than an estimate (`PlanWalk`,
+  a cue plan that has clusters to walk) cannot be held to that: the walk stops once it has found the
+  blocks it came for, so what it will cost is not knowable from the index and a bound tight enough to warn
+  would warn wrongly. Those plans carry `ReadPolicy.BoundNote` (` [bound, not verified]`) in the log line,
+  and the checks assert the marker is on exactly the bounded plans - a prediction that silently passes
+  whatever the pass does is worse than no prediction, because it reads as verification (see FIX_PLAN R2).
+  The walk's cost is held to something that *can* fail instead: one window per cluster it visits.
 - **`tests/backend/read_rig.py` measures a revision against a modelled share** (10 ms per read **and**
   11 MB/s, `slowread.so` charges both) with before/after building the older revision in a git worktree - the
   numbers in the 2.0.24 changelog come from it. Beta releases are commits, not tags: pass a commit.
