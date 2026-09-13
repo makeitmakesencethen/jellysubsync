@@ -4,6 +4,62 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.24 (beta)
+
+One policy decides how a pass reads the file, and it decides from what the storage costs while the pass runs.
+
+Extraction chose its read window in three separate places - the cue-indexed loop, the cluster walk and the
+shared multi-track pass - from a constant, or from a probe taken before the work started. The probe's own
+numbers swing by two orders of magnitude while other jobs load the same disk (0,4 ms and 255 ms per 16 KB on
+one box within minutes), and the constants were wrong in both directions: a walk-sized window leaked into
+reads whose position the index had named exactly (779 cues, a 4 MB window each, 3,2 GB moved to collect
+~50 KB of text), and a 4 KB window made every cue a round trip on a share that charges for one.
+
+- **`ReadPolicy` is the one decision.** A pass is handed a `ReadPlan` - the route, the window for reads the
+  plan did not foresee, the reads it expects to make, and what it therefore expects to cost. The cue-indexed
+  path, the cluster walk and the shared pass all take their plan from it and follow it; every window set
+  afterwards comes from the policy.
+- **The storage is measured from the reads the pass is making**: milliseconds per read call and bytes per
+  millisecond, both updated as it runs and both logged (`extract profile: ... storage 10,18 ms per read,
+  0,4 MB/s measured over the pass's own reads`). A read answered from a fetched range is not billed as a read.
+- **The alternatives are priced, not pinned to a ratio**: covering a cluster's blocks in one read against one
+  read per block header, and merging two nearby block reads into one when the bytes between them cost less
+  than the round trip they save.
+- **Every phase states its expected cost and prints it beside the actual**, and a pass that misses its own
+  prediction by more than a factor of two logs a warning with the numbers.
+- **A ledger inside the pass counts the waste**: ranges fetched that no read used, and reads that went to the
+  file for bytes the pass already held. Both are logged, both must stay at zero, and neither could be seen
+  before - 2.0.23 fetched 118,3 MB and then read past it without the log saying so.
+- **The regression suite grew a matrix** (`python3 tests/run_checks.py`): cue index that locates its blocks /
+  one that does not / no cue index at all, x 1 track / 32 tracks, x four storage profiles (fast, 10 ms per
+  read, 11 MB/s, both), asserting the route chosen and the cost planned for every cell, all synthetic. On the
+  fixtures it asserts the on-disk form of the invariants: no fetch unused, no read past the fetch, never more
+  bytes than the file plus one window, and every phase's plan matching what it cost.
+
+Measured with `python3 tests/backend/read_rig.py`, which runs the real extraction over a 0,5 GB episode whose
+subtitle blocks sit most of a megabyte into their cluster, and a 1,3 GB remux whose cue index does not locate
+its blocks, on a share modelled as 10 ms per read **and** 11 MB/s (the numbers from fabji's own plugin log):
+
+| pass | 2.0.23 | 2.0.24 |
+|---|---|---|
+| 0,5 GB episode, blocks late | 325,21 MB / 338 reads / 16,51 s | 0,65 MB / 527 reads / 1,54 s |
+| 1,3 GB remux, no block offsets | 1086,48 MB / 275 reads / 100,07 s | 1,08 MB / 267 reads / 2,92 s |
+
+- Both passes now read the subtitle, not the file: 500x fewer bytes on the episode (1,54 s against 16,51 s)
+  and 1000x fewer on the remux (2,92 s against 100,07 s), on the same storage and the same code path.
+- **Three defects this work found in itself, all fixed here.** (1) The prefetch ceiling was only checked for
+  ranges that did not merge, so 32 blocks four kilobytes apart merged into one range per cluster and a pass
+  that planned to fetch 67,1 MB fetched 119,2 MB. (2) Each phase measured its own cost from *after* its plan
+  had been applied - including the prefetch the plan asks for - so a pass that followed its plan exactly
+  reported "0,00 MB, 0 read(s)" and was flagged as missing a prediction it had met. (3) The rig's storage
+  model charged the per-read latency *instead of* the per-byte cost, so a pass that moved 325 MB looked 30 s
+  cheaper than it is on the share it models; it charges both now, which is what the numbers above are
+  measured with.
+- **What this does not change**: a pass whose plan is a bound rather than an estimate (the cluster walk says
+  "about the region" and stops when it has found what it needs) is marked coarse and is not compared for a
+  miss, and the cue-indexed route still plans one read per located block, so its read count follows the cue
+  count even where the storage charges per read. The bytes are what the fetches and the ledger bound.
+
 ## 2.0.23 (beta)
 
 The prefetched ranges now start at the cluster, so the pass finally reads from memory.

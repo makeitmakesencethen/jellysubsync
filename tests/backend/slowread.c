@@ -1,14 +1,20 @@
 /* slowread.so — put a real per-read latency on one directory, so a local NVMe can stand in for
- * the user's NAS (~12,8 ms per 16 KB read) without root, FUSE or a loop device.
+ * the user's NAS without root, FUSE or a loop device.
  *
  * There is no /dev/fuse and no privileges in this container, so a throttled block device or a
  * FUSE filesystem is not available. LD_PRELOAD is: the shim intercepts pread/pread64/read/readv,
- * resolves the descriptor to its path through /proc/self/fd and sleeps proportionally to the
- * bytes actually returned, but only for paths under SLOWREAD_PREFIX. Everything else is passed
- * straight through with no added cost.
+ * resolves the descriptor to its path through /proc/self/fd and sleeps before returning, but only
+ * for paths under SLOWREAD_PREFIX. Everything else is passed straight through with no added cost.
  *
  *   SLOWREAD_PREFIX=/opt/data/jf12test/media-slow/   (default)
- *   SLOWREAD_MS_PER_16K=12.8                         (default)
+ *   SLOWREAD_MS_PER_16K=12.8                         (default when neither is given)
+ *   SLOWREAD_MS_PER_CALL=10                          (a share that charges per round trip)
+ *
+ * BOTH halves are charged when both are set: the round trip and the bytes it carried. Charging
+ * only one is what made earlier benchmarks wrong in both directions - the per-call term alone says
+ * a 325 MB pass costs a few round trips, the per-byte term alone says the thousands of small reads
+ * cost nothing. fabji's share is 10 ms per read AND ~11 MB/s (1,46 ms per 16 KB), so a pass that
+ * reads 325 MB there spends ~30 s on the bytes however its reads are arranged.
  *
  * Build:  gcc -shared -fPIC -O2 -o slowread.so slowread.c -ldl
  */
@@ -40,6 +46,8 @@ static struct {
 } cache[CACHE];
 
 static double ns_per_call;
+static int charge_bytes;
+static int charge_calls;
 
 static void init(void)
 {
@@ -57,6 +65,10 @@ static void init(void)
        extractor's read pattern has to be right for. */
     const char *c = getenv("SLOWREAD_MS_PER_CALL");
     ns_per_call = ((c && *c) ? atof(c) : 0.0) * 1e6;
+    charge_bytes = m && *m;
+    charge_calls = c && *c;
+    if (!charge_bytes && !charge_calls)
+        charge_bytes = 1; /* neither given: the plain per-16 KB profile */
     ready = 1;
 }
 
@@ -89,7 +101,11 @@ static void charge(ssize_t got)
 {
     if (got <= 0)
         return;
-    double ns = ns_per_call > 0.0 ? ns_per_call : ((double)got / 16384.0) * ns_per_16k;
+    double ns = 0.0;
+    if (charge_calls)
+        ns += ns_per_call;
+    if (charge_bytes)
+        ns += ((double)got / 16384.0) * ns_per_16k;
     if (ns <= 0)
         return;
     struct timespec ts;

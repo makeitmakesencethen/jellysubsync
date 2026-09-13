@@ -342,3 +342,31 @@ logs the decision.
 
 `MediaVolume.Of` maps a path to its mount point + device via `/proc/mounts` (longest match
 wins), falling back to the path root where that file does not exist.
+
+## One read policy decides a pass (2.0.24)
+
+`Services/ReadPolicy.cs` owns every decision about how a pass reads the file: which route it takes, the
+window for reads the plan did not foresee, which ranges are fetched up front, and what the pass should
+therefore cost. The cue-indexed loop, the cluster walk and the shared multi-track pass each ask it for a
+`ReadPlan` (`PlanIndexedReads` / `PlanWalk` / `PlanSharedReads`) and follow it - `BlobReader.Apply(plan)`
+sets the window and issues the fetch - and the only windows set afterwards come from `policy.ClusterWindow`
+or `policy.WalkWindow` (the walk re-prices itself from its own reads).
+
+- **Nothing decides a window from a constant or from a pre-work probe.** `Observe(bytes, ms)` is called by
+  every read the pass makes; the policy averages it into milliseconds per call and bytes per millisecond,
+  and `Price(bytes, calls)` is what every choice is made against. A probe taken before the work reported
+  0,4 ms and 255 ms per 16 KB within minutes on one box, which is why the pass measures its own reads.
+- **Windows are bounded by `ReadPolicy.MinWindow` (512 B) and `ReadPolicy.MaxWindow` (4 MB)**, both in the
+  policy: `MkvSubtitleExtractor` names no window literal, and a check fails if one appears.
+- **`ReadLedger` is the accounting.** `RecordFetchedRange` / `RecordDiskRead` / `RecordServedFromMemory`
+  make two things checkable that used to be invisible: a fetched range no read used
+  (`UnusedFetchedRanges`) and bytes a read went to the file for after they were fetched
+  (`BytesReadAfterFetch`). The second one is the 2.0.23 bug; both must be zero, and both are logged.
+  Bytes a fetch covers that the *location* phase read before it (`BytesFetchedOverDisk`) are unavoidable
+  and bounded by one window.
+- **The plan is compared with the result** (`Compare`): each phase prints expected MB/reads beside actual,
+  a miss beyond 2x logs a warning, and a plan that is an upper bound rather than an estimate
+  (`PlanWalk`, a cue plan that has clusters to walk) says `coarse: true` so the log does not cry wolf.
+- **`tests/backend/read_rig.py` measures a revision against a modelled share** (10 ms per read **and**
+  11 MB/s, `slowread.so` charges both) with before/after building the older revision in a git worktree - the
+  numbers in the 2.0.24 changelog come from it. Beta releases are commits, not tags: pass a commit.

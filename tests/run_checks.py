@@ -456,6 +456,44 @@ foreach (var scenario in mkvScenarios)
             mkvStats.ReadCalls <= (found * 2) + overhead,
             $"{mkvStats.ReadCalls} reads for {found} cues ({(double)mkvStats.ReadCalls / Math.Max(1, found):0.00} per cue)");
     }
+
+    // The on-disk form of "no byte is read twice": every range the pass fetched was used by a read, and
+    // no read went to the file for bytes the pass already held. The 2.0.23 bug - 118,3 MB fetched and
+    // then ignored, because the ranges missed the cluster head every block read starts with - shows up
+    // on the first of these.
+    Check($"every fetched range was used by a read ({scenario.Name})",
+        mkvStats.PrefetchedUnusedRanges == 0,
+        $"{mkvStats.PrefetchedUnusedRanges} of {mkvStats.PrefetchedRanges} ranges unused, "
+        + $"{mkvStats.PrefetchedUnusedBytes / 1e6:0.00} MB of {mkvStats.PrefetchedBytes / 1e6:0.00} MB fetched");
+    // A read must never go to the file for bytes the pass had already fetched - that is the fetched range
+    // failing to cover the read it was made for. The bytes a fetch covers that the location phase read
+    // before it are unavoidable (the SeekHead walk reads those headers before the pass knows its route)
+    // and are bounded by one window, so they are reported apart from it.
+    Check($"no read goes to the file past the fetch ({scenario.Name})",
+        mkvStats.BytesReadAfterFetch == 0,
+        $"{mkvStats.BytesReadAfterFetch / 1e6:0.00} MB read past the fetch "
+        + $"(location overlap {mkvStats.BytesFetchedOverDisk / 1e6:0.00} MB, total twice {mkvStats.BytesReadTwice / 1e6:0.00} MB)");
+    Check($"a fetch overlaps the location reads by no more than one window ({scenario.Name})",
+        mkvStats.BytesFetchedOverDisk <= ReadPolicy.MaxWindow,
+        $"{mkvStats.BytesFetchedOverDisk / 1e6:0.00} MB");
+    Check($"the fetch serves the reads it was made for ({scenario.Name})",
+        scenario.Method != "seekhead-cues" || mkvStats.MemoryServedReads > 0,
+        $"{mkvStats.MemoryServedReads} of {mkvStats.ReadCalls} reads answered from memory");
+    // "The policy predicts, the log compares": every phase states its expected cost, the pass prints
+    // expected beside actual, and a pass that misses its own prediction by more than 2x is a warning in
+    // the log and a failure here.
+    Check($"the plan matched what the pass cost ({scenario.Name})",
+        mkvStats.PlanMissed == 0 && mkvStats.PlanLines.Count > 0,
+        mkvStats.PlanMissed + " miss(es) of " + mkvStats.PlanLines.Count + " plan(s): "
+        + string.Join(" | ", mkvStats.PlanLines));
+    Check($"the pass names its route and the storage it measured ({scenario.Name})",
+        mkvStats.Route == (scenario.Method == "metadata-scan" ? "cluster-walk" : "cue-indexed")
+        && mkvStats.MeasuredMsPerRead > 0,
+        $"route={mkvStats.Route}, {mkvStats.MeasuredMsPerRead:0.000} ms/read, "
+        + $"{mkvStats.MeasuredMbPerSecond:0.0} MB/s");
+    Check($"the pass never reads more than the file plus one window ({scenario.Name})",
+        mkvStats.BytesRead <= new FileInfo(scenario.Path).Length + ReadPolicy.MaxWindow,
+        $"{mkvStats.BytesRead / 1e6:0.00} MB read of {fileMb:0.0} MB");
 }
 
 // The indexed path must never read more than walking the clusters to find the same subtitles:
@@ -520,6 +558,157 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
     Check("the shared pass returns every track's cues",
         manyStats.SubtitleBlocks + manyStats.AlsoBlocks == separateCues,
         $"{manyStats.SubtitleBlocks} + {manyStats.AlsoBlocks} vs {separateCues}");
+}
+
+// ---------------- The read policy: one decision, asserted across the matrix ----------------
+// One component decides the route and the cost of a pass. These cells are synthetic on purpose: a cue
+// index that locates its blocks and one that does not, one track and 32, against four storage profiles
+// - no single fixture can be all of those at once, and the shape that matters (a subtitle block most of
+// a megabyte into its cluster) is the shape a real server reported.
+//
+// A profile is (ms per read, MB/s), fed to the policy the way a real pass feeds it: by timing the reads
+// the plan itself would make (Observe), never by a probe taken before the work. The pass is then
+// re-planned from what it measured, which is the loop the extractor runs.
+var policyFile = 8L * 1000 * 1000 * 1000;
+const int policyClusters = 800;
+const long policyClusterBytes = 1_000_000;
+const long policyFirstCluster = 12_000_000;
+
+List<(long ClusterStart, long BlockStart)> MatrixLayout(long blockOffset, int tracks)
+{
+    var blocks = new List<(long, long)>(policyClusters * tracks);
+    for (var cluster = 0; cluster < policyClusters; cluster++)
+    {
+        var start = policyFirstCluster + (cluster * policyClusterBytes);
+        for (var track = 0; track < tracks; track++)
+        {
+            blocks.Add((start, Math.Min(start + blockOffset + (track * 4096), start + policyClusterBytes - 4096)));
+        }
+    }
+
+    return blocks;
+}
+
+double StorageTimeMs(long bytes, double latencyMs, double mbPerSecond) =>
+    latencyMs + (bytes / (mbPerSecond * 1000.0));
+
+bool AnyOverlap(IEnumerable<PlannedRead> reads)
+{
+    var sorted = reads.OrderBy(r => r.Start).ToList();
+    for (var i = 1; i < sorted.Count; i++)
+    {
+        if (sorted[i].Start < sorted[i - 1].End)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+var matrixProfiles = new (string Name, double LatencyMs, double MbPerSecond)[]
+{
+    ("fast", 0.05, 1500),
+    ("10 ms/read", 10.0, 1500),
+    ("11 MB/s", 0.05, 11),
+    ("slow at both", 10.0, 11),
+};
+
+var matrixShapes = new[] { "blocks early", "blocks late", "no block offsets", "no cue index" };
+var matrixTracks = new[] { 1, 32 };
+var matrixRows = new List<(string Shape, int Tracks, string Profile, string Route, int Calls, long Bytes, bool Coarse)>();
+
+Console.WriteLine();
+Console.WriteLine("read policy matrix (route, planned calls, planned MB, window KB):");
+foreach (var shape in matrixShapes)
+{
+    foreach (var tracks in matrixTracks)
+    {
+        foreach (var profile in matrixProfiles)
+        {
+            var policy = new ReadPolicy(policyFile, ReadRoute.CueIndexed, "matrix");
+            ReadPlan plan = null;
+
+            // Plan, then pay for that plan at this storage's prices, then re-plan: three rounds is what a
+            // pass does when it prefetches, walks, and re-prices its window from its own reads.
+            for (var round = 0; round < 3; round++)
+            {
+                var clusters = new List<long>();
+                for (var cluster = 0; cluster < policyClusters; cluster++)
+                {
+                    clusters.Add(policyFirstCluster + (cluster * policyClusterBytes));
+                }
+
+                plan = shape switch
+                {
+                    "blocks early" => tracks == 1
+                        ? policy.PlanIndexedReads(MatrixLayout(20_000, 1), Array.Empty<long>(), shape)
+                        : policy.PlanSharedReads(MatrixLayout(20_000, tracks), Array.Empty<(long, long)>(), shape),
+                    "blocks late" => tracks == 1
+                        ? policy.PlanIndexedReads(MatrixLayout(900_000, 1), Array.Empty<long>(), shape)
+                        : policy.PlanSharedReads(MatrixLayout(900_000, tracks), Array.Empty<(long, long)>(), shape),
+                    "no block offsets" => tracks == 1
+                        ? policy.PlanIndexedReads(Array.Empty<(long, long)>(), clusters, shape)
+                        : policy.PlanSharedReads(Array.Empty<(long, long)>(), clusters.Select(c => (c, c + Math.Min(policyClusterBytes, ReadPolicy.MaxWindow))).ToList(), shape),
+                    _ => policy.PlanWalk(policyFirstCluster, policyFile, policyClusters),
+                };
+
+                var reads = plan.Fetches.Count > 0 ? plan.Fetches : plan.Reads;
+                foreach (var read in reads)
+                {
+                    policy.Observe(read.Length, StorageTimeMs(read.Length, profile.LatencyMs, profile.MbPerSecond));
+                }
+            }
+
+            var expectedRoute = shape == "no cue index" ? ReadRoute.ClusterWalk
+                : (tracks == 1 ? ReadRoute.CueIndexed : ReadRoute.SharedPass);
+            var inside = plan.Reads.All(r => r.Start >= 0 && r.End <= policyFile)
+                && plan.Fetches.All(f => f.Start >= 0 && f.End <= policyFile);
+            var fetchOverlap = AnyOverlap(plan.Fetches);
+            // A fetched range must be made for reads the pass will really make: bytes fetched for nothing
+            // are the 2.0.23 bug in its general form (118,3 MB fetched, then read past).
+            var fetchWasted = plan.Fetches.Any(f => !plan.Reads.Any(r => r.Start <= f.Start && r.End >= f.End));
+            var windowOk = plan.WindowBytes >= ReadPolicy.MinWindow && plan.WindowBytes <= ReadPolicy.MaxWindow;
+            var measured = policy.MsPerCall >= profile.LatencyMs * 0.5;
+            var costMb = plan.ExpectedBytes / 1e6;
+            var planKind = plan.Coarse ? "bounded, not exact" : "exact";
+
+            Console.WriteLine(
+                $"  {shape,-18} {tracks,2} track(s)  {profile.Name,-13} {plan.RouteLabel,-12} "
+                + $"{plan.ExpectedCalls,7} calls  {costMb,8:0.0} MB  window {plan.WindowBytes / 1024,4} KB  "
+                + $"({policy.MsPerCall:0.00} ms/read measured, {planKind})");
+
+            matrixRows.Add((shape, tracks, profile.Name, plan.RouteLabel, plan.ExpectedCalls, plan.ExpectedBytes, plan.Coarse));
+
+            Check($"matrix {shape} / {tracks} track(s) / {profile.Name}: {plan.RouteLabel}, {plan.ExpectedCalls} reads, {costMb:0.0} MB planned",
+                plan.Route == expectedRoute && inside && !fetchOverlap && !fetchWasted && windowOk && measured,
+                $"route {plan.RouteLabel} (want {expectedRoute}), window {plan.WindowBytes / 1024} KB, measured {policy.MsPerCall:0.00} ms/read, "
+                + $"inside the file {inside}, overlapping fetch {fetchOverlap}, fetch no read used {fetchWasted}");
+        }
+    }
+}
+
+// The 2.0.5 leak guard, kept: where the index locates the blocks, a cue-indexed pass on cheap storage
+// reads a small fraction of the file. Where it does not, reading about the file is the trade the walk
+// makes on purpose, so the guard names the cells it applies to.
+foreach (var row in matrixRows.Where(r => (r.Shape == "blocks early" || r.Shape == "blocks late") && r.Profile == "fast"))
+{
+    Check($"matrix {row.Shape} / {row.Tracks} track(s) on cheap storage reads a fraction of the file",
+        row.Bytes < policyFile * 0.2,
+        $"{row.Bytes / 1e6:0.0} MB of {policyFile / 1e6:0.0} MB ({100.0 * row.Bytes / policyFile:0.00}%)");
+}
+
+// Sharing is the only reason the multi-track pass exists: 32 tracks in one pass must not cost 32 passes.
+foreach (var shape in new[] { "blocks early", "blocks late" })
+{
+    foreach (var profile in matrixProfiles)
+    {
+        var oneTrack = matrixRows.First(r => r.Shape == shape && r.Tracks == 1 && r.Profile == profile.Name);
+        var thirtyTwo = matrixRows.First(r => r.Shape == shape && r.Tracks == 32 && r.Profile == profile.Name);
+        Check($"matrix {shape} / {profile.Name}: 32 tracks in one pass cost far less than 32 passes",
+            thirtyTwo.Calls * 4 < oneTrack.Calls * 32,
+            $"{thirtyTwo.Calls} reads shared vs {oneTrack.Calls * 32} separate ({oneTrack.Calls} per track)");
+    }
 }
 
 // Our own synced sidecars carry a marker that Jellyfin reads as a language name, so they must never
@@ -1644,47 +1833,73 @@ def run_page_checks():
                not problems,
                problems[:3] if problems else '')
 
-    # The window fix that made 2.0.5 slower than 2.0.4 on a real server: a walk-sized window leaked
-    # into reads at positions the cue index had named exactly, so 779 cues each pulled a 4 MB window
-    # (3.2 GB moved to collect ~50 KB of text). A read at a known position must always set its own
-    # small window, and the shared pass must never use the whole-file window.
+    # The window fix that made 2.0.5 slower than 2.0.4 on a real server: a walk-sized window leaked into
+    # reads at positions the cue index had named exactly, so 779 cues each pulled a 4 MB window (3.2 GB
+    # moved to collect ~50 KB of text). 2.0.24 makes that one decision instead of three: a pass is handed a
+    # plan, follows it, and every window it sets afterwards comes from the policy. So what is checked here
+    # is that the decision has one home and nowhere else decides - the reads themselves are asserted on
+    # real fixtures (see the Matroska section) and across the shape x storage matrix.
     extractor_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                          'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
-    report('a read at a known position sets its own window',
-           extractor_source.count('WindowSize = reader.IndexWindow') == 1
-           and 'catastrophic here' in extractor_source,
-           extractor_source.count('WindowSize = reader.IndexWindow'))
-    # ...and that window is chosen from a measurement, not from one storage's behaviour: the probe times
-    # both a small read (round-trip cost) and a large one (what a round trip carries), and the cue window
-    # is the bytes one round trip can carry. Hard-coded at 4 KB this cost one round trip per cue on a
-    # share that charges per round trip - 784 reads carrying 5,4 MB in a 21 s pass.
-    # 2.0.22: a probe taken before the work cannot size this. On one box the same probe reported 0,4 ms and
-    # 255 ms per 16 KB within minutes, because other jobs and lanes were loading the same disk, so the pass
-    # measures its own reads and grows or shrinks the window from what they cost.
-    report('the cue window adapts from the reads the pass actually measures',
-           'reader.IndexWindow = IndexedWindowSize;' in extractor_source
-           and 'private void NoteReadCost(double ms)' in extractor_source
-           and 'average >= 4.0 && IndexWindow < MaxIndexWindow' in extractor_source
-           and 'average <= 0.5 && IndexWindow > MinIndexWindow' in extractor_source)
-    report('a larger cue window is still served from the window cache, not one read per cue',
-           'TryReadAhead(position, destination)' in extractor_source
-           and extractor_source.count('_windowStart + _windowLength') >= 1)
+    policy_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                      'ReadPolicy.cs'), encoding='utf-8').read()
+    report('a pass reads by the plan the policy made',
+           'reader.Apply(cuePlan' in extractor_source
+           and 'reader.Apply(walkPlan' in extractor_source
+           and 'reader.Apply(sharedPlan' in extractor_source
+           and 'policy.PlanIndexedReads(' in extractor_source
+           and 'policy.PlanWalk(' in extractor_source
+           and 'policy.PlanSharedReads(' in extractor_source)
+    window_lines = [line.strip() for line in extractor_source.splitlines()
+                    if 'WindowSize =' in line or ('WindowSize {' in line and 'ReadPolicy' in line)]
+    report('no window is chosen outside the policy',
+           window_lines
+           and all('ReadPolicy.' in line and ('plan.WindowBytes' in line or 'window' in line
+                                              or 'ReadPolicy.MinWindow * 8' in line
+                                              or 'ReadPolicy.MaxWindow' in line)
+                   for line in window_lines)
+           and 'IndexWindow' not in extractor_source
+           and 'GetWalkWindow' not in extractor_source,
+           window_lines)
+    # 2.0.22 sized the cue window from a probe taken before the work; on one box that probe reported 0,4 ms
+    # and 255 ms per 16 KB within minutes, because other jobs and lanes were loading the same disk. The
+    # storage is now measured from the reads the pass itself makes, and the number it derives is logged.
+    report('the storage is measured from the pass\'s own reads, never from a probe',
+           'public void Observe(long bytes, double ms)' in policy_source
+           and extractor_source.count('Observe(read, watch.Elapsed.TotalMilliseconds)') == 2
+           and 'samples.Sort();' not in extractor_source
+           and 'foreach (var fraction in new[] { 0.10, 0.35, 0.60, 0.85 })' not in extractor_source)
+    # Both axes of the storage are priced - what a call costs and what a byte costs - instead of one ratio
+    # between two probe points, which read as throughput-bound and refused to grow where it mattered.
+    report('both axes of the storage are priced, not one ratio',
+           'public double Price(long bytes, long calls)' in policy_source
+           and 'calls * _msPerCall' in policy_source
+           and '(bytes / Math.Max(0.001, _bytesPerMs))' in policy_source
+           and '_msPerCall * _bytesPerMs' in policy_source)
+    report('a read served from memory is never billed as a read',
+           'NoteMemoryServed(position, destination.Length)' in extractor_source
+           and 'Ledger.RecordServedFromMemory' in extractor_source
+           and 'MemoryServedReads' in extractor_source)
+    # The walk visits clusters in file order, so its region is brought in as chunks: a window per cluster
+    # was one round trip per cluster (1 533 reads of 4,7 KB, ~19 s of waiting on the user's share).
+    report('the walk brings its region in as chunks, not a round trip per cluster',
+           'SetSequentialChunk(clusterPosition, ReadPolicy.WalkChunkBytes)' in extractor_source
+           and 'reader.Apply(walkPlan' in extractor_source
+           and 'RandomAccess.Read' in extractor_source)
     report('the shared pass reads a cluster-sized region, never the whole file',
-           'Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024)' in extractor_source
-           and extractor_source.count('reader.WindowSize = reader.GetWalkWindow();') == 1)
-    # 2026-09-12, from a real server: probing three reads stepping forward from the middle of the file
-    # reported 0,54 ms per 16 KB (the probed region was in the page cache) while the walk that followed
-    # spent 16-33 ms per read over 2 600-3 700 reads - 46-96 s per file before its jobs could start, which
-    # the user described as "it took a long time to start, then it got fast". The probe now samples four
-    # regions spread across the file and the median decides, and the walk watches its own reads and switches
-    # to big windows if they turn out to be expensive anyway.
-    report('the storage probe samples the whole file, and the median decides',
-           'foreach (var fraction in new[] { 0.10, 0.35, 0.60, 0.85 })' in extractor_source
-           and 'samples.Sort();' in extractor_source
-           and 'var fastest = samples[samples.Count / 2];' in extractor_source)
-    report('the walk corrects a wrong "reads are cheap" verdict from its own reads',
-           'reads measured {perRead:0.00} ms each once the walk started' in extractor_source
-           and 'reader.WindowSize = BlobReader.MaxWindowSize;' in extractor_source)
+           'reader.SetWindow(policy.ClusterWindow(' in extractor_source
+           and 'public int ClusterWindow(long clusterBytes' in policy_source
+           and 'Math.Min(end, FileLength) - start' in policy_source)
+    report('each pass states its expected cost and prints it beside the actual',
+           'policy.Compare(cuePlan' in extractor_source
+           and 'policy.Compare(walkPlan' in extractor_source
+           and 'policy.Compare(sharedPlan' in extractor_source
+           and 'expected {2:0.00} MB/{3} read(s)' in policy_source)
+    report('a fetch that no read used, or a read past the fetch, is named in the log',
+           'Ledger.UnusedFetchedRanges' in extractor_source
+           and 'MB past the fetch' in extractor_source
+           and 'UnusedFetchedRanges' in policy_source
+           and 'BytesReadAfterFetch' in policy_source)
 
     # The run that made all this visible: 240 jobs queued, four workers limit, and the plugin silent
     # for 46 s and then 83 s because the pump waited on a signal that a job becoming startable never
@@ -1701,11 +1916,15 @@ def run_page_checks():
            '!LaneAlive' in service and 'private bool LaneAlive' in service)
     extractor_text = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                        'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
-    report('the walk fetches its route up front instead of a round trip per cluster',
-           'PrefetchWantedClusters' in extractor_text
-           and 'reader.Prefetch(ranges, PrefetchParallelism' in extractor_text
+    # The walk's route is known before it starts, so its reads go out together instead of one round trip
+    # per cluster: the plan names them, BlobReader.Apply fetches them (16 wide, through RandomAccess), and
+    # the walk then finds them in hand. Measured on the user's share: one read costs 12,8 ms whatever its
+    # size, and a pass needs ~2 000 of them, so ~26 s of a 61 s pass was waiting between reads.
+    report('the plan is fetched up front instead of a round trip per cluster',
+           'Prefetch(fetches, ReadPolicy.PrefetchParallelism' in extractor_text
            and 'TryReadAhead' in extractor_text
-           and 'RandomAccess.Read' in extractor_text)
+           and 'RandomAccess.Read' in extractor_text
+           and 'AlreadyInHand' in extractor_text)
     report('several files are extracted at once, not one after another',
            'MaxExtractionLanes' in service and '_laneTasks.Add(Task.Run(ExtractLaneAsync))' in service)
     report('a track with no text does not leave its job queued for ever',

@@ -97,7 +97,7 @@ def simple_block(track, timecode, payload, keyframe=True):
 
 
 def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True, cues=True,
-          rel_pos=True, sub_tracks=1):
+          rel_pos=True, sub_tracks=1, sub_position='early'):
     payload = payload_mb * 1024 * 1024
     sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
                  for i in range(1, clusters // sub_every + 2)]
@@ -179,20 +179,35 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
             inner += simple_block(AUDIO, 0, b'A' * 8)
             write_sub = (i % sub_every == 0)
             sub_rels = []
-            if write_sub:
+            tail = b''
+
+            def sub_block(k):
+                text = sub_texts[sub_index % len(sub_texts)] if k == 0 \
+                    else extra_texts[k - 1][sub_index % len(extra_texts[k - 1])]
+                return simple_block(sub_track_numbers[k], 0, text.encode('utf-8'))
+
+            if write_sub and sub_position == 'early':
                 for k in range(len(sub_track_numbers)):
                     sub_rels.append(len(inner))  # block offset inside the cluster data
-                    text = sub_texts[sub_index % len(sub_texts)] if k == 0 \
-                        else extra_texts[k - 1][sub_index % len(extra_texts[k - 1])]
-                    inner += simple_block(sub_track_numbers[k], 0, text.encode('utf-8'))
+                    inner += sub_block(k)
                 sub_index += 1
             # big video block: header written here, payload left as a sparse hole
             big_header = SIMPLE_BLOCK + vint_size(payload + 4) + vint_size(VIDEO) + struct.pack('>h', 0) + b'\x80'
-            inner_len = len(inner) + len(big_header) + payload
+            if write_sub and sub_position == 'late':
+                # The subtitle block sits after the video payload, so its cue point's relative position is
+                # most of the cluster - which is the shape of a real remux measured on fabji's server
+                # (ranges of ~1 MB per cue, read for a block a few hundred bytes long).
+                for k in range(len(sub_track_numbers)):
+                    sub_rels.append(len(inner) + len(big_header) + payload)
+                    tail += sub_block(k)
+                sub_index += 1
+            inner_len = len(inner) + len(big_header) + payload + len(tail)
 
             cluster_start = f.tell()
             f.write(CLUSTER + vint_size(inner_len) + inner + big_header)
             f.seek(payload, os.SEEK_CUR)
+            if tail:
+                f.write(tail)
             video_offsets.append(cluster_start - segment_start)
             if write_sub:
                 sub_marks.append((cluster_start - segment_start, sub_rels))
@@ -248,7 +263,10 @@ if __name__ == '__main__':
     ap.add_argument('--no-cues', action='store_true')
     ap.add_argument('--no-rel-pos', action='store_true', help='omit CueRelativePosition (forces the block walk)')
     ap.add_argument('--sub-tracks', type=int, default=1, help='how many text subtitle tracks to write')
+    ap.add_argument('--sub-position', choices=('early', 'late'), default='early',
+                    help="where the subtitle block sits in its cluster: early = first blocks, "
+                         "late = after the video payload (a real remux's shape)")
     args = ap.parse_args()
     build(args.out, args.clusters, args.payload, args.sub_every, sub_tracks=args.sub_tracks,
           sub_cues=not args.no_sub_cues, video_cues=not args.no_video_cues, cues=not args.no_cues,
-          rel_pos=not args.no_rel_pos)
+          rel_pos=not args.no_rel_pos, sub_position=args.sub_position)

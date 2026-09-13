@@ -1705,6 +1705,10 @@ public class SubSyncService : IDisposable
                     + $"{stats.BytesRead / 1e6:0.0} MB, {stats.ReadCalls} reads, {stats.TotalMs:0} ms, ok={ok}, "
                     + $"reason={reason} "
                     + $"prefetched={stats.PrefetchedRanges} ranges/{stats.PrefetchedBytes / 1e6:0.0} MB "
+                    + $"unused={stats.PrefetchedUnusedRanges} ranges/{stats.PrefetchedUnusedBytes / 1e6:0.0} MB "
+                    + $"bytesTwice={stats.BytesReadTwice / 1e6:0.00} MB memoryReads={stats.MemoryServedReads} "
+                    + $"plan={stats.Route} expected={stats.PlanExpectedBytes / 1e6:0.00} MB/{stats.PlanExpectedCalls} reads "
+                    + $"missed={stats.PlanMissed} storage={stats.MeasuredMsPerRead:0.00} ms/read {stats.MeasuredMbPerSecond:0.0} MB/s "
                     + $"({DescribeExtraction(stats.Method)})");
 
                 foreach (var ordinal in ordinals)
@@ -5231,7 +5235,12 @@ public class SubSyncService : IDisposable
                     + $"cues={SrtWriter.CountCues(many.TryGetValue(subtitleOrdinal, out var own) ? own : string.Empty)} "
                     + $"bytesRead={manyStats.BytesRead} readCalls={manyStats.ReadCalls} "
                     + $"clusters={manyStats.ClustersVisited} blocks={manyStats.SubtitleBlocks} alsoBlocks={manyStats.AlsoBlocks} "
-                    + $"blockOffsets={manyStats.BlockOffsets} ok={manyOk} reason={manyReason} file={videoPath}");
+                    + $"blockOffsets={manyStats.BlockOffsets} "
+                    + $"plan={manyStats.Route} expected={manyStats.PlanExpectedBytes} expectedCalls={manyStats.PlanExpectedCalls} "
+                    + $"missed={manyStats.PlanMissed} bytesTwice={manyStats.BytesReadTwice} "
+                    + $"prefetched={manyStats.PrefetchedRanges} unusedPrefetch={manyStats.PrefetchedUnusedRanges} "
+                    + $"memoryReads={manyStats.MemoryServedReads} msPerRead={manyStats.MeasuredMsPerRead:0.00} "
+                    + $"mbPerSecond={manyStats.MeasuredMbPerSecond:0.0} ok={manyOk} reason={manyReason} file={videoPath}");
 
                 if (manyOk && many.TryGetValue(subtitleOrdinal, out var sharedText) && sharedText.Length > 0)
                 {

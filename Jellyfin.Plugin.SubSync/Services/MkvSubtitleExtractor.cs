@@ -24,6 +24,45 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how many bytes those ranges held.</summary>
     public long PrefetchedBytes { get; set; }
 
+    /// <summary>Gets or sets how many fetched ranges no read ever used.</summary>
+    public int PrefetchedUnusedRanges { get; set; }
+
+    /// <summary>Gets or sets how many fetched bytes no read ever used.</summary>
+    public long PrefetchedUnusedBytes { get; set; }
+
+    /// <summary>Gets or sets how many bytes this pass asked the file for more than once.</summary>
+    public long BytesReadTwice { get; set; }
+
+    /// <summary>Gets or sets the bytes a read went to the file for even though the pass had fetched them.</summary>
+    public long BytesReadAfterFetch { get; set; }
+
+    /// <summary>Gets or sets the bytes a fetch covered that the location phase had already read.</summary>
+    public long BytesFetchedOverDisk { get; set; }
+
+    /// <summary>Gets or sets how many reads were answered from memory rather than from the file.</summary>
+    public int MemoryServedReads { get; set; }
+
+    /// <summary>Gets or sets the bytes the pass's plans expected to read.</summary>
+    public long PlanExpectedBytes { get; set; }
+
+    /// <summary>Gets or sets the read calls the pass's plans expected to make.</summary>
+    public int PlanExpectedCalls { get; set; }
+
+    /// <summary>Gets or sets how many of the pass's plans missed their own prediction by more than a factor of two.</summary>
+    public int PlanMissed { get; set; }
+
+    /// <summary>Gets the expected-versus-actual line of every phase this pass planned.</summary>
+    public List<string> PlanLines { get; } = new();
+
+    /// <summary>Gets or sets the route the pass read by.</summary>
+    public string Route { get; set; } = "unknown";
+
+    /// <summary>Gets or sets milliseconds per read as the pass measured the storage.</summary>
+    public double MeasuredMsPerRead { get; set; }
+
+    /// <summary>Gets or sets megabytes per second as the pass measured the storage.</summary>
+    public double MeasuredMbPerSecond { get; set; }
+
     /// <summary>Gets or sets how many bytes this extraction asked the file system for.</summary>
     public long BytesRead { get; set; }
 
@@ -282,6 +321,7 @@ public static class MkvSubtitleExtractor
             reader = new BlobReader(stream);
             var result = Extract(
                 reader,
+                System.IO.Path.GetFileName(videoPath),
                 subtitleOrdinal,
                 progress,
                 out srtText,
@@ -389,6 +429,7 @@ public static class MkvSubtitleExtractor
 
     private static bool Extract(
         BlobReader reader,
+        string label,
         int subtitleOrdinal,
         Action<string>? progress,
         out string srtText,
@@ -401,6 +442,12 @@ public static class MkvSubtitleExtractor
     {
         srtText = string.Empty;
         reason = string.Empty;
+
+        // One policy per pass. It is given the file's length and the route this pass starts by, and from
+        // then on it is the only thing that decides a window, a fetch or a route: the cue-indexed loop, the
+        // cluster walk and the shared multi-track pass all ask it and all follow what it returns.
+        var policy = new ReadPolicy(reader.Length, ReadRoute.CueIndexed, label);
+        reader.Policy = policy;
 
         // --- EBML header, then the Segment ---
         if (!reader.TryReadElementHeaderAt(0, out var id, out var size, out var headerLength) || id != IdEbml)
@@ -603,16 +650,10 @@ public static class MkvSubtitleExtractor
         // Cue points that name a cluster but not the block inside it are a trap: finding the block
         // means walking that cluster's ~150 blocks, and there is one such cluster per cue point, so
         // the walk ends up covering the whole file (measured: 2,069 clusters, 611 MB, 10,779 reads for
-        // one 611 MB episode). A single sequential pass over the clusters costs the same bytes with a
-        // fraction of the reads, and each track of the file is served by that same pass, so the
-        // clusters the cue index points at are worth using only when they name the block itself.
-        // Cue points that name a cluster but not the block inside it mean the block has to be found by
-        // walking that cluster - and a file's clusters are mostly cue clusters once the index covers the
-        // track, so this walk is the whole file's worth of clusters either way. What made it expensive
-        // was the window it walked with (64 KB, so ~5 reads per cluster and the windows tiled the file:
-        // 10,779 reads, 611 MB, 42 s measured), not the decision to use the index. The window is now
-        // sized from the storage (see PickScanWindow) and the block offsets are counted so the log says
-        // which shape the file has.
+        // one 611 MB episode). What made it expensive was the window it walked with (64 KB, so ~5 reads
+        // per cluster and the windows tiled the file: 10,779 reads, 611 MB, 42 s measured), not the
+        // decision to use the index. Both shapes are now priced by the read policy from what the index
+        // provides, and the block offsets are counted so the log says which shape the file has.
         var blockOffsets = cueRefs.Count(r => r.RelativePosition >= 0);
         stats.BlockOffsets = blockOffsets;
         Diag($"cue refs: {cueRefs.Count}, with block offsets: {blockOffsets}");
@@ -620,12 +661,42 @@ public static class MkvSubtitleExtractor
         if (cueRefs.Count > 0)
         {
             stats.Method = seekheadHit ? "seekhead-cues" : "cue-index";
+            stats.Route = "cue-indexed";
 
             // The cue index names every block and they are in file order, so their reads can go out
             // together rather than one after another: measured on the user's NAS a read costs 12,8 ms
             // whatever its size, and this loop used to issue one per cue - ~1 500 of them for an episode,
-            // about 19 s of waiting for a few hundred KB of text.
-            PrefetchCueBlocks(reader, segmentDataStart, cueRefs, cancellationToken);
+            // about 19 s of waiting for a few hundred KB of text. The plan states which reads those are,
+            // so the fetch is made for exactly the reads that follow and the ledger can prove it.
+            var located = new List<(long ClusterStart, long BlockStart)>();
+            var toWalk = new List<long>();
+            foreach (var cueRef in cueRefs)
+            {
+                var cueCluster = segmentDataStart + cueRef.ClusterOffset;
+                if (cueCluster < 0 || cueCluster >= reader.Length)
+                {
+                    continue;
+                }
+
+                if (cueRef.RelativePosition >= 0)
+                {
+                    // The offset is relative to the cluster's data start, which begins after the cluster's
+                    // element header; the block read starts a little before the block for that reason.
+                    located.Add((cueCluster, cueCluster + cueRef.RelativePosition + 32));
+                }
+                else
+                {
+                    toWalk.Add(cueCluster);
+                }
+            }
+
+            var cuePlan = policy.PlanIndexedReads(located, toWalk, $"the index locates {blockOffsets} of {cueRefs.Count} cue point(s)");
+            // The counters are taken before the plan is applied: applying it is what fetches the ranges the
+            // plan priced, so a phase that leaves them out of its own actual cost reads "0 MB, 0 reads" and
+            // is then flagged as missing a prediction it in fact met exactly.
+            var (cueBytesBefore, cueCallsBefore) = (reader.BytesRead, reader.ReadCalls);
+            reader.Apply(cuePlan, cancellationToken);
+            PluginLog.Info("extract plan: " + cuePlan.Describe());
 
             var seen = new HashSet<long>();
             var index = 0;
@@ -695,12 +766,10 @@ public static class MkvSubtitleExtractor
 
                 if (cueRef.RelativePosition >= 0)
                 {
-                    // The muxer recorded exactly where the block sits inside the cluster, so one
-                    // small read replaces walking that cluster's ~150 blocks to find it. The window
-                    // is set per read, not once: a big window is right for walking a file and
-                    // catastrophic here. Measured on a real server after it leaked: every cue read a
-                    // 4 MB window, so 779 cues moved 3.2 GB to collect ~50 KB of text.
-                    reader.WindowSize = reader.IndexWindow;
+                    // The muxer recorded exactly where the block sits inside the cluster, so the plan's
+                    // reads replace walking that cluster's ~150 blocks to find it, and the window is the
+                    // one the plan priced - never a walk-sized window, which leaked into this loop once and
+                    // moved 3.2 GB to collect ~50 KB of text (779 cues, a 4 MB window each).
                     if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
                         && track.BlocksFound != blocksBefore)
                     {
@@ -710,7 +779,7 @@ public static class MkvSubtitleExtractor
                     stats.IndexedMisses++;
                 }
 
-                if (!ReadCluster(reader, position, track, cues, stats, wideWindow: true))
+                if (!ReadCluster(reader, position, track, cues, stats, policy, wideWindow: true))
                 {
                     reason = "unsupported block encoding";
                     return false;
@@ -726,6 +795,20 @@ public static class MkvSubtitleExtractor
                 {
                     missedCuePoints++;
                 }
+            }
+
+            var (cueLine, cueMissed) = policy.Compare(cuePlan, reader.BytesRead - cueBytesBefore, reader.ReadCalls - cueCallsBefore);
+            stats.PlanLines.Add(cueLine);
+            stats.PlanExpectedBytes += cuePlan.ExpectedBytes;
+            stats.PlanExpectedCalls += cuePlan.ExpectedCalls;
+            stats.PlanMissed += cueMissed ? 1 : 0;
+            if (cueMissed)
+            {
+                PluginLog.Warn(cueLine + " - this pass missed its own prediction");
+            }
+            else
+            {
+                PluginLog.Info(cueLine);
             }
 
             if (missedCuePoints > 0)
@@ -749,12 +832,18 @@ public static class MkvSubtitleExtractor
             // payloads are skipped, so a 60 GB remux costs a few megabytes of reads, where
             // handing it back to ffmpeg would cost all 60 GB.
             stats.Method = "metadata-scan";
-            // The scan reads every cluster's block headers and skips the payloads, so the bytes it can
-            // avoid depend on the window: 4 KB windows read ~11% of the file with one read per block,
-            // a 4 MB window reads all of it with one read per 4 MB. Which is cheaper depends on how
-            // long a read costs, so it is chosen from a measured latency (see PickScanWindow).
-            reader.WindowSize = reader.GetWalkWindow();
-            if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress, cancellationToken))
+            stats.Route = "cluster-walk";
+
+            // A metadata walk reads every cluster's block headers and skips the payloads, so the bytes it
+            // can avoid depend on the window: a small window reads a fraction of the region with one read
+            // per block, a 4 MB window reads all of it with one read per 4 MB. Which is cheaper is the
+            // storage's business, so the plan prices it and the walk re-prices itself from its own reads
+            // as it goes - never from a probe taken before the work started.
+            var walkPlan = policy.PlanWalk(firstClusterPosition, searchEnd, 0);
+            var (walkBytesBefore, walkCallsBefore) = (reader.BytesRead, reader.ReadCalls);
+            reader.Apply(walkPlan, cancellationToken);
+            PluginLog.Info("extract plan: " + walkPlan.Describe());
+            if (!ScanClusters(reader, firstClusterPosition, searchEnd, track, cues, stats, progress, policy, cancellationToken))
             {
                 if (cancellationToken.IsCancellationRequested)
                 {
@@ -766,6 +855,14 @@ public static class MkvSubtitleExtractor
                 reason = "unsupported block encoding";
                 return false;
             }
+
+            var (walkLine, walkMissed) = policy.Compare(walkPlan, reader.BytesRead - walkBytesBefore, reader.ReadCalls - walkCallsBefore);
+            stats.PlanLines.Add(walkLine);
+            stats.PlanExpectedBytes += walkPlan.ExpectedBytes;
+            stats.PlanExpectedCalls += walkPlan.ExpectedCalls;
+            stats.PlanMissed += walkMissed ? 1 : 0;
+            PluginLog.Info(walkLine);
+            PluginLog.Info("extract profile: " + policy.DescribeProfile());
         }
 
         // --- 4b. Other subtitle tracks of the same file, in the same pass -----------------
@@ -777,12 +874,6 @@ public static class MkvSubtitleExtractor
         // track that cannot be served here is simply left out so the caller can do it alone.
         if (alsoExtract is { Count: > 0 } && alsoResults is not null && cueBuffer is not null)
         {
-            // Every block this pass reads has a known position, so the window only has to cover how
-            // far apart the blocks of one cluster are - a few hundred kilobytes in practice. Reading
-            // the whole cluster instead (what a walk-sized window does) costs the file's bytes for the
-            // same blocks: 3.2 GB instead of 611 MB on a measured 611 MB-per-4-minutes share.
-            reader.WindowSize = Math.Clamp(reader.GetWalkWindow(), 64 * 1024, 256 * 1024);
-
             var wanted = new List<(int Ordinal, SubtitleTrack Track, List<Cue> Cues)>();
             var expectedCues = new Dictionary<int, int>();
             var clusterPositionsOf = new List<long>();
@@ -900,13 +991,37 @@ public static class MkvSubtitleExtractor
 
             stats.ClustersVisited += byCluster.Count;
 
-            // Fetch what the walk is about to need, all at once. One round trip per cluster is what
-            // makes this slow on network storage - 12,8 ms per read on the user's NAS, ~2 000 clusters
-            // per episode, ~26 s of the 61 s pass spent waiting between reads - and the walk knows its
-            // whole route before it starts. A cluster's wanted blocks sit where the cue index says they
-            // do, a few bytes in from the cluster start, so these ranges cover them and the walk that
-            // follows costs parsing instead of waiting.
-            PrefetchWantedClusters(reader, byCluster, walkInCluster, stats, cancellationToken);
+            // Fetch what the walk is about to need, all at once, and exactly those reads: one round trip
+            // per cluster is what makes this slow on network storage - 12,8 ms per read on the user's NAS,
+            // ~2 000 clusters per episode, ~26 s of the 61 s pass spent waiting between reads - and the walk
+            // knows its whole route before it starts. The plan states the reads (the cluster head and the
+            // block the index named) so the fetch covers them; a range that does not cover a read it was made
+            // for is work the pass pays for and does not use, which is what the ledger exists to catch.
+            var clusterIndexed = new List<(long ClusterStart, long BlockStart)>();
+            foreach (var (clusterPosition, bucket) in byCluster)
+            {
+                foreach (var (_, reference) in bucket)
+                {
+                    if (reference.RelativePosition >= 0)
+                    {
+                        clusterIndexed.Add((clusterPosition, clusterPosition + reference.RelativePosition + 32));
+                    }
+                }
+            }
+
+            var walkClusters = new List<(long Start, long End)>();
+            foreach (var (clusterPosition, _) in walkInCluster)
+            {
+                walkClusters.Add((clusterPosition, clusterPosition + ReadPolicy.MaxWindow));
+            }
+
+            var sharedPlan = policy.PlanSharedReads(
+                clusterIndexed,
+                walkClusters,
+                $"one pass serves {wanted.Count} more track(s) over {byCluster.Count} cluster(s)");
+            var (sharedBytesBefore, sharedCallsBefore) = (reader.BytesRead, reader.ReadCalls);
+            reader.Apply(sharedPlan, cancellationToken);
+            PluginLog.Info("extract plan: " + sharedPlan.Describe());
 
             foreach (var (clusterPosition, bucket) in byCluster)
             {
@@ -936,21 +1051,22 @@ public static class MkvSubtitleExtractor
                 if (lowest != long.MaxValue)
                 {
                     // Plus room for the last block's own header and payload (a subtitle block is a few
-                    // hundred bytes; 8 KB is generous) and never more than the file itself.
-                    var span = (highest - lowest) + (8 * 1024);
-                    reader.WindowSize = (int)Math.Clamp(span, 4 * 1024, BlobReader.MaxWindowSize);
+                    // hundred bytes) and never more than the file itself. The plan's fetch covers these
+                    // reads; this window only says what a read that missed the fetch costs.
+                    var span = (highest - lowest) + ReadPolicy.BlockRead;
+                    reader.SetWindow(policy.ClusterWindow(span));
                 }
 
                 if (walkInCluster.TryGetValue(clusterPosition, out var walkers))
                 {
                     // A track here can only be found by reading the cluster, so the window has to cover
                     // it; the walk below then costs parsing, not further reads.
-                    reader.WindowSize = (int)Math.Clamp(extraDataEnd - extraDataStart, 4 * 1024, BlobReader.MaxWindowSize);
+                    reader.SetWindow(policy.ClusterWindow(extraDataEnd - extraDataStart));
 
                     // And the walk runs forward through the file, so bring in a whole chunk at once: the
                     // clusters after this one are inside it, which turns a round trip per cluster into a
                     // round trip per chunk.
-                    reader.SetSequentialChunk(clusterPosition, WalkChunkBytes);
+                    reader.SetSequentialChunk(clusterPosition, ReadPolicy.WalkChunkBytes);
                     foreach (var index in walkers)
                     {
                         var walked = wanted[index];
@@ -1003,10 +1119,47 @@ public static class MkvSubtitleExtractor
                     stats.AlsoBlocks += extraCues.Count;
                 }
             }
+
+            var (sharedLine, sharedMissed) = policy.Compare(sharedPlan, reader.BytesRead - sharedBytesBefore, reader.ReadCalls - sharedCallsBefore);
+            stats.PlanLines.Add(sharedLine);
+            stats.PlanExpectedBytes += sharedPlan.ExpectedBytes;
+            stats.PlanExpectedCalls += sharedPlan.ExpectedCalls;
+            stats.PlanMissed += sharedMissed ? 1 : 0;
+            if (sharedMissed)
+            {
+                PluginLog.Warn(sharedLine + " - this pass missed its own prediction");
+            }
+            else
+            {
+                PluginLog.Info(sharedLine);
+            }
         }
 
         readWatch.Stop();
         stats.ReadMs = readWatch.Elapsed.TotalMilliseconds;
+
+        // What the pass read, fetched and re-read, from the ledger rather than from the counters: a fetched
+        // range no read used, or a byte that went to the file twice, is waste the pass paid for, and the
+        // plan said it would not.
+        stats.PrefetchedRanges = reader.Ledger.FetchedRanges;
+        stats.PrefetchedBytes = reader.Ledger.FetchedBytes;
+        stats.PrefetchedUnusedRanges = reader.Ledger.UnusedFetchedRanges;
+        stats.PrefetchedUnusedBytes = reader.Ledger.UnusedFetchedBytes;
+        stats.BytesReadTwice = reader.Ledger.BytesReadTwice;
+        stats.BytesReadAfterFetch = reader.Ledger.BytesReadAfterFetch;
+        stats.BytesFetchedOverDisk = reader.Ledger.BytesFetchedOverDisk;
+        stats.MemoryServedReads = reader.MemoryServedReads;
+        stats.WalkWindow = policy.CurrentWindow;
+        stats.StorageProbeMs = policy.MsPerCall;
+        stats.MeasuredMsPerRead = policy.MsPerCall;
+        stats.MeasuredMbPerSecond = policy.BytesPerMs / 1000.0;
+        Diag("read ledger: " + reader.Ledger.Describe());
+        if (reader.Ledger.BytesReadAfterFetch > 0)
+        {
+            PluginLog.Warn(
+                $"extract: {label} read {reader.Ledger.BytesReadAfterFetch / 1e6:0.00} MB past the fetch "
+                + "(a fetched range that did not cover the read it was made for) - " + reader.Ledger.Describe());
+        }
 
         if (cues.Count == 0)
         {
@@ -1082,97 +1235,6 @@ public static class MkvSubtitleExtractor
     /// <summary>
     /// Marks the start of a measured extraction, so kernel counters can be reported as a delta.
     /// </summary>
-    /// <summary>Cue-point reads: the block's exact position is known, so read as few bytes as possible.</summary>
-    private const int IndexedWindowSize = 4 * 1024;
-
-    /// <summary>
-    /// Reads a few probes to time the storage, then sizes the walk window for it. Called once per
-    /// extraction: a probe per cluster would add thousands of reads of its own.
-    /// </summary>
-    /// <param name="reader">File reader.</param>
-    /// <returns>Window size in bytes.</returns>
-    private static int PickScanWindow(BlobReader reader)
-    {
-        // A small window saves bytes (only block headers are read) but needs one read per block; a
-        // large one reads the file through but needs one read per window. On a local disk a read is
-        // microseconds, so the bytes win. On a share where a read is milliseconds - one measured
-        // server spent ~3.5 ms per read, and its extraction was 42 s of which ~37 s was waiting -
-        // the count wins. Sized from a probe rather than from a setting, so the same code is right on
-        // a Raspberry Pi, an SSD and a NAS.
-        // Three probes, and the fastest one decides: the first read of a file is often cold (a page
-        // cache miss, a share waking up, a dirty page being written back) and would otherwise talk the
-        // walk into treating an SSD like a NAS.
-        if (reader.Length < 4 * 1024 * 1024)
-        {
-            // Too small to be worth deciding about: walking its few hundred blocks is fast even when
-            // every read is slow, and the probe would cost more than the walk it is choosing between.
-            return 4 * 1024;
-        }
-
-        // The walk touches the whole file, so the number that matters is what a read costs *anywhere* in
-        // it - and one place is not enough to learn that. Measuring three reads stepping forward from the
-        // middle reported 0,54 ms per 16 KB on a server whose walk then spent 16-33 ms per read over
-        // 2 600-3 700 reads (46-96 s per file before its jobs could start): the probed region was in the
-        // page cache (the file had just been scanned or played) and the rest of the file was not. Four
-        // regions spread across the file are probed and the *median* decides, so one cached region cannot
-        // talk the walk into thousands of tiny reads.
-        Span<byte> probe = stackalloc byte[16 * 1024];
-        var samples = new List<double>(8);
-        var got = 0;
-        // Three reads stepping forward from one place, which is the pattern a walk uses. Reading the
-        // *same* offset three times measures the page cache - the second and third reads come out of
-        // RAM - and reported 0.00 ms on a share that answers a real read in milliseconds, which is
-        // how the walker ended up reading in 4 KB pieces there.
-        foreach (var fraction in new[] { 0.10, 0.35, 0.60, 0.85 })
-        {
-            var probeStart = (long)(reader.Length * fraction);
-            foreach (var step in new[] { 0L, 64 * 1024 })
-            {
-                var offset = Math.Clamp(probeStart + step, 0, Math.Max(0, reader.Length - probe.Length));
-                var watch = Stopwatch.StartNew();
-                var read = reader.ReadAt(offset, probe);
-                watch.Stop();
-                if (read <= 0)
-                {
-                    continue;
-                }
-
-                got = read;
-                samples.Add(watch.Elapsed.TotalMilliseconds);
-            }
-        }
-
-        if (got <= 0 || samples.Count == 0)
-        {
-            return 4 * 1024;
-        }
-
-        // The median, not the fastest: one cached region among four is exactly the case this probe exists
-        // to see through.
-        samples.Sort();
-        var fastest = samples[samples.Count / 2];
-
-        var window = fastest >= 1.0 ? BlobReader.MaxWindowSize : 4 * 1024;
-
-        // The cue-indexed path reads one small piece per cue, so a file with 800 cues pays 800 reads and
-        // that is the whole cost when a read is a round trip (one measured share spent ~12 s per file in
-        // exactly those reads, carrying 5 MB in total). How much to read at once is then a bandwidth-delay
-        // product: the bytes one round trip can carry. Reading a whole megabyte is only right if the
-        // storage moves a megabyte while the round trip is in flight - otherwise the extra bytes cost more
-        // than the reads saved, which is the failure mode of simply raising the window on slow *throughput*.
-        // The cue window is not decided here. A probe taken before the work is useless for it: on one box
-        // the same probe reported 0,4 ms and 255 ms per 16 KB within minutes, because other jobs were
-        // loading the same disk. It starts at 4 KB - cheap storage keeps it, and the pass grows it if the
-        // reads turn out to cost round trips (see BlobReader.NoteReadCost).
-        reader.IndexWindow = IndexedWindowSize;
-        PluginLog.Info(
-            $"extract: storage {fastest:0.00} ms per {got / 1024} KB read over {samples.Count} reads across the file -> walk window {window / 1024} KB, cue window starts at {reader.IndexWindow / 1024} KB "
-            + (fastest >= 1.0
-                ? "(reads are expensive here, so the file is read in big pieces)"
-                : "(reads are cheap here, so only the block headers are read)"));
-        return window;
-    }
-
     private static void MarkIoBaseline()
     {
         var (bytes, calls) = KernelIo();
@@ -1373,6 +1435,7 @@ public static class MkvSubtitleExtractor
     /// <param name="track">Track being extracted.</param>
     /// <param name="cues">Collected subtitles.</param>
     /// <param name="stats">Cost counters.</param>
+    /// <param name="policy">Read policy, which prices the window this cluster is read with.</param>
     /// <param name="wideWindow">
     /// True when the cue index named this cluster, so its blocks are worth reading in wide
     /// windows; false while walking every cluster, where a small window keeps the bytes down.
@@ -1383,6 +1446,7 @@ public static class MkvSubtitleExtractor
         SubtitleTrack track,
         List<Cue> cues,
         MkvExtractionStats stats,
+        ReadPolicy policy,
         bool wideWindow = false)
     {
         if (!reader.TryReadElementHeaderAt(clusterPosition, out var id, out var size, out var headerLength) || id != IdCluster)
@@ -1392,15 +1456,12 @@ public static class MkvSubtitleExtractor
 
         if (wideWindow && size != ulong.MaxValue)
         {
-            // A cue cluster holds the subtitle block plus every audio frame of that stretch
-            // (~150 blocks in practice). Sizing the window to the cluster means a handful of
-            // round trips instead of one per block - but never more than the storage can use:
-            // the window is either bytes-light or round-trip-light, chosen from a measured read
-            // (see PickScanWindow), never hard-coded to one storage's behaviour.
-            // Sized by the storage, never by the cluster: a window the size of the cluster reads the
-            // whole cluster for a block that is usually in its first few kilobytes (measured: 9.5 MB
-            // where 0.6 MB did, on a small file whose blocks sit near the start of each cluster).
-            reader.WindowSize = Math.Max(reader.WindowSize, reader.GetWalkWindow());
+            // A cue cluster holds the subtitle block plus every audio frame of that stretch (~150 blocks
+            // in practice), and the index did not say where the block is, so the cluster has to be read.
+            // The window is priced from the storage: reading 11% of the cluster at one read per block is
+            // free on an SSD and ruinous on a share that charges per round trip, so both are priced and
+            // the cheaper wins. Never a fixed 4 MB: that moved 3.2 GB to collect ~50 KB of text once.
+            reader.SetWindow(policy.ClusterWindow((long)size));
         }
 
         stats.ClustersVisited++;
@@ -1519,6 +1580,16 @@ public static class MkvSubtitleExtractor
     /// Metadata-only walk over every cluster: headers and block headers are read, payloads
     /// are skipped. Used when the cue index says nothing about the wanted track.
     /// </summary>
+    /// <param name="reader">File reader.</param>
+    /// <param name="startPosition">Where the walk begins.</param>
+    /// <param name="endPosition">Where it must stop.</param>
+    /// <param name="track">Track being extracted.</param>
+    /// <param name="cues">Collected subtitles.</param>
+    /// <param name="stats">Cost counters.</param>
+    /// <param name="progress">Progress callback, or null.</param>
+    /// <param name="policy">Read policy, which prices the window the walk reads with.</param>
+    /// <param name="cancellationToken">Cancels the walk.</param>
+    /// <returns>True when the walk completed.</returns>
     private static bool ScanClusters(
         BlobReader reader,
         long startPosition,
@@ -1527,20 +1598,21 @@ public static class MkvSubtitleExtractor
         List<Cue> cues,
         MkvExtractionStats stats,
         Action<string>? progress,
+        ReadPolicy policy,
         CancellationToken cancellationToken = default)
     {
         var cursor = startPosition;
         var visited = 0;
         endPosition = Math.Min(endPosition, reader.Length);
 
-        // A probe can be wrong (a cached region, a share that was busy, a file that is on a different
-        // filesystem than the last one) and a wrong "reads are cheap" verdict costs thousands of reads at
-        // 16-33 ms each, which is what a user experiences as "it takes minutes to start, then it is fast".
-        // So the walk watches its own reads: if they turn out to be expensive while it is reading small
-        // windows, it switches to big ones for the rest of the file and says so.
+        // The window is not decided by a probe taken before the walk, and not left alone either: a wrong
+        // "reads are cheap" verdict costs thousands of reads at 16-33 ms each, which a user experiences as
+        // "it takes minutes to start, then it is fast". The walk measures its own reads and asks the policy
+        // what the next stretch should cost, re-pricing through the file and saying so in the log.
         var walkWatch = Stopwatch.StartNew();
         var readsAtStart = reader.ReadCalls;
-        var switched = false;
+        var bytesAtStart = reader.BytesRead;
+        var lastPriceAt = 0;
 
         while (cursor < endPosition)
         {
@@ -1564,18 +1636,30 @@ public static class MkvSubtitleExtractor
                     progress($"scanning clusters ({visited} read, {stats.BytesRead / 1e6:0.0} MB, {cues.Count} subtitles found)");
                 }
 
-                if (!switched && visited >= 64 && reader.WindowSize < BlobReader.MaxWindowSize)
+                if (visited - lastPriceAt >= ProgressEveryClusters)
                 {
+                    lastPriceAt = visited;
                     var reads = reader.ReadCalls - readsAtStart;
-                    var perRead = reads > 0 ? walkWatch.Elapsed.TotalMilliseconds / reads : 0;
-                    if (perRead >= 1.0)
+                    var bytes = reader.BytesRead - bytesAtStart;
+                    var covered = Math.Max(1, cursor - startPosition);
+                    if (reads >= 32)
                     {
-                        switched = true;
-                        reader.WindowSize = BlobReader.MaxWindowSize;
-                        PluginLog.Info(
-                            $"extract: reads measured {perRead:0.00} ms each once the walk started "
-                            + $"({reads} reads) - switching to {reader.WindowSize / 1024} KB windows for the rest "
-                            + "of this file, because the probe before the walk said they were cheap");
+                        var clustersPerByte = (double)visited / covered;
+                        var remaining = (long)Math.Max(1, (endPosition - cursor) * clustersPerByte);
+                        var priced = policy.WalkWindow(
+                            endPosition - cursor,
+                            (double)bytes / Math.Max(1, visited),
+                            (double)reads / Math.Max(1, visited),
+                            remaining);
+                        var was = reader.WindowSize;
+                        var now = reader.SetWindow(priced);
+                        if (now != was)
+                        {
+                            PluginLog.Info(
+                                $"extract: walk window {was / 1024} KB -> {now / 1024} KB after {visited} cluster(s) "
+                                + $"({reads} reads carrying {bytes / 1e6:0.00} MB, {walkWatch.Elapsed.TotalMilliseconds / reads:0.00} ms each) "
+                                + $"- re-priced from the walk's own reads, not from a probe before it");
+                        }
                     }
                 }
 
@@ -2198,228 +2282,6 @@ public static class MkvSubtitleExtractor
         return seen == fields ? value[index..] : value;
     }
 
-    /// <summary>How many reads the walk keeps in flight when it fetches its route up front.</summary>
-    // Deep enough to hide a network round trip per read, shallow enough that a NAS is not flooded:
-    // measured on the user's storage, a read costs 12,8 ms whatever its size, so what matters is how
-    // many can be outstanding at once.
-    private const int PrefetchParallelism = 16;
-
-    /// <summary>How much a forward walk brings in at a time.</summary>
-    // 16 MB: big enough that a walk of a 2,4 GB episode costs ~150 round trips instead of ~1 500, small
-    // enough to stay an unremarkable allocation even with several lanes running.
-    private const int WalkChunkBytes = 16 * 1024 * 1024;
-
-    /// <summary>
-    /// Fetches the bytes around every indexed block in parallel, so the per-cue loop that follows reads
-    /// from memory. The slop either side covers the cluster header between the cluster position and the
-    /// block (the offsets are relative to the cluster's data start) and the block's own payload; a range
-    /// that misses simply falls back to a read, so this can only make things faster.
-    /// </summary>
-    /// <param name="reader">Reader over the media file.</param>
-    /// <param name="segmentDataStart">Where the segment's data begins.</param>
-    /// <param name="cueRefs">Cue references from the index.</param>
-    /// <param name="cancellationToken">Cancels the prefetch.</param>
-    private static void PrefetchCueBlocks(
-        BlobReader reader,
-        long segmentDataStart,
-        List<CueRef> cueRefs,
-        CancellationToken cancellationToken)
-    {
-        // Merging these ranges across megabytes was tried on 2026-09-12 and reverted: on a share that answers
-        // a read in 12-20 ms it looked like the obvious win (tens of reads instead of thousands), and on a
-        // fixture built to behave like that share it *was* the win (11,3 s against a projected 42 s), but the
-        // suite's own sparse fixture caught what it costs everywhere else - 4,377 MB read where it allows
-        // under 1 MB - and on a bandwidth-poor share the extra bytes can outweigh the round trips saved.
-        // The pattern has to be chosen from measured latency *and* measured bandwidth per file, not from one
-        // heuristic; until then the tuned constants stay.
-        const long MergeGap = 32L * 1024;
-        const long MaxRange = 4L * 1024 * 1024;
-        const long MaxTotalBytes = 192L * 1024 * 1024;
-
-        // A subtitle block is a few hundred bytes once its header is counted in; 8 KB each side is
-        // generous without turning a few hundred KB of text into tens of megabytes of reading.
-        const long CueBlockSlop = 8L * 1024;
-
-        // Below this many cues the round trips are not what costs, and the extra bytes would be a step
-        // backwards (a ten-cue file read 0,71 MB up front against 0,10 MB for walking it).
-        const int MinCuesForPrefetch = 64;
-
-        if (cueRefs.Count < MinCuesForPrefetch)
-        {
-            return;
-        }
-
-        var ranges = new List<(long Start, int Length)>();
-        var total = 0L;
-        foreach (var cueRef in cueRefs)
-        {
-            if (cueRef.RelativePosition < 0)
-            {
-                continue;
-            }
-
-            var position = segmentDataStart + cueRef.ClusterOffset;
-            if (position < 0 || position >= reader.Length)
-            {
-                continue;
-            }
-
-            // The range has to start at the CLUSTER, not at the block. The per-cue loop reads the cluster
-            // header first (to find where its children begin) and only then the block the index named, so a
-            // range that starts at blockAt - 32 misses that first read every time: the prefetch fetched
-            // 118,3 MB on one file and the loop still issued 2 282 real reads, 70,9 s on the share this was
-            // reported from. Covering the cluster head as well (the offset is relative to the cluster's data
-            // start, so the head sits in the few hundred bytes before it) is what makes the fetch serve the
-            // reads it was made for.
-            var blockAt = position + cueRef.RelativePosition;
-            AddRange(
-                ranges,
-                ref total,
-                Math.Max(0, position),
-                Math.Min(reader.Length, blockAt + CueBlockSlop),
-                MergeGap,
-                MaxRange,
-                MaxTotalBytes);
-        }
-
-        if (ranges.Count > 0)
-        {
-            reader.Prefetch(ranges, PrefetchParallelism, cancellationToken);
-        }
-    }
-
-    /// <summary>Adds a range, merging it into the previous one when they are close enough.</summary>
-    /// <param name="ranges">Ranges collected so far.</param>
-    /// <param name="total">Running total of bytes, updated in place.</param>
-    /// <param name="start">Range start.</param>
-    /// <param name="end">Range end, exclusive.</param>
-    /// <param name="mergeGap">Gap under which two ranges become one read.</param>
-    /// <param name="maxRange">Largest range to produce.</param>
-    /// <param name="maxTotalBytes">Budget for the whole prefetch.</param>
-    private static void AddRange(
-        List<(long Start, int Length)> ranges,
-        ref long total,
-        long start,
-        long end,
-        long mergeGap,
-        long maxRange,
-        long maxTotalBytes)
-    {
-        var length = end - start;
-        if (length <= 0 || start < 0)
-        {
-            return;
-        }
-
-        if (ranges.Count > 0)
-        {
-            var (lastStart, lastLength) = ranges[^1];
-            var lastEnd = lastStart + lastLength;
-            var gap = start - lastEnd;
-            var mergedEnd = Math.Max(lastEnd, end);
-            if (gap <= mergeGap && mergedEnd - lastStart <= maxRange)
-            {
-                ranges[^1] = (lastStart, (int)(mergedEnd - lastStart));
-                total += length;
-                return;
-            }
-        }
-
-        if (total + length > maxTotalBytes)
-        {
-            return;
-        }
-
-        total += length;
-        ranges.Add((start, (int)length));
-    }
-
-    /// <summary>
-    /// Turns the walk's route into byte ranges and fetches them in parallel.
-    /// </summary>
-    /// <param name="reader">Reader over the media file.</param>
-    /// <param name="byCluster">Clusters to visit with the indexed blocks they hold.</param>
-    /// <param name="walkInCluster">Clusters needing a real walk (no usable offsets).</param>
-    /// <param name="stats">Counters for the pass.</param>
-    /// <param name="cancellationToken">Cancels the prefetch.</param>
-    private static void PrefetchWantedClusters(
-        BlobReader reader,
-        SortedDictionary<long, List<(int Index, CueRef Ref)>> byCluster,
-        SortedDictionary<long, List<int>> walkInCluster,
-        MkvExtractionStats stats,
-        CancellationToken cancellationToken)
-    {
-        const long MergeGap = 64L * 1024;
-        const long MaxRange = 8L * 1024 * 1024;
-        const long MaxTotalBytes = 384L * 1024 * 1024;
-        const long ClusterWindow = 64L * 1024;
-        const long ClusterHeaderWindow = 16L * 1024;
-
-        var ranges = new List<(long Start, int Length)>();
-        var total = 0L;
-
-        foreach (var (clusterPosition, bucket) in byCluster)
-        {
-            if (bucket.Count == 0)
-            {
-                continue;
-            }
-
-            long lowest = long.MaxValue;
-            var highest = 0L;
-            var trusted = true;
-            foreach (var (_, reference) in bucket)
-            {
-                if (reference.RelativePosition < 0)
-                {
-                    trusted = false;
-                    break;
-                }
-
-                lowest = Math.Min(lowest, reference.RelativePosition);
-                highest = Math.Max(highest, reference.RelativePosition);
-            }
-
-            long start;
-            long end;
-            if (!trusted || walkInCluster.ContainsKey(clusterPosition))
-            {
-                start = clusterPosition;
-                end = clusterPosition + ClusterWindow;
-            }
-            else
-            {
-                // The range starts at the CLUSTER, not at the first wanted block: the pass reads the
-                // cluster header before anything else, and the block offsets are relative to the cluster's
-                // data start, so a range beginning deep inside the cluster misses that first read and the
-                // whole prefetch goes unclaimed (measured on one file: 118,3 MB fetched, 2 282 real reads
-                // still issued, 70,9 s). 16 KB past the last block covers its own header and payload.
-                start = clusterPosition;
-                end = clusterPosition + highest + (16 * 1024);
-            }
-
-            start = Math.Max(0, start);
-            end = Math.Min(reader.Length, end);
-
-            // The cluster's own head travels too, always. The walk parses the cluster element and its
-            // timecode before it can use any offset, and when the wanted blocks sit far enough into the
-            // cluster that the range above starts past the head, that parse was the one read per cluster
-            // still going out serially - measured: 3 318 reads against 898 prefetched ranges. A few KB
-            // at the cluster start closes it.
-            AddRange(ranges, ref total, clusterPosition, Math.Min(reader.Length, clusterPosition + ClusterHeaderWindow), MergeGap, MaxRange, MaxTotalBytes);
-            AddRange(ranges, ref total, start, end, MergeGap, MaxRange, MaxTotalBytes);
-        }
-
-        if (ranges.Count == 0)
-        {
-            return;
-        }
-
-        stats.PrefetchedRanges += ranges.Count;
-        stats.PrefetchedBytes += total;
-        reader.Prefetch(ranges, PrefetchParallelism, cancellationToken);
-    }
-
     /// <summary>
     /// Hands over every wanted track whose last cue this cluster held, so its job can start syncing
     /// while the rest of the file is still being read.
@@ -2661,73 +2523,22 @@ public static class MkvSubtitleExtractor
     private sealed class BlobReader
     {
         /// <summary>Largest window the reader may use.</summary>
-        // How large one read may be. This was 64 KB, which is why extraction read a whole file: the
-        // walker skips a block by jumping over its payload, and with a 64 KB window nearly every jump
-        // landed outside it, so the next window was read again - the windows tiled the file end to end
-        // (611 MB read and 10,779 read calls for a 611 MB episode, measured). A generous window means a
-        // handful of reads cover a cluster, and on high-latency storage the number of reads is what
-        // costs, not the bytes. Callers that want to read as few bytes as possible (the per-cue path,
-        // where the exact block position is known) set WindowSize small instead.
-        public const int MaxWindowSize = 4 * 1024 * 1024;
+        // Owned by the policy: a window is a decision about the storage, and there is one place that makes
+        // those. Callers that want to read as few bytes as possible (the per-cue path, where the exact
+        // block position is known) get a small window from the plan instead.
+        public const int MaxWindowSize = ReadPolicy.MaxWindow;
 
-        /// <summary>
-        /// Window for the cue-indexed reads (one small read per cue). Hard-coded at 4 KB it cost one read
-        /// per cue: on storage that answers a read in ~15 ms, a file with 800 cues spent ~12 s waiting for
-        /// reads that carried 5 MB in total. Sized from the storage probe like the scan window, because
-        /// which is cheaper - many small reads or fewer big ones - is a property of the storage.
-        /// </summary>
-        public int IndexWindow { get; set; } = 4 * 1024;
+        /// <summary>Gets or sets the policy that decided this pass's window and fetch.</summary>
+        public ReadPolicy? Policy { get; set; }
 
-        /// <summary>Smallest and largest cue read window.</summary>
-        private const int MinIndexWindow = 4 * 1024;
-        private const int MaxIndexWindow = 1024 * 1024;
+        /// <summary>Gets the ledger of what this pass read from the file and what it fetched first.</summary>
+        public ReadLedger Ledger { get; } = new();
 
-        private double _timedMs;
-        private int _timedReads;
+        /// <summary>Gets how many reads were answered from memory rather than from the file.</summary>
+        public int MemoryServedReads { get; private set; }
 
-        /// <summary>
-        /// Adjusts the cue window from what the reads actually cost, rather than from a probe taken before
-        /// the work started. While several jobs and lanes run, that probe swings by two orders of
-        /// magnitude on the same machine - it reported 0,4 ms and 255 ms per 16 KB on one box - so a
-        /// measurement taken first was wrong about half the time in both directions. Eight reads at 4 ms
-        /// are 32 KB moved for a third of a second of waiting: that is when a bigger window pays.
-        /// </summary>
-        /// <param name="ms">Milliseconds the read took.</param>
-        private void NoteReadCost(double ms)
-        {
-            if (WindowSize != IndexWindow)
-            {
-                // Only the cue-indexed phase sizes its window from IndexWindow; the walk and the shared
-                // pass set their own, and their reads say nothing about this decision.
-                return;
-            }
-
-            _timedMs += ms;
-            _timedReads++;
-            if (_timedReads < 8)
-            {
-                return;
-            }
-
-            var average = _timedMs / _timedReads;
-            _timedMs = 0;
-            _timedReads = 0;
-            if (average >= 4.0 && IndexWindow < MaxIndexWindow)
-            {
-                var was = IndexWindow;
-                IndexWindow = Math.Min(IndexWindow * 4, MaxIndexWindow);
-                PluginLog.Info($"extract: cue window {was / 1024} KB -> {IndexWindow / 1024} KB (reads are taking {average:0.0} ms each)");
-            }
-            else if (average <= 0.5 && IndexWindow > MinIndexWindow)
-            {
-                var was = IndexWindow;
-                IndexWindow = Math.Max(IndexWindow / 4, MinIndexWindow);
-                PluginLog.Info($"extract: cue window {was / 1024} KB -> {IndexWindow / 1024} KB (reads are taking {average:0.00} ms each)");
-            }
-
-            // The phase re-reads IndexWindow per cue, so a change here is in effect from the next cue.
-            WindowSize = IndexWindow;
-        }
+        /// <summary>Gets the plan the reader is following, when it has one.</summary>
+        public ReadPlan? Plan { get; private set; }
 
         private readonly FileStream _stream;
         private readonly byte[] _window = new byte[MaxWindowSize];
@@ -2735,22 +2546,60 @@ public static class MkvSubtitleExtractor
         private int _windowLength;
 
         /// <summary>
-        /// Gets or sets how much is read in one go. Enumerating the blocks of a cluster the
-        /// cue index pointed at wants this large (a cluster holds ~150 blocks, mostly audio
-        /// frames, and each one otherwise costs its own round trip); walking cluster headers
-        /// in a metadata scan wants it small.
+        /// Gets or sets how much is read in one go. Enumerating the blocks of a cluster the cue index
+        /// pointed at wants this large (a cluster holds ~150 blocks, mostly audio frames, and each one
+        /// otherwise costs its own round trip); walking cluster headers in a metadata scan wants it small.
         /// </summary>
-        public int WindowSize { get; set; } = 4 * 1024;
+        public int WindowSize { get; set; } = ReadPolicy.MinWindow * 8;
 
         /// <summary>
-        /// Window to walk clusters with, measured from the storage the first time one is walked.
-        /// Lazy on purpose: a file whose cue index names its blocks is read by probing exact
-        /// positions, never by walking, so it should not pay for a measurement it will not use.
+        /// Applies a plan: its window, and the reads it expects fetched in parallel before the pass needs
+        /// them. Every range the plan asks for is registered in the ledger, and a range this pass has
+        /// already read or fetched is never fetched twice.
         /// </summary>
-        /// <returns>Window size in bytes.</returns>
-        public int GetWalkWindow() => _walkWindow > 0 ? _walkWindow : (_walkWindow = PickScanWindow(this));
+        /// <param name="plan">The plan to follow.</param>
+        /// <param name="cancellationToken">Cancels the fetch.</param>
+        public void Apply(ReadPlan plan, CancellationToken cancellationToken = default)
+        {
+            Plan = plan;
+            WindowSize = Math.Clamp(plan.WindowBytes, ReadPolicy.MinWindow, MaxWindowSize);
+            if (Policy is not null)
+            {
+                Policy.CurrentWindow = WindowSize;
+            }
 
-        private int _walkWindow;
+            var fetches = new List<(long Start, int Length)>();
+            long bytes = 0;
+            foreach (var read in plan.Fetches)
+            {
+                if (Ledger.AlreadyInHand(read.Start, read.Length))
+                {
+                    continue;
+                }
+
+                fetches.Add((read.Start, read.Length));
+                bytes += read.Length;
+            }
+
+            if (fetches.Count > 0)
+            {
+                Prefetch(fetches, ReadPolicy.PrefetchParallelism, cancellationToken);
+            }
+        }
+
+        /// <summary>Sets the window the pass reads with, from a re-pricing rather than a plan.</summary>
+        /// <param name="window">Requested window in bytes.</param>
+        /// <returns>The window actually in force.</returns>
+        public int SetWindow(int window)
+        {
+            WindowSize = Math.Clamp(window, ReadPolicy.MinWindow, MaxWindowSize);
+            if (Policy is not null)
+            {
+                Policy.CurrentWindow = WindowSize;
+            }
+
+            return WindowSize;
+        }
 
         public BlobReader(FileStream stream)
         {
@@ -2782,15 +2631,15 @@ public static class MkvSubtitleExtractor
         public int ReadCalls { get; private set; }
 
         /// <summary>
-        /// Fetches whole ranges in parallel, so the walk that follows reads from memory instead of
-        /// waiting a round trip per cluster.
+        /// Fetches whole ranges in parallel, so the pass that follows reads from memory instead of waiting
+        /// a round trip per cluster. Ranges already in hand are never fetched again, and what was fetched
+        /// is registered in the ledger, which is what makes "no byte is read twice" checkable.
         /// </summary>
         /// <param name="ranges">Byte ranges to fetch, in file order; overlaps are harmless.</param>
         /// <param name="parallelism">How many reads to keep in flight.</param>
         /// <param name="cancellationToken">Cancels the prefetch.</param>
         public void Prefetch(IReadOnlyList<(long Start, int Length)> ranges, int parallelism, CancellationToken cancellationToken)
         {
-            _ahead.Clear();
             if (ranges.Count == 0)
             {
                 return;
@@ -2833,6 +2682,13 @@ public static class MkvSubtitleExtractor
                         Array.Resize(ref buffer, read);
                     }
 
+                    // Recorded on this thread and kept with the bytes it came from: the ledger is the
+                    // record of what the pass has paid for, and a fetch that no read uses is waste it names.
+                    lock (Ledger)
+                    {
+                        Ledger.RecordFetchedRange(start, read);
+                    }
+
                     mine.Add((start, buffer));
                     Interlocked.Add(ref fetched, read);
                     Interlocked.Increment(ref calls);
@@ -2869,7 +2725,9 @@ public static class MkvSubtitleExtractor
             }
 
             var buffer = new byte[count];
+            var watch = Stopwatch.StartNew();
             var read = RandomAccess.Read(_stream.SafeFileHandle, buffer, start);
+            watch.Stop();
             if (read <= 0)
             {
                 _seqStart = -1;
@@ -2886,6 +2744,8 @@ public static class MkvSubtitleExtractor
             _seqBytes = buffer;
             BytesRead += read;
             ReadCalls++;
+            Ledger.RecordDiskRead(start, read);
+            Policy?.Observe(read, watch.Elapsed.TotalMilliseconds);
         }
 
         /// <summary>Serves a range from the bytes fetched up front, when they cover it.</summary>
@@ -2904,6 +2764,7 @@ public static class MkvSubtitleExtractor
                 && position + destination.Length <= _seqStart + _seqBytes.Length)
             {
                 _seqBytes.AsSpan((int)(position - _seqStart), destination.Length).CopyTo(destination);
+                NoteMemoryServed(position, destination.Length);
                 return true;
             }
 
@@ -2941,7 +2802,20 @@ public static class MkvSubtitleExtractor
             }
 
             bytes.AsSpan((int)(position - start), destination.Length).CopyTo(destination);
+            NoteMemoryServed(position, destination.Length);
             return true;
+        }
+
+        /// <summary>
+        /// Counts a read that was answered from memory. It is never billed as a read of the file: the
+        /// ledger records what the pass paid for, and the counters describe the file.
+        /// </summary>
+        /// <param name="position">Where the read would have gone.</param>
+        /// <param name="length">How many bytes it asked for.</param>
+        private void NoteMemoryServed(long position, int length)
+        {
+            MemoryServedReads++;
+            Ledger.RecordServedFromMemory(position, length);
         }
 
         /// <summary>
@@ -2986,7 +2860,8 @@ public static class MkvSubtitleExtractor
             watch.Stop();
             BytesRead += read;
             ReadCalls++;
-            NoteReadCost(watch.Elapsed.TotalMilliseconds);
+            Ledger.RecordDiskRead(position, read);
+            Policy?.Observe(read, watch.Elapsed.TotalMilliseconds);
             return read;
         }
 
@@ -3021,6 +2896,7 @@ public static class MkvSubtitleExtractor
                 && position + destination.Length <= _windowStart + _windowLength)
             {
                 _window.AsSpan((int)(position - _windowStart), destination.Length).CopyTo(destination);
+                NoteMemoryServed(position, destination.Length);
                 return destination.Length;
             }
 

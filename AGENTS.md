@@ -96,6 +96,11 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   XML doc comment; all warnings are build errors.
 - **Jellyfin NuGet packages use `<ExcludeAssets>runtime</ExcludeAssets>`** — compile-time
   only; at runtime the plugin resolves against Jellyfin's own assemblies.
+- **Every read decision lives in `Services/ReadPolicy.cs`** (2.0.24): the route, the window, the prefetch
+  and the expected cost come from a `ReadPlan` the pass is handed, and the storage is measured from the
+  reads the pass itself makes - never from a constant or a pre-work probe. `ReadLedger` counts fetched bytes
+  no read used and reads that went to the file past the fetch; both must be zero. See
+  `knowledge/architecture-and-gotchas.md` and `READ_POLICY_GOAL_PROMPT.md`.
 - **Every HTTP call from the pages must use `Authorization: MediaBrowser Token="…"`.**
   Jellyfin 12 disables the legacy `X-Emby-Token` header and `?api_key=`, so those return
   401. The modern form is accepted by 10.11 too — never reintroduce the legacy ones.
