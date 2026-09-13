@@ -669,6 +669,37 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
         string.Join(" | ", manyStats.PlanLines));
 }
 
+// ---------------- B10: the summary's derived figures come from the pass's final counters ----------------
+// `FinaliseStats` computes ms/read and blocks/s from ReadCalls and TotalMs, and both call sites assign
+// those *after* calling it, so the derived figures were 0 on every extraction that read the file. The
+// live progress line computes its own copy from live values, which is why the zero never showed up in
+// the log, but the summary object - documented as the human-readable one-liner for the log - carried it.
+foreach (var (b10Label, b10Path) in new[]
+    {
+        ("cue index", Environment.GetEnvironmentVariable("MKV_FIX_CUES")),
+        ("block walk", Environment.GetEnvironmentVariable("MKV_FIX_WALK")),
+        ("grouped cues", Environment.GetEnvironmentVariable("MKV_FIX_GROUPED")),
+        ("many tracks", Environment.GetEnvironmentVariable("MKV_FIX_MULTI"))
+    })
+{
+    if (string.IsNullOrEmpty(b10Path) || !File.Exists(b10Path))
+    {
+        continue;
+    }
+
+    MkvSubtitleExtractor.TryExtract(b10Path, 0, out _, out _, null, out var b10);
+    Check($"the summary's ms/read is the pass's own average ({b10Label})",
+        b10.ReadLatencyMs > 0
+        && Math.Abs(b10.ReadLatencyMs - (b10.ReadMs / Math.Max(1, b10.ReadCalls))) <= 0.05,
+        $"reads={b10.ReadCalls} readMs={b10.ReadMs:0.0} latency={b10.ReadLatencyMs:0.00} | {b10}");
+    Check($"the summary's blocks/s comes from the pass's total time ({b10Label})",
+        b10.BlocksPerSecond > 0
+        // No floor on the denominator: a cached fixture finishes a whole pass in well under a millisecond,
+        // and clamping that to 1 ms made the figure look wrong on exactly the fastest runs.
+        && Math.Abs(b10.BlocksPerSecond - (b10.SubtitleBlocks / (b10.TotalMs / 1000.0))) <= 0.05,
+        $"blocks={b10.SubtitleBlocks} totalMs={b10.TotalMs:R} perSecond={b10.BlocksPerSecond:R}");
+}
+
 // ---------------- S14: the queue's ordinal is a subtitle ordinal, not a stream index ----------------
 // The extraction lane counts subtitle tracks (0-based, as ffmpeg's 0:s:N). Jellyfin's MediaStream.Index
 // counts every stream in the file, video and audio included, so the two numbers agree only when a file's

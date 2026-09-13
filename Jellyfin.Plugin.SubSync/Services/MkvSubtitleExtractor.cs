@@ -157,9 +157,10 @@ public sealed class MkvExtractionStats
             CultureInfo.InvariantCulture,
             " | {0:0.0} ms/read, {1:0} blocks/s, kernel {2} bytes in {3} calls",
             ReadLatencyMs,
-            BlocksPerSecond > 0
-                ? BlocksPerSecond
-                : (TotalMs <= 0 ? 0 : SubtitleBlocks / (TotalMs / 1000.0)),
+            // No fallback: FinaliseStats is called after the counters now, so this is the pass's own figure.
+            // It used to be recomputed here because the field was always 0 - and a second copy of the sum
+            // is what hides the first one being wrong.
+            BlocksPerSecond,
             KernelBytesRead,
             KernelReadCalls);
 }
@@ -340,11 +341,13 @@ public static class MkvSubtitleExtractor
                 publish);
             stats.BytesRead = reader.BytesRead;
 
-        // The summary must carry the same numbers as the live lines; "unknown" where a number
-        // belongs is how a report stops being believable.
-        FinaliseStats(stats);
+            // Counters first, derived figures second: FinaliseStats computes ms/read and blocks/s from
+            // ReadCalls and TotalMs, so calling it before they are assigned left the summary's block rate
+            // at 0 on every extraction (ReadLatencyMs survived only because the cue-indexed loop's live
+            // counter line fills ReadCalls as it goes).
             stats.ReadCalls = reader.ReadCalls;
             stats.TotalMs = watch.Elapsed.TotalMilliseconds;
+            FinaliseStats(stats);
             return result;
         }
         catch (Exception ex)
@@ -354,11 +357,11 @@ public static class MkvSubtitleExtractor
             stats.Method = "failed";
             stats.BytesRead = reader?.BytesRead ?? 0;
 
-        // The summary must carry the same numbers as the live lines; "unknown" where a number
-        // belongs is how a report stops being believable.
-        FinaliseStats(stats);
+            // Same order as the success path, for the same reason: the derived figures must see the
+            // counters the pass stopped with, failure or not.
             stats.ReadCalls = reader?.ReadCalls ?? 0;
             stats.TotalMs = watch.Elapsed.TotalMilliseconds;
+            FinaliseStats(stats);
             return false;
         }
     }
