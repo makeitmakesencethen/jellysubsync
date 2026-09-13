@@ -4,6 +4,34 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.25 (beta)
+
+The reading decisions now say what they rest on, and a prediction that cannot be verified says so instead.
+
+2.0.24 put every read decision in one place and made each phase print what it expected beside what it cost.
+Three things kept that from being trustworthy: a plan whose cost is not knowable before the work was
+compared as though it were an estimate and could never warn; the profile's counters were read through names
+that did not mean what they said; and the shared multi-track phase was compared against a plan that another
+phase had already paid for.
+
+- **A bounded prediction is labelled as one.** The cluster walk stops once it has found the blocks it came
+  for, so what it will cost is not knowable from the index, and a bound tight enough to warn would warn
+  wrongly. Those plans carry `[bound, not verified]` in the log line, the walk's cost is held to something
+  that can fail instead (one window per cluster it visits), and the checks assert the marker is on exactly
+  the bounded plans and never on a plan the index fully locates. A prediction that silently passes whatever
+  the pass does reads as verification, which is worse than having none.
+- **The profile's counters name what they count.** `Measured` read the pending sample window, which returns
+  to zero every eight reads, so it was true only in the instant the eighth sample of a round arrived - and
+  nothing called it. The log now separates the defaults from a measurement and says how much it rests on:
+  `storage not measured yet - deciding from the defaults (0,05 ms per read, 1,5 MB/s); merge gap 0 KB, no
+  read observed` against `storage 12,00 ms per read and 0,2 MB/s (8 read(s) over 1 update(s)); merge gap
+  2 KB`.
+- **The shared multi-track phase is no longer reported as missing a prediction it met.** It is served out of
+  the primary track's fetch, so its plan overstates what it will read; compared raw it logged
+  `shared-pass expected 0,62 MB/520 read(s), actual 0,00 MB/0 read(s) - this pass missed its own prediction`
+  as a warning on every file with two or more subtitle tracks. The line is logged with both numbers and how
+  much the phase read of its own, and the fetches it lives on stay accounted for by the phase that made them.
+
 ## 2.0.24 (beta)
 
 One policy decides how a pass reads the file, and it decides from what the storage costs while the pass runs.

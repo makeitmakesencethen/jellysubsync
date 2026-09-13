@@ -871,7 +871,6 @@ public static class MkvSubtitleExtractor
             stats.PlanExpectedCalls += walkPlan.ExpectedCalls;
             stats.PlanMissed += walkMissed ? 1 : 0;
             PluginLog.Info(walkLine);
-            PluginLog.Info("extract profile: " + policy.DescribeProfile());
         }
 
         // --- 4b. Other subtitle tracks of the same file, in the same pass -----------------
@@ -1129,20 +1128,22 @@ public static class MkvSubtitleExtractor
                 }
             }
 
-            var (sharedLine, sharedMissed) = policy.Compare(sharedPlan, reader.BytesRead - sharedBytesBefore, reader.ReadCalls - sharedCallsBefore);
+            // The shared plan describes what the phase would read if nothing were in hand, and it is served out
+            // of the primary track's fetch: netting it against what is in hand says "1 read" where the phase
+            // makes nine window-sized ones, and comparing it raw says the phase missed a prediction it met by
+            // construction. Both numbers are logged instead, and the miss flag is not armed - the fetches this
+            // phase lives on were compared by the phase that made them, so counting them again would warn on
+            // every file with two or more subtitle tracks.
+            var (sharedLine, _) = policy.Compare(sharedPlan, reader.BytesRead - sharedBytesBefore, reader.ReadCalls - sharedCallsBefore);
             stats.PlanLines.Add(sharedLine);
             stats.PlanBound += sharedPlan.Coarse ? 1 : 0;
             stats.PlanExpectedBytes += sharedPlan.ExpectedBytes;
             stats.PlanExpectedCalls += sharedPlan.ExpectedCalls;
-            stats.PlanMissed += sharedMissed ? 1 : 0;
-            if (sharedMissed)
-            {
-                PluginLog.Warn(sharedLine + " - this pass missed its own prediction");
-            }
-            else
-            {
-                PluginLog.Info(sharedLine);
-            }
+            sharedLine += string.Format(
+                CultureInfo.InvariantCulture,
+                " (served from this pass's fetch: {0} read(s) of its own)",
+                reader.BytesRead - sharedBytesBefore);
+            PluginLog.Info(sharedLine);
         }
 
         readWatch.Stop();
@@ -1163,6 +1164,11 @@ public static class MkvSubtitleExtractor
         stats.StorageProbeMs = policy.MsPerCall;
         stats.MeasuredMsPerRead = policy.MsPerCall;
         stats.MeasuredMbPerSecond = policy.BytesPerMs / 1000.0;
+
+        // For every route, not just the walk: whether the numbers a decision rested on are measurements or
+        // still the class defaults is the one thing this line exists to say, and a cue-indexed pass never
+        // said it.
+        PluginLog.Info("extract profile: " + policy.DescribeProfile());
         Diag("read ledger: " + reader.Ledger.Describe());
         if (reader.Ledger.BytesReadAfterFetch > 0)
         {

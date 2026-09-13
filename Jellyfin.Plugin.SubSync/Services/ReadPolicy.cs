@@ -352,6 +352,8 @@ public sealed class ReadPolicy
     private long _sampleBytes;
     private double _sampleMs;
     private int _sampleCount;
+    private int _samples;
+    private int _updates;
 
     /// <summary>Initializes a new instance of the <see cref="ReadPolicy"/> class.</summary>
     /// <param name="fileLength">Length of the file being read, in bytes.</param>
@@ -380,11 +382,25 @@ public sealed class ReadPolicy
     /// <summary>Gets the measured bytes the storage delivers per millisecond.</summary>
     public double BytesPerMs => _bytesPerMs;
 
-    /// <summary>Gets how many reads the current profile was measured from.</summary>
-    public int Samples => _sampleCount;
+    /// <summary>
+    /// Gets how many reads have been observed since the profile was last updated. It is the pending half
+    /// of a window, not the pass's measurement state: it goes back to zero every
+    /// <see cref="SamplesBeforeTrusting"/> reads, so it must not be read as "this pass has measured the
+    /// storage" - <see cref="MeasuredOnce"/> and <see cref="SampleCount"/> answer that.
+    /// </summary>
+    public int PendingSamples => _sampleCount;
 
-    /// <summary>Gets a value indicating whether the profile has been measured rather than assumed.</summary>
-    public bool Measured => _sampleCount >= SamplesBeforeTrusting;
+    /// <summary>Gets how many reads this pass has observed in total.</summary>
+    public int SampleCount => _samples;
+
+    /// <summary>
+    /// Gets a value indicating whether the profile has been measured at all, as opposed to still being
+    /// the class defaults. True from the first published update onwards.
+    /// </summary>
+    public bool MeasuredOnce => _updates > 0;
+
+    /// <summary>Gets how many times the profile has been updated from the pass's own reads.</summary>
+    public int ProfileUpdates => _updates;
 
     /// <summary>Gets or sets the window the pass is reading with, so a re-pricing can be described.</summary>
     public int CurrentWindow { get; set; }
@@ -412,6 +428,7 @@ public sealed class ReadPolicy
             return;
         }
 
+        _samples++;
         _sampleBytes += bytes;
         _sampleMs += ms;
         _sampleCount++;
@@ -424,6 +441,7 @@ public sealed class ReadPolicy
         // first jobs ran is not the share that answers the last one.
         _msPerCall = _sampleMs / SamplesBeforeTrusting;
         _bytesPerMs = Math.Max(1.0, _sampleBytes / Math.Max(0.001, _sampleMs));
+        _updates++;
         _sampleBytes = 0;
         _sampleMs = 0;
         _sampleCount = 0;
@@ -697,14 +715,27 @@ public sealed class ReadPolicy
     }
 
     /// <summary>Human-readable description of the measured profile, for the log.</summary>
-    /// <returns>One line naming the numbers the decisions were made from.</returns>
-    public string DescribeProfile() => string.Format(
-        CultureInfo.InvariantCulture,
-        "{0}: storage {1:0.00} ms per read, {2:0.0} MB/s measured over the pass's own reads, merge gap {3} KB",
-        Label,
-        _msPerCall,
-        _bytesPerMs / 1000.0,
-        MergeGapBytes / 1024);
+    /// <returns>
+    /// One line naming the numbers the decisions were made from, whether they are measurements or still
+    /// the defaults, and how many reads they rest on.
+    /// </returns>
+    public string DescribeProfile() => MeasuredOnce
+        ? string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}: storage {1:0.00} ms per read and {2:0.0} MB/s ({3} read(s) over {4} update(s)); merge gap {5} KB",
+            Label,
+            _msPerCall,
+            _bytesPerMs / 1000.0,
+            _samples,
+            _updates,
+            MergeGapBytes / 1024)
+        : string.Format(
+            CultureInfo.InvariantCulture,
+            "{0}: storage not measured yet - deciding from the defaults ({1:0.00} ms per read, {2:0.0} MB/s); merge gap {3} KB, no read observed",
+            Label,
+            _msPerCall,
+            _bytesPerMs / 1000.0,
+            MergeGapBytes / 1024);
 
     private static int WindowFor(IReadOnlyList<PlannedRead> reads)
     {

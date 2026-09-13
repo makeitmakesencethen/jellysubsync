@@ -574,6 +574,13 @@ if (!string.IsNullOrEmpty(multiPath) && File.Exists(multiPath))
     Check("the shared pass returns every track's cues",
         manyStats.SubtitleBlocks + manyStats.AlsoBlocks == separateCues,
         $"{manyStats.SubtitleBlocks} + {manyStats.AlsoBlocks} vs {separateCues}");
+    // The shared pass is served out of the primary track's fetch, so its plan overstates what it will read.
+    // Compared raw, every file with more than one subtitle logged "expected 0,62 MB/520 read(s), actual
+    // 0,00 MB/0 read(s) ... this pass missed its own prediction" - a warning that means nothing, in the log
+    // the user reads as the acceptance test, and the phase is reported with both numbers instead.
+    Check("a shared pass served from the primary fetch is not reported as a miss",
+        manyStats.PlanMissed == 0,
+        string.Join(" | ", manyStats.PlanLines));
 }
 
 // ---------------- The read policy: one decision, asserted across the matrix ----------------
@@ -724,6 +731,33 @@ foreach (var row in matrixRows.Where(r => (r.Shape == "blocks early" || r.Shape 
         row.Bytes < policyFile * 0.2,
         $"{row.Bytes / 1e6:0.0} MB of {policyFile / 1e6:0.0} MB ({100.0 * row.Bytes / policyFile:0.00}%)");
 }
+
+// ---------------- The profile the decisions rest on (2.0.25 R3) ----------------
+// `Measured` used to read the pending sample window, which goes back to zero every 8 reads, so it was true
+// only in the instant the 8th sample of a round arrived - and a check that used it failed while the profile
+// was demonstrably measured. The names are exact now: PendingSamples is the window that has not been
+// published yet, SampleCount is every read the pass has observed, MeasuredOnce is whether the profile is a
+// measurement or still the class defaults, and the log says which of the two it is deciding from.
+ReadPolicy ProfilePolicy(string label) => new(1_000_000_000, ReadRoute.CueIndexed, label);
+
+var fresh = ProfilePolicy("fresh");
+Check("a pass that has read nothing says it is deciding from the defaults",
+    !fresh.MeasuredOnce && fresh.SampleCount == 0 && fresh.PendingSamples == 0
+    && fresh.DescribeProfile().Contains("not measured"),
+    fresh.DescribeProfile());
+for (var i = 0; i < 7; i++)
+{
+    fresh.Observe(2048, 12.0);
+}
+
+Check("seven reads are pending, not an update",
+    fresh.PendingSamples == 7 && fresh.SampleCount == 7 && !fresh.MeasuredOnce,
+    $"{fresh.PendingSamples} pending, {fresh.SampleCount} total, measured {fresh.MeasuredOnce}");
+fresh.Observe(2048, 12.0);
+Check("the eighth read publishes the profile and clears the pending window",
+    fresh.MeasuredOnce && fresh.ProfileUpdates == 1 && fresh.PendingSamples == 0 && fresh.SampleCount == 8
+    && fresh.DescribeProfile().Contains("12.00 ms per read"),
+    fresh.DescribeProfile());
 
 // Sharing is the only reason the multi-track pass exists: 32 tracks in one pass must not cost 32 passes.
 foreach (var shape in new[] { "blocks early", "blocks late" })
@@ -1891,6 +1925,12 @@ def run_page_checks():
     # 2.0.22 sized the cue window from a probe taken before the work; on one box that probe reported 0,4 ms
     # and 255 ms per 16 KB within minutes, because other jobs and lanes were loading the same disk. The
     # storage is now measured from the reads the pass itself makes, and the number it derives is logged.
+    report('every route says whether its numbers are measured or still the defaults',
+           extractor_source.count('extract profile: ') == 1
+           and 'PluginLog.Info("extract profile: " + policy.DescribeProfile())' in extractor_source
+           and 'not measured yet - deciding from the defaults' in policy_source
+           and 'MeasuredOnce' in policy_source,
+           extractor_source.count('extract profile: '))
     report('the storage is measured from the pass\'s own reads, never from a probe',
            'public void Observe(long bytes, double ms)' in policy_source
            and extractor_source.count('Observe(read, watch.Elapsed.TotalMilliseconds)') == 2
