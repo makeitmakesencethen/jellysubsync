@@ -4,6 +4,33 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.27 (beta)
+
+Two extraction defects from the Tier 4 list: a progress line that never counted, and a cue index key that could skip a subtitle.
+
+The metadata scan is the route that reads most of a file - it is what runs when a track's cue points are missing,
+or name their clusters but not the blocks inside them - so on a network share it is the slowest thing this plugin
+does, and its progress line printed the reading counters that only the cue-indexed route fills. It read "0,0 MB"
+from the first cluster to the last.
+
+- **The scan reports what it has read.** The line takes its numbers from the reader the pass is reading through
+  (the kernel's counters where the platform provides them, the reader's own count otherwise), and the pass's own
+  counters are brought up to date with it, so the summary at the end carries the same figures the live lines
+  showed. Measured on a 520-cluster fixture: `scanning clusters (400 read, 0,0 MB, 200 subtitles found)` became
+  `scanning clusters (400 read, 1,6 MB, 200 subtitles found)`.
+
+The cue-indexed loop skips a cue point it has already seen, keyed by `cluster position * 31 + block offset` - a
+hash of two numbers rather than the pair itself. Two cue points whose clusters are d bytes apart and whose block
+offsets differ by exactly 31d therefore share a key, and the second one was skipped without its cluster ever being
+read: its line was lost, and the pass reported success.
+
+- **The key is the pair it means.** A foreign or damaged cue index is where such a pair comes from, and this project
+  has met two of those already. Reproduced with a generator written for it (`tests/fixtures/make_collision.py`:
+  clusters 67 bytes apart, one cue point carrying an offset of 31 x 67 that points outside its own cluster, the next
+  sitting at offset 0 where its block is): one cue before, two after, and the same file with the first offset nudged
+  by one byte kept both cues either way. Nothing moved on the files this work was measured against: kopps 829 cues,
+  Sune i Grekland 1019, the D17 mixed-index track 803.
+
 ## 2.0.26 (beta)
 
 A cue index's offsets now belong to the track they name, and a block is one subtitle however many routes reach it.
