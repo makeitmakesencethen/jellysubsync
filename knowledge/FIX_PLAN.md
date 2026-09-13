@@ -171,7 +171,7 @@ read-policy path.
 |---|---|---|---|---|
 | open | **S12** | medium | `/SubSync/Subtitles/{id}` hides the plugin's own `.SYNCED.` sidecars, but `/Sync` accepts an index that resolves to one and syncs it again — it wrote `Helikopterrånet S01E01.SYNCED.ukr.SYNCED.srt` (69 602 B) from `…SYNCED.ukr.srt`. Listing and queueing disagree about what a track is | plugin log 21:34:36 `job 4e2a2674 … output=…SYNCED.ukr.SYNCED.srt … extraction=n/a`; the junk file was deleted |
 | open | **S13** | high | the change that makes a bulk run finish was itself blocked by a harness defect: `tests/backend/slowread.so` did not exist, so the first "slow profile" run of this session silently measured the fast path (the loader warns and continues) | `ld.so: object …/slowread.so cannot be preloaded`; plugin log `extract: storage 0.01 ms per 16 KB read`. Fixed in `start-server.sh`, which now builds it |
-| open | **S14** | medium | `MediaStream.Index` is not stable: adding a sidecar renumbered the episode's subtitles from 4..54 to 8..57, so any hard-coded track index measures or syncs a different track (my first S3 attempt hit an external sidecar and produced S12's junk file) | `/SubSync/Subtitles` before/after the A4 run |
+| fixed (contract half) / open (stability half) | **S14** | medium | `MediaStream.Index` counted every stream in the file, video and audio included, and the enqueue path stored it as the subtitle's *ordinal* - the number the extraction lane and the subtitle cache count subtitle tracks by. The two numbers agree only when a file's subtitles are its first streams. **Fixed at the enqueue boundary** (one definition, `SubSyncService.EmbeddedSubtitleOrdinal`, also used by the run-time resolver). **Still open**: a job addresses its track by the `Index` captured at queue time, so numbering that shifts *between* queueing and running (the sidecar case above) still resolves to whatever stream holds that number by then; folding the track's identity - language, codec, position - into the job context is the fix, and it is not in this change | `9b09678`; reproduction and numbers below |
 | answered | **S3-conflict** | high | `GOAL_PROMPT`'s hard rule "the plugin never refuses a job" vs `AGENTS.md` + this plan's S3 line ("implement `MaxSubtitleReferenceOffsetSeconds` as a refusal"). **Decided by fabji 2026-09-11: the refusal stands, as `AGENTS.md` and the fix plan specify.** The never-refuse rule applies where it was meant to: a reference that cannot be *built* falls back to the audio (S11), a reference that exists and is provably from another cut is refused (S3) | `9c9514e`; the two checks rewritten in the same commit assert the refusal |
 
 ### A8 — the measurements (2026-09-12)
@@ -256,6 +256,46 @@ Evidence, both shapes:
   path did not run (its `.catch` would have said "Kill request failed."). Next step: log the kill response in
   the page (`diag`) and check whether the request is refused for the page's own session — the earlier probes
   saw one `Error: HTTP 403` from a page call while the same endpoint answers 200 for the harness token.
+
+### S14 fixed and verified (2026-09-13)
+
+Fresh evidence came from the 2.0.27 test run: five jobs refused, all in the same shape, all in the lane's own
+words - `extract lane: Egghead.Republic.2025.1080p.WEB.H264-AFO.mkv -> 0/2 subtitle(s), 0,0 MB, 8 reads, 56 ms,
+ok=False, reason=subtitle ordinal 11 out of range (11 tracks)`, and the same for the `lav` track of Thunder in
+My Heart S01E04/S01E05/S01E06/S01E07 (`ordinal 10`, `13`, `10`, `12`, against `(10 tracks)`). The queue lines
+name the cause: `queued: job=... stream=11 ... language=mkd` - a stream index over all streams, handed to code
+that counts subtitle tracks.
+
+Reproduced before touching the code, on a fixture of the same shape (`make_remux.py --sub-tracks 11`: one video
+stream, one audio stream, eleven subtitle tracks, so stream index 11 is the tenth subtitle, ordinal 9, and the
+ordinals stop at 10):
+
+| | before | after |
+|---|---|---|
+| the enqueue path's value for a file of that shape | `stream index 11 -> ordinal 11` | `stream index 11 -> ordinal 9` |
+| what the lane did with it | `subtitle ordinal 11 out of range (11 tracks)` | extracted that track's own text (`Track 9 line`) |
+
+The ordinal 9/10 distinction is the one that matters: at 11 the lane refuses, and at 10 it would have read a
+neighbouring subtitle and cached its text under a key no job reads. Files whose subtitles are their first
+streams are unaffected - ordinal and index are the same number there - which is why 24 of the run's 29 lane
+passes were fine and these five were not.
+
+Checked in `tests/run_checks.py` (9 C# checks + 2 source checks): the enqueue path's translation, the lane
+resolving it, the lane producing the *right* track, the raw stream index still being refused with the run's own
+line, and the contract's other shapes - subtitles-first file, ten tracks behind four streams (stream 13 ->
+ordinal 9, Thunder's shape), a sidecar (no ordinal), a stream the container's embedded set does not hold (no
+ordinal, rather than a wrong one), and a lone embedded track (ordinal 0 whatever Jellyfin calls it). Also
+recorded as measured, not assumed - **what the leak did not do**: it did not lose a subtitle. A job resolves
+its own container stream with ffmpeg and reads the subtitle it extracted itself, so only the lane's cache was
+keyed wrongly. In the captured window two of the five refused tracks completed anyway (Thunder S01E05 and
+S01E07, `SYNCED.lav.srt`) and the other three ran `ffsubsync exit=0` with no completion line yet - the log ends
+mid-run (`running 7, limit 8, queued 1`), and Egghead Republic's file has no completion line in it at all. The
+cost of the leak is the wasted pass and a loud `ok=False` lane line, which is why it stays medium and not
+higher.
+
+505 checks green (494 before this change). The real-file sentinels (kopps 829, Sune i Grekland 1019, D17
+mixed-index 803) are not runnable from this machine - the media share is on the server - and this change
+touches no parsing code: it only changes which of two numbers the queue hands the lane.
 
 ## Ask the user before coding these
 
