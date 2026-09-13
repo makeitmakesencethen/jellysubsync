@@ -512,6 +512,42 @@ foreach (var scenario in mkvScenarios)
         $"{mkvStats.ReadCalls} read(s) for {mkvStats.ClustersVisited} cluster(s)");
 }
 
+// A cue point carries one CueTrackPositions *per track*: mkvmerge writes the video's position and every
+// subtitle track's position into the same cue point, highest track number last. Reading the offsets of
+// the last position in the cue point rather than the wanted track's own (which is what this did) hands
+// the pass another track's block, so every cue point misses and its whole cluster is walked to find a
+// block the index had already located - and a block an earlier cue point already emitted is emitted
+// again, which is how kopps came out with 832 cues where its index and ffmpeg both say 829, and Sune i
+// Grekland with 1251 where both say 1019. Measured on this fixture: 20 cluster visits for 10 cues
+// before, 10 after; on kopps 933 before and 829 after; on Sune i Grekland 2038 before and 1019 after.
+var groupedFixture = Environment.GetEnvironmentVariable("MKV_FIX_GROUPED");
+if (!string.IsNullOrEmpty(groupedFixture) && File.Exists(groupedFixture))
+{
+    var groupedExpected = EnvInt("MKV_FIX_GROUPED_EXPECT");
+    var groupedOk = MkvSubtitleExtractor.TryExtract(
+        groupedFixture, 0, out var groupedSrt, out var groupedReason, null, out var groupedStats);
+    var groupedFound = groupedSrt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length;
+    Check("every subtitle block found (grouped cue points)",
+        groupedOk && groupedFound == groupedExpected,
+        $"{groupedFound} of {groupedExpected}, {groupedReason}");
+    Check("a located cue point costs one cluster visit (grouped cue points)",
+        groupedStats.ClustersVisited == groupedExpected,
+        $"{groupedStats.ClustersVisited} cluster visit(s) for {groupedExpected} cue point(s)");
+    Check("the wanted track's own block offsets are the ones used (grouped cue points)",
+        groupedStats.BlockOffsets == groupedExpected && groupedStats.IndexedMisses == 0,
+        $"{groupedStats.BlockOffsets} block offset(s) of {groupedExpected}, "
+        + $"{groupedStats.IndexedMisses} indexed miss(es)");
+
+    // A second pass over the same file must produce the same subtitles: what a pass has already emitted
+    // is per-pass state, and state that outlives its pass removes cues instead of duplicating them.
+    var againOk = MkvSubtitleExtractor.TryExtract(
+        groupedFixture, 0, out var againSrt, out _, null, out _);
+    Check("a second pass over the same file extracts the same subtitles",
+        againOk && againSrt == groupedSrt,
+        $"{againSrt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length} cue(s) on the second pass");
+}
+
+
 // The indexed path must never read more than walking the clusters to find the same subtitles:
 // if CueRelativePosition handling ever regresses, the indexed path starts paying for clusters it
 // should have skipped. The two used to differ sharply (0.05 MB against 0.61 MB) because the walk
@@ -2077,6 +2113,15 @@ def main():
                        check=True, capture_output=True)
         env[variable] = path
         env[variable + '_EXPECT'] = str(expected)
+
+    # One file written the way mkvmerge writes them: a cue point per timestamp, holding a
+    # CueTrackPositions for the video and for every subtitle track, so the highest track number is last.
+    grouped_path = os.path.join(fixtures, 'grouped.mkv')
+    subprocess.run(['python3', generator, grouped_path, '--clusters', str(clusters),
+                    '--payload', '1', '--sub-every', str(sub_every), '--sub-tracks', '3',
+                    '--grouped-cues'], check=True, capture_output=True)
+    env['MKV_FIX_GROUPED'] = grouped_path
+    env['MKV_FIX_GROUPED_EXPECT'] = str(expected)
 
     # One file with three subtitle tracks, for the multi-track pass.
     multi_path = os.path.join(fixtures, 'multi.mkv')

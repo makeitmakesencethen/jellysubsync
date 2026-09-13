@@ -97,7 +97,7 @@ def simple_block(track, timecode, payload, keyframe=True):
 
 
 def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True, cues=True,
-          rel_pos=True, sub_tracks=1, sub_position='early'):
+          rel_pos=True, sub_tracks=1, sub_position='early', grouped_cues=False):
     payload = payload_mb * 1024 * 1024
     sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
                  for i in range(1, clusters // sub_every + 2)]
@@ -221,12 +221,32 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
                     points.append((track_number, off, i * 1000, rels[track_index]))
         points.sort(key=lambda p: (p[2], p[0]))
         cue_payload = bytearray()
-        for track, offset, time, relative in points:
-            tp = element(CUE_TRACK, uint_bytes(track)) + element(CUE_CLUSTER_POSITION, uint_bytes(offset))
-            if relative is not None and rel_pos:
-                tp += element(CUE_RELATIVE_POSITION, uint_bytes(relative))
-            cue_payload += element(CUE_POINT, element(CUE_TIME, uint_bytes(time))
-                                   + element(CUE_TRACK_POSITIONS, tp))
+        if grouped_cues:
+            # mkvmerge's shape: for one timestamp, a single CuePoint carrying a CueTrackPositions for
+            # every track that has a block there - the video's first, then each subtitle track's, so the
+            # highest track number is last. A parser that keeps the last position's cluster/relative
+            # offsets in the cue point (instead of the ones belonging to the track being extracted) hands
+            # a subtitle track the offsets of another track, and the block then has to be found by walking
+            # the cluster. Real files are written this way; the fixtures above are not.
+            by_time = {}
+            for track, offset, time, relative in points:
+                by_time.setdefault(time, []).append((track, offset, relative))
+            for time in sorted(by_time):
+                positions = b''
+                for track, offset, relative in by_time[time]:
+                    tp = (element(CUE_TRACK, uint_bytes(track))
+                          + element(CUE_CLUSTER_POSITION, uint_bytes(offset)))
+                    if relative is not None and rel_pos:
+                        tp += element(CUE_RELATIVE_POSITION, uint_bytes(relative))
+                    positions += element(CUE_TRACK_POSITIONS, tp)
+                cue_payload += element(CUE_POINT, element(CUE_TIME, uint_bytes(time)) + positions)
+        else:
+            for track, offset, time, relative in points:
+                tp = element(CUE_TRACK, uint_bytes(track)) + element(CUE_CLUSTER_POSITION, uint_bytes(offset))
+                if relative is not None and rel_pos:
+                    tp += element(CUE_RELATIVE_POSITION, uint_bytes(relative))
+                cue_payload += element(CUE_POINT, element(CUE_TIME, uint_bytes(time))
+                                       + element(CUE_TRACK_POSITIONS, tp))
         cues_pos = f.tell()
         if cues:
             f.write(element(CUES, bytes(cue_payload)))
@@ -261,6 +281,8 @@ if __name__ == '__main__':
     ap.add_argument('--no-sub-cues', action='store_true')
     ap.add_argument('--no-video-cues', action='store_true')
     ap.add_argument('--no-cues', action='store_true')
+    ap.add_argument('--grouped-cues', action='store_true',
+                    help="one CuePoint per timestamp holding every track's position (mkvmerge's shape)")
     ap.add_argument('--no-rel-pos', action='store_true', help='omit CueRelativePosition (forces the block walk)')
     ap.add_argument('--sub-tracks', type=int, default=1, help='how many text subtitle tracks to write')
     ap.add_argument('--sub-position', choices=('early', 'late'), default='early',
@@ -269,4 +291,5 @@ if __name__ == '__main__':
     args = ap.parse_args()
     build(args.out, args.clusters, args.payload, args.sub_every, sub_tracks=args.sub_tracks,
           sub_cues=not args.no_sub_cues, video_cues=not args.no_video_cues, cues=not args.no_cues,
-          rel_pos=not args.no_rel_pos, sub_position=args.sub_position)
+          rel_pos=not args.no_rel_pos, sub_position=args.sub_position,
+          grouped_cues=args.grouped_cues)

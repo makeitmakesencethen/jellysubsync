@@ -2011,6 +2011,18 @@ public static class MkvSubtitleExtractor
                     {
                         var positionsCursor = cursor;
                         ulong cueTrack = 0;
+
+                        // One cue point carries one CueTrackPositions *per track*: mkvmerge writes the
+                        // video's and every subtitle track's position inside the same cue point, with the
+                        // highest track number last. The cluster and block offsets belong to the track of
+                        // the CueTrackPositions they sit in, so they are read into locals and only adopted
+                        // when that track is the one being extracted. Adopting the last position instead
+                        // (which is what this did) hands a subtitle track the video's or a neighbouring
+                        // subtitle track's offsets: on kopps 104 of 829 cue points then named a block that
+                        // belongs to another track, and on Sune i Grekland all 1019 did, so every one of
+                        // them had to be found by walking its cluster instead.
+                        var positionCluster = -1L;
+                        var positionRelative = -1L;
                         while (positionsCursor < childEnd)
                         {
                             if (!TryReadVint(payload, ref positionsCursor, out var posId, out _, keepMarker: true)
@@ -2032,11 +2044,11 @@ public static class MkvSubtitleExtractor
                             }
                             else if (posId == IdCueClusterPosition)
                             {
-                                clusterPosition = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
+                                positionCluster = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
                             }
                             else if (posId == IdCueRelativePosition)
                             {
-                                relativePosition = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
+                                positionRelative = (long)ReadUnsignedBytes(payload.AsSpan(positionsCursor, (int)posSize));
                             }
 
                             positionsCursor = posEnd;
@@ -2045,6 +2057,8 @@ public static class MkvSubtitleExtractor
                         if (cueTrack == trackNumber)
                         {
                             matched = true;
+                            clusterPosition = positionCluster;
+                            relativePosition = positionRelative;
                         }
                     }
 
