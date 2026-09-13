@@ -4,6 +4,33 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.28 (beta)
+
+The queue now names a queued subtitle the same way the extraction lane counts subtitles.
+
+A job is queued against a subtitle stream, and Jellyfin numbers that stream by its position among *every* stream
+in the file - video and audio included. The extraction lane, the subtitle cache and the one-pass reader count
+subtitle tracks only, so on any file whose subtitles are not its first streams the two numbers differ by however
+many streams sit in front of them. The queue stored Jellyfin's number and handed it to code that wanted the other
+one.
+
+- **Five jobs of the last test run were refused for it**, all in the same shape, all on files whose subtitles sit
+  behind a video and one or more audio streams: `subtitle ordinal 11 out of range (11 tracks)` (Egghead Republic,
+  and the lav track of four Thunder in My Heart episodes). On files where the wrong number happened to land inside
+  the range, the extraction lane read a neighbouring track and cached its text under a key no job ever reads - a
+  wasted pass, not a wrong subtitle, because every job resolves its own stream with ffmpeg and extracts what it
+  needs itself.
+- **The translation happens once, at the queue.** Reproduced first on a fixture of the failed file's shape (one
+  video stream, one audio stream, eleven subtitle tracks: stream 11 is the tenth subtitle, ordinal 9). Before, the
+  queue handed over 11 and the lane refused it with the line above; after, it hands over 9 and the lane extracts
+  that track's own text. One definition now serves the queue and the run-time resolver, so the track a job was
+  queued for and the track it reads cannot drift apart.
+- **The queued log line names both numbers** (`stream=` and `ordinal=`), so reading the log cannot confuse the two
+  again.
+
+Nothing changes for files whose subtitles are their first streams: the two numbers are the same there, which is why
+24 of the 29 extraction passes in that run were never affected.
+
 ## 2.0.27 (beta)
 
 Two extraction defects from the Tier 4 list: a progress line that never counted, and a cue index key that could skip a subtitle.
