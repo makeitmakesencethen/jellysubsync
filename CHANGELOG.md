@@ -4,6 +4,24 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.29 (beta)
+
+The extraction summary's own figures are now the figures the pass finished with.
+
+`FinaliseStats` derives average ms/read and blocks/s from the counters a pass ends with, and both call sites
+assigned those counters *after* calling it - so the block rate was 0 on every extraction that read a file. The
+ms/read figure came out right only by accident: the cue-indexed loop's live counter line fills its half as it
+goes, which is why nothing you read in the log ever showed the zero.
+
+- Reproduced before touching the code, on all four fixture shapes: `blocks=10 totalMs=0.8 perSecond=0.00`.
+- Fixed by assigning the counters first, at both the success and the failure call site. The check now asserts the
+  figure equals `SubtitleBlocks / (TotalMs / 1000)` exactly rather than merely being non-zero - after the fix,
+  15 908 / 8 221 / 14 120 / 10 137 blocks/s on those same fixtures.
+- The summary's text recomputed blocks/s itself as a workaround for the zero. That second copy is gone, because
+  it produced the same number from the same total time: nothing you read in the log changes.
+
+No change to a sync itself - the extraction route, the reads it makes and the file it writes are untouched.
+
 ## 2.0.28 (beta)
 
 The queue now names a queued subtitle the same way the extraction lane counts subtitles.
