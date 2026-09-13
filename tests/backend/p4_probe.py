@@ -91,14 +91,14 @@ else if (mode == "b25-short-read")
     // B25: a short read is accepted as the cue's text (`if (payloadRead < payloadLength)` truncates and
     // continues), so a share that answers with a partial read produces truncated subtitles instead of a
     // refusal. Run under the shortread shim, which makes every Nth read return half of what was asked.
-    MkvSubtitleExtractor.TryExtract(path, 0, out var srt, out var reason, null, out var stats);
+    var shortOrdinal = args.Length > 2 ? int.Parse(args[2]) : 0;
+    MkvSubtitleExtractor.TryExtract(path, shortOrdinal, out var srt, out var reason, null, out var stats);
     Console.WriteLine($"PROBE shim={Environment.GetEnvironmentVariable("SHORTREAD") ?? "off"} ok={(srt.Length > 0)} "
         + $"cues={Count(srt)} method={stats.Method} reason=\"{reason}\"");
     var texts = srt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries)
         .Select(b => b.Split('\n').Skip(2).FirstOrDefault() ?? string.Empty).ToList();
     Console.WriteLine($"PROBE first texts: {string.Join(" | ", texts.Take(4))}");
-    var truncated = texts.Count(t => t.Length is > 0 and < 12);
-    Console.WriteLine($"PROBE texts under 12 characters (a truncation signature): {truncated} of {texts.Count}");
+    Console.WriteLine($"PROBE text lengths: {string.Join(",", texts.Select(t => t.Length))}");
 }
 else
 {
@@ -202,12 +202,14 @@ def main():
 
     if mode in ('b25-short-read', 'all'):
         print('== B25: a short read reaching the cue text (under the shortread shim)')
-        plain = fixture('grouped.mkv', ['--clusters', '60', '--payload', '1', '--sub-every', '6',
-                                        '--sub-tracks', '3', '--grouped-cues'])
+        # The second subtitle track carries the generator's long texts ("Track 1 line 3"), because
+        # truncation of a one-character cue is not visible.
+        plain = fixture('long-texts.mkv', ['--clusters', '60', '--payload', '1', '--sub-every', '6',
+                                           '--sub-tracks', '2'])
         print('   without the shim:')
-        print(run(dll, 'b25-short-read', plain))
+        print(run(dll, 'b25-short-read', plain, extra=('1',)))
         print('   with the shim:')
-        print(run(dll, 'b25-short-read', plain, shim=True))
+        print(run(dll, 'b25-short-read', plain, extra=('1',), shim=True))
     return 0
 
 
