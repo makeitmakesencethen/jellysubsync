@@ -1905,6 +1905,21 @@ def run_page_checks():
            and 'Reading subtitles from the video' in service_source
            and 'Waiting for a free worker ({running} of {limit} busy)' in service_source
            and 'waiting.Phase = QueuedReason(waiting, running, limit);' in service_source)
+    # F8: the page assembled the whole selection and posted it in one request, so a long series or a
+    # multi-library pick could pass the API's task bound (episodes x languages) and be refused with
+    # "Could not start sync: 400: Batch is too large" - after minutes of reading subtitle lists, with
+    # nothing in the page saying what the limit was. The split is client-side on purpose: the API keeps
+    # its bound and the page never sends more than the bound in one request.
+    cap_marker = 'request.Tasks.Count > '
+    controller_text = '\n'.join(plugin_sources)
+    api_cap = controller_text.split(cap_marker, 1)[1].split(')')[0].strip() if cap_marker in controller_text else ''
+    page_cap = main_html.split('var BATCH_CHUNK = ', 1)[1].split(';')[0].strip() if 'var BATCH_CHUNK = ' in main_html else ''
+    report('a selection larger than the API bound is split into batches the API accepts',
+           api_cap.isdigit() and page_cap.isdigit() and api_cap == page_cap
+           and main_html.count("api('SubSync/Batch'") == 2
+           and main_html.count('return postBatch(label, ') == 2
+           and 'rows.length <= BATCH_CHUNK' in main_html)
+
     report('the page reads and writes settings through the plugin, not the web client',
            "api('SubSync/Configuration')" in pages['subsyncMain.html']
            and 'getPluginConfiguration' not in pages['subsyncMain.html']

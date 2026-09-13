@@ -1097,6 +1097,52 @@
         pollBatchView(batchId, taskLines);
     }
 
+    // The API refuses a batch of more than 1000 tasks (SubSyncController.CreateBatch) and both queue
+    // builds used to POST the whole selection in a single request: a long series or a multi-library pick
+    // can pass 1000 tasks (episodes x languages) and was refused with "Batch is too large" after minutes
+    // of reading subtitle lists, with nothing in the page saying what the limit was.
+    //
+    // The split is client-side on purpose: the request keeps its shape, the server keeps its bound, and
+    // nothing else moves. At or below the limit this is exactly the single POST it always was.
+    var BATCH_CHUNK = 1000;
+
+    function postBatch(label, rows) {
+        if (rows.length <= BATCH_CHUNK) {
+            return api('SubSync/Batch', {
+                method: 'POST',
+                body: JSON.stringify({ label: label, tasks: rows })
+            });
+        }
+
+        var parts = Math.ceil(rows.length / BATCH_CHUNK);
+        logLine('Queue: ' + rows.length + ' subtitle tracks \u2014 sending them as ' + parts
+            + ' batches of up to ' + BATCH_CHUNK + ', which is what the server accepts per request.');
+
+        // Sequential, not parallel - the same chain the bulk track loader uses: the enqueue is
+        // synchronous server-side, so a burst of chunks would only make each one slower. The last part
+        // is what is returned, because its jobs finish last and the run box follows that batch; the
+        // earlier parts are already queued ahead of it in the same FIFO.
+        var last = null;
+        var seq = Promise.resolve();
+        for (var part = 0; part < parts; part++) {
+            (function (index) {
+                var slice = rows.slice(index * BATCH_CHUNK, (index + 1) * BATCH_CHUNK);
+                seq = seq.then(function () {
+                    $('ss-run-label').textContent = 'Queueing ' + (index + 1) + '/' + parts + '\u2026';
+                    return api('SubSync/Batch', {
+                        method: 'POST',
+                        body: JSON.stringify({
+                            label: label + ' (' + (index + 1) + '/' + parts + ')',
+                            tasks: slice
+                        })
+                    }).then(function (view) { last = view; });
+                });
+            })(part);
+        }
+
+        return seq.then(function () { return last; });
+    }
+
     function startSyncSelected() {
         if (startInFlight) return;
         var items = allItems.filter(function (x) { return selectedIds[x.Id]; });
@@ -1151,15 +1197,9 @@
             var label = 'Selection (' + items.length + ' file' + (items.length === 1 ? '' : 's') + ')';
             $('ss-run-label').textContent = 'Loading\u2026';
 
-            return api('SubSync/Batch', {
-                method: 'POST',
-                body: JSON.stringify({
-                    label: label,
-                    tasks: all.map(function (t) {
-                        return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
-                    })
-                })
-            }).then(function (view) {
+            return postBatch(label, all.map(function (t) {
+                return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
+            })).then(function (view) {
                 var batchId = (view && (view.Id || view.id)) || '';
                 if (!batchId) throw new Error('server did not return a batch id');
                 startInFlight = false;
@@ -1837,17 +1877,9 @@
             logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' across ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's') + ' to sync.');
             $('ss-run-label').textContent = 'Loading\u2026';
 
-            var payload = {
-                label: label,
-                tasks: tasks.map(function (t) {
-                    return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
-                })
-            };
-
-            return api('SubSync/Batch', {
-                method: 'POST',
-                body: JSON.stringify(payload)
-            }).then(function (view) {
+            return postBatch(label, tasks.map(function (t) {
+                return { itemId: t.itemId, subtitleIndex: t.index, title: t.title };
+            })).then(function (view) {
                 var batchId = (view && (view.Id || view.id)) || '';
                 if (!batchId) throw new Error('server did not return a batch id');
                 startInFlight = false;
