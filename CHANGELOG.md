@@ -4,6 +4,53 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.38 (beta)
+
+A volume's first measurement is a median of three reads, and one read can no longer call a volume thrashing.
+
+**What the field showed (S41, 2026-09-14).** The probe added in 2.0.36 took a *single* cold read, a third of
+the way into a file, and whatever it returned became the volume's class for the whole process:
+
+    18:04:21  volume 192.168.0.110:/volume1/JELLYFIN had nothing measured about it, so it was read once:
+              16 KB took 231,34 ms - the ceiling for that volume is 1 (this volume measured 231,3 ms per
+              read, which is thrashing)
+
+231 ms is over the absolute thrash threshold, so the share ran **one** walk at a time for the rest of the run -
+fifteen hold lines over fourteen minutes, all quoting that one read - while its own later walks moved
+16,8-23,1 MB/s, which is two walks' worth, and its steady state measured at rest is 13-46 ms. One read is not a
+steady state, and the volume was held to a third of its capacity because of it.
+
+**What changed.**
+
+- The first measurement of a volume is now **three 16 KB reads at separated offsets** instead of one read at a
+  fixed position, and every one of them is fed to the volume's profile - so the figure the ceiling is decided
+  from is a *median* of three, and one slow read no longer becomes the class.
+- The log line says what the median stands on: `… so it was read 3 time(s) of 16 KB: median of 3 reads took
+  13,11 ms (slowest 81,14 ms) - the ceiling for that volume is 2 (…)`. A verdict that rests on one read is
+  visible as such in the field, which is what it was not before.
+- **A single read can no longer reach the thrash tier** (`ThrashTierMinReads = 2`). Below that backing, a
+  volume that would be called thrashing is held at two walks and the reason says why: *"but that is one read
+  and one read is not a steady state, so it is held at 2 until the volume has been read again"*.
+
+**Reproduced, then fixed, on the rig** (local Jellyfin + `slowread.so`, the shim charging 13 ms per read with
+the first read on a freshly opened handle charged 231 ms - the field's shape, by construction):
+
+    python3 tests/rig/run_scenario.py --scenario s41-cold-read --timeout 240
+
+- **Before** (2.0.37): `so it was read once: 16 KB took 231,13 ms - the ceiling for that volume is 1 (… which is
+  thrashing)` - scenario FAILED, and the shimmed volume got one walk where its own steady state says two.
+- **After**: `so it was read 3 time(s) of 16 KB: median of 3 reads took 13,11 ms (slowest 81,14 ms) - the
+  ceiling for that volume is 2 (… storage-bound, over 3 read(s))` - scenario PASSED, 6 of 6 assertions, with the
+  fast volume in the same run coming out `none`.
+- On fabji's measured share (10 ms per read, 11 MB/s) the same scenario reports `ceiling 2` and no ceiling on
+  the fast volume: `--scenario s41-steady`.
+
+**Checks:** four new ones (629 total, suite green before this commit) - a verdict from a single read cannot call
+a volume thrashing, two reads agreeing can, the thrash verdict names how many reads back it, and the probe takes
+more than one read and logs the median.
+
+**Rollback:** if the new probe misbehaves, 2.0.37 remains installable from the beta catalogue.
+
 ## 2.0.37 (beta)
 
 Fixes the first measurement a volume gets, which 2.0.36 added in the wrong place.
