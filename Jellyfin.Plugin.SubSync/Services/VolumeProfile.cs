@@ -57,6 +57,7 @@ public sealed class VolumeProfile
     private readonly object _gate = new();
     private readonly List<Sample> _samples = new();
     private readonly List<Sample> _walks = new();
+    private int? _lastCeiling;
     private readonly Func<DateTimeOffset> _clock;
 
     /// <summary>Initializes a new instance of the <see cref="VolumeProfile"/> class.</summary>
@@ -153,6 +154,36 @@ public sealed class VolumeProfile
             {
                 _walks.RemoveRange(0, _walks.Count - MaxSamples);
             }
+        }
+    }
+
+    /// <summary>
+    /// Gets the ceiling this volume was last held to, or null when none has been decided.
+    /// </summary>
+    /// <remarks>
+    /// Sticky state on purpose. A ceiling that is re-decided from scratch every planning pass is a ceiling that
+    /// oscillates: measured on 2026-09-14, a volume whose walks straddled an absolute threshold flipped between
+    /// two and no ceiling twice inside one batch. The band in <c>WalkCapForProfile</c> needs somewhere to hold
+    /// the last answer, and this is it.
+    /// </remarks>
+    public int? LastCeiling
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _lastCeiling;
+            }
+        }
+    }
+
+    /// <summary>Records the ceiling this volume has just been held to.</summary>
+    /// <param name="cap">The ceiling, or <see cref="int.MaxValue"/> for none.</param>
+    public void RememberCeiling(int cap)
+    {
+        lock (_gate)
+        {
+            _lastCeiling = cap;
         }
     }
 
@@ -299,6 +330,92 @@ public static class VolumeProfiles
 {
     private static readonly object Gate = new();
     private static readonly Dictionary<string, VolumeProfile> Profiles = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// How many samples a volume needs before it can set the reference the others are judged against, so one
+    /// lucky read or one fast walk cannot raise the bar for every other volume on the machine.
+    /// </summary>
+    public const int MinSamplesForReference = 8;
+
+    /// <summary>
+    /// The fastest read latency that counts as storage rather than as the page cache, in milliseconds.
+    /// </summary>
+    /// <remarks>
+    /// A volume answering out of the page cache answers in microseconds. If such a volume set the reference,
+    /// every disk on the machine would be judged against memory: with the figure tried first (0,05 ms) a volume
+    /// reading at 20 ms per call came out at 400x the reference and was classified as thrashing rather than
+    /// storage-bound. A quarter of a millisecond is roughly a queue-depth-1 NVMe read - no storage answers
+    /// faster than that, and anything quicker is the cache rather than evidence about any disk.
+    /// </remarks>
+    public const double PageCacheFloorMsPerCall = 0.25;
+
+    /// <summary>
+    /// Gets the fastest read latency any volume on this machine has shown, in milliseconds per read, or null
+    /// while no volume has enough samples to set the reference.
+    /// </summary>
+    /// <param name="exceptKey">A volume to leave out of the reference: a volume cannot set its own bar.</param>
+    /// <returns>Milliseconds per read, floored at <see cref="PageCacheFloorMsPerCall"/>.</returns>
+    public static double? FastestReadMsPerCall(string? exceptKey = null)
+    {
+        var best = double.MaxValue;
+        var found = false;
+        foreach (var profile in Snapshot())
+        {
+            if (profile.Key == exceptKey)
+            {
+                continue;
+            }
+
+            if (profile.SampleCount < MinSamplesForReference || profile.MsPerCall() is not { } ms)
+            {
+                continue;
+            }
+
+            found = true;
+            best = Math.Min(best, ms);
+        }
+
+        return found ? Math.Max(best, PageCacheFloorMsPerCall) : null;
+    }
+
+    /// <summary>
+    /// Gets the fastest throughput any volume on this machine has shown while walking, in bytes per
+    /// millisecond, or null while no volume has enough walks to set the reference.
+    /// </summary>
+    /// <param name="exceptKey">A volume to leave out of the reference: a volume cannot set its own bar.</param>
+    /// <returns>Bytes per millisecond.</returns>
+    public static double? FastestWalkBytesPerMs(string? exceptKey = null)
+    {
+        var best = 0.0;
+        var found = false;
+        foreach (var profile in Snapshot())
+        {
+            if (profile.Key == exceptKey)
+            {
+                continue;
+            }
+
+            if (profile.WalkCount < MinSamplesForReference || profile.WalkBytesPerMs() is not { } bytesPerMs)
+            {
+                continue;
+            }
+
+            found = true;
+            best = Math.Max(best, bytesPerMs);
+        }
+
+        return found ? best : null;
+    }
+
+    /// <summary>Gets the profiles this process holds, copied so the caller can query them without the lock.</summary>
+    /// <returns>The profiles, one per volume.</returns>
+    private static List<VolumeProfile> Snapshot()
+    {
+        lock (Gate)
+        {
+            return Profiles.Values.ToList();
+        }
+    }
 
     /// <summary>Gets how many volumes this process has profiles for, for the checks.</summary>
     public static int Count

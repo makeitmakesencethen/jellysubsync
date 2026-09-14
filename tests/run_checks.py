@@ -708,6 +708,102 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         SubSyncService.VolumesOtherThan("a", new[] { "a", "b", "c", "b" }) == 3);
 }
 
+// S39: the ceiling judges a volume against the best *this machine* has measured, so nothing in the decision is
+// a throughput or a latency that only one machine's hardware produces. Two machines are driven below - the one
+// the old constants were measured on, and a faster one - and both must classify correctly.
+{
+    // Machine A: fabji's server, 2026-09-14. Local NVMe walks at ~91 MB/s, the share at ~3,4 MB/s.
+    const double aLocalWalk = 91_000;      // bytes per millisecond
+    const double aShareWalk = 3_400;
+
+    var shareOnA = SubSyncService.WalkCapForProfile(null, aShareWalk, null, aLocalWalk, null);
+    Check("on the machine the constants came from, the share is still storage-bound",
+        shareOnA.Cap == SubSyncService.StorageBoundWalkCap,
+        $"{shareOnA.Cap} - {shareOnA.Why}");
+    Check("and its reason names both numbers, so the decision is auditable",
+        shareOnA.Why.Contains("3.4 MB/s") && shareOnA.Why.Contains("91.0 MB/s")
+        && shareOnA.Why.Contains("this machine has measured"),
+        shareOnA.Why);
+
+    var localOnA = SubSyncService.WalkCapForProfile(null, aLocalWalk, null, aShareWalk, null);
+    Check("the fastest volume on that machine still keeps no ceiling, judged against the rest of it",
+        localOnA.Cap == int.MaxValue, $"{localOnA.Cap} - {localOnA.Why}");
+
+    // Machine B: a faster machine than the one the thresholds were measured on - local disk 500 MB/s, and a
+    // NAS on 10 GbE at 150 MB/s. Under the old 50 MB/s threshold that NAS was "fast" and got no ceiling at all,
+    // which is the silent hole this whole change exists to close.
+    const double bLocalWalk = 500_000;
+    const double bNasWalk = 150_000;
+
+    var nasOnB = SubSyncService.WalkCapForProfile(null, bNasWalk, null, bLocalWalk, null);
+    Check("on a faster machine, a 150 MB/s NAS is storage-bound against a 500 MB/s local disk",
+        nasOnB.Cap == SubSyncService.StorageBoundWalkCap, $"{nasOnB.Cap} - {nasOnB.Why}");
+    Check("the same NAS on a machine whose local disk is only 200 MB/s keeps no ceiling",
+        SubSyncService.WalkCapForProfile(null, bNasWalk, null, 200_000, null).Cap == int.MaxValue,
+        $"{SubSyncService.WalkCapForProfile(null, bNasWalk, null, 200_000, null).Cap}");
+
+    // The reads decide only when there are no walks to go on (a volume with slow reads and fine walks must not
+    // be over-capped: that is what held a local NVMe to two walks on 2026-09-14).
+    Check("reads only, against this machine's best read latency",
+        SubSyncService.WalkCapForProfile(21.0, null, 0.5, null, null).Cap == SubSyncService.StorageBoundWalkCap
+        && SubSyncService.WalkCapForProfile(0.6, null, 0.5, null, null).Cap == int.MaxValue
+        && SubSyncService.WalkCapForProfile(1500.0, null, 0.5, null, null).Cap == 1,
+        $"{SubSyncService.WalkCapForProfile(21.0, null, 0.5, null, null).Cap} / "
+        + $"{SubSyncService.WalkCapForProfile(0.6, null, 0.5, null, null).Cap}");
+    Check("a volume whose reads are slow but whose own walks are fine is judged by its walks",
+        SubSyncService.WalkCapForProfile(21.0, bLocalWalk, 0.5, bLocalWalk, null).Cap == int.MaxValue
+        && SubSyncService.WalkCapForProfile(21.0, bLocalWalk, 0.5, bLocalWalk, null).Why.Contains("last walk moved"),
+        SubSyncService.WalkCapForProfile(21.0, bLocalWalk, 0.5, bLocalWalk, null).Why);
+
+    // Hysteresis: the field failure of 2026-09-14 as a check. That volume's walks read 0,75x to 1,0x of the
+    // machine's best, then 0,5x to 0,64x while a slow share was walked alongside it - straddling a single
+    // threshold, which flipped its ceiling between two and none inside one batch.
+    var held = int.MaxValue;
+    foreach (var frac in new[] { 1.00, 0.75, 0.64, 0.58, 0.75 })
+    {
+        held = SubSyncService.WalkCapForProfile(null, bLocalWalk * frac, null, bLocalWalk, held).Cap;
+    }
+
+    Check("a volume whose walks straddle the old boundary never moves once its ceiling is set",
+        held == int.MaxValue, "ended at " + held);
+    Check("the band is one-sided in the right direction: a capped volume stays capped inside it",
+        SubSyncService.WalkCapForProfile(null, bLocalWalk * 0.6, null, bLocalWalk, SubSyncService.StorageBoundWalkCap).Cap
+        == SubSyncService.StorageBoundWalkCap);
+    Check("inside the band, the reason says the band is why the last decision stands",
+        SubSyncService.WalkCapForProfile(null, bLocalWalk * 0.6, null, bLocalWalk, 2).Why.Contains("band"),
+        SubSyncService.WalkCapForProfile(null, bLocalWalk * 0.6, null, bLocalWalk, 2).Why);
+    Check("a volume that genuinely falls below the bound is capped, band or no band",
+        SubSyncService.WalkCapForProfile(null, bLocalWalk * 0.3, null, bLocalWalk, int.MaxValue).Cap
+        == SubSyncService.StorageBoundWalkCap);
+
+    // The reference itself: floored against the page cache, and never a volume's own numbers.
+    Check("no read is believed to be faster than any storage answers",
+        VolumeProfiles.PageCacheFloorMsPerCall > 0
+        && VolumeProfiles.MinSamplesForReference > 0
+        && VolumeProfiles.FastestReadMsPerCall() is null or >= VolumeProfiles.PageCacheFloorMsPerCall,
+        "best read = " + VolumeProfiles.FastestReadMsPerCall());
+    var fastPath = "/dev/shm/subsync-s39-fast-" + Guid.NewGuid().ToString("N");
+    for (var i = 0; i < VolumeProfiles.MinSamplesForReference + 2; i++)
+    {
+        VolumeProfiles.For(fastPath).Observe(65536, 0.001);
+        VolumeProfiles.For(fastPath).ObserveWalk(200_000_000, 1000);
+    }
+
+    Check("a volume's own speed never sets the bar it is judged against",
+        (VolumeProfiles.FastestWalkBytesPerMs(VolumeProfiles.KeyFor(fastPath)) ?? 0) < 200_000,
+        "reference excluding it = " + VolumeProfiles.FastestWalkBytesPerMs(VolumeProfiles.KeyFor(fastPath)));
+    Check("the page cache cannot set the read reference for every disk on the machine",
+        VolumeProfiles.FastestReadMsPerCall() >= VolumeProfiles.PageCacheFloorMsPerCall,
+        "best read = " + VolumeProfiles.FastestReadMsPerCall());
+
+    // With no reference at all, the old absolute behaviour still decides - a process that has measured one
+    // volume behaves exactly as it did before this change.
+    Check("with no reference to compare against, the documented absolute behaviour still decides",
+        SubSyncService.WalkCapForProfile(21.0, null).Cap == SubSyncService.StorageBoundWalkCap
+        && SubSyncService.WalkCapForProfile(0.05, null).Cap == int.MaxValue
+        && SubSyncService.WalkCapForProfile(null, 137_000).Cap == int.MaxValue);
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
     SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,

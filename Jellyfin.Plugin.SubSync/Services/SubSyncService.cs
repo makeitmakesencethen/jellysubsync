@@ -2762,7 +2762,9 @@ public class SubSyncService : IDisposable
     private static bool IsSpeechCachingMode(string mode) => SyncJobMode.UsesSpeechCache(mode);
 
     /// <summary>
-    /// Reads per call above which a volume is treated as storage-bound rather than fast. A wide margin
+    /// Reads per call above which a volume is treated as storage-bound rather than fast - **the fallback
+    /// only**, used when this process has no second volume to measure against (see `WalkCapForProfile`). A wide
+    /// margin
     /// above the class default a read policy starts from (0,05 ms per call) and far below fabji's share,
     /// which measures 13-46 ms per call at rest.
     /// </summary>
@@ -2809,15 +2811,27 @@ public class SubSyncService : IDisposable
     /// <param name="path">Path to a job's media file.</param>
     /// <returns>The ceiling and the measurement behind it.</returns>
     public static (int Cap, string Why) WalkCapOfPath(string? path)
-        => string.IsNullOrWhiteSpace(path)
-            ? (UnmeasuredWalkCap,
-               "this job's volume could not be worked out, so it is treated as slow until it measures fast")
-            : WalkCapForProfile(
-                Services.VolumeProfiles.For(path).MsPerCall(),
-                Services.VolumeProfiles.For(path).WalkBytesPerMs());
+    {
+        if (string.IsNullOrWhiteSpace(path))
+        {
+            return (UnmeasuredWalkCap,
+                "this job's volume could not be worked out, so it is treated as slow until it measures fast");
+        }
+
+        var profile = Services.VolumeProfiles.For(path);
+        var cap = WalkCapForProfile(
+            profile.MsPerCall(),
+            profile.WalkBytesPerMs(),
+            Services.VolumeProfiles.FastestReadMsPerCall(profile.Key),
+            Services.VolumeProfiles.FastestWalkBytesPerMs(profile.Key),
+            profile.LastCeiling);
+        profile.RememberCeiling(cap.Cap);
+        return cap;
+    }
 
     /// <summary>
-    /// Throughput above which a volume's own walk says its storage is not the constraint, in MB/s.
+    /// Throughput above which a volume's own walk says its storage is not the constraint, in MB/s - **the
+    /// fallback only**, used when nothing else on this machine has enough samples to be the reference.
     /// </summary>
     /// <remarks>
     /// 50, set between the two populations the field has shown, with margin on both sides. On 2026-09-14 the
@@ -2854,8 +2868,42 @@ public class SubSyncService : IDisposable
     internal static int VolumesOtherThan(string thisVolume, IEnumerable<string> otherVolumes)
         => otherVolumes.Count(v => !string.Equals(v, thisVolume, StringComparison.Ordinal));
 
+    /// <summary>The ceiling a storage-bound volume is held to: two walks at a time.</summary>
+    public const int StorageBoundWalkCap = 2;
+
     /// <summary>
-    /// Gets the ceiling for a volume from a measured cost per read.
+    /// How far below the best walk this machine has measured a volume may fall before it is storage-bound.
+    /// </summary>
+    /// <remarks>
+    /// A ratio rather than a throughput, so the ceiling needs to know nothing about the hardware. It is also
+    /// right for fast volumes, which is the part that looks wrong at first: a share at a third of the machine's
+    /// best is still one whose link eight walks would saturate, and holding it to two leaves the aggregate where
+    /// it was while each file finishes sooner. On the machine this was written for the ratio reads 0,04x for the
+    /// share and 1,0x for the local disk, reproducing exactly what absolute thresholds used to decide.
+    /// </remarks>
+    public const double WalkBoundFraction = 0.5;
+
+    /// <summary>
+    /// How close to that best a volume must come before a ceiling already in force is released.
+    /// </summary>
+    /// <remarks>
+    /// Higher than <see cref="WalkBoundFraction"/> on purpose: that gap is the hysteresis, and without it a
+    /// volume whose walks sit near a single threshold flips between two and no ceiling inside one batch - which
+    /// is what the field showed on 2026-09-14, twice, before this existed.
+    /// </remarks>
+    public const double WalkReleaseFraction = 0.667;
+
+    /// <summary>How many times the machine's best read latency counts as storage-bound.</summary>
+    public const double SlowReadRatio = 20.0;
+
+    /// <summary>Within how many times that latency a volume's reads count as fast.</summary>
+    public const double FastReadRatio = 10.0;
+
+    /// <summary>How many times that latency counts as thrashing, where even two concurrent walks are too many.</summary>
+    public const double ThrashingReadRatio = 100.0;
+
+    /// <summary>
+    /// Gets the ceiling for a volume from a measured cost per read, with no reference to compare against.
     /// </summary>
     /// <param name="msPerCall">Milliseconds per read, or null when nothing has read from this volume.</param>
     /// <returns>The ceiling and the measurement behind it.</returns>
@@ -2884,7 +2932,79 @@ public class SubSyncService : IDisposable
     /// <param name="walkBytesPerMs">Bytes per millisecond a walk showed, or null when no walk has finished.</param>
     /// <returns>The ceiling and the measurement behind it.</returns>
     public static (int Cap, string Why) WalkCapForProfile(double? msPerCall, double? walkBytesPerMs)
+        => WalkCapForProfile(msPerCall, walkBytesPerMs, null, null, null);
+
+    /// <summary>
+    /// Gets the ceiling for a volume from everything measured about it *and* everything measured about this
+    /// machine, which is what makes the judgement portable: nothing here is a throughput or a latency that only
+    /// one machine's hardware produces.
+    /// </summary>
+    /// <remarks>
+    /// The walks decide when the volume has walks of its own, because walking is the operation being limited.
+    /// The read side decides only when there are no walks to go on - a volume whose reads are slow but whose own
+    /// walks are fine must not be over-capped, which is exactly what held a local NVMe to two walks on
+    /// 2026-09-14. With a reference available the band between the bound and the release fraction keeps a
+    /// decision sticky; with no reference (nothing else on this machine has enough samples) the documented
+    /// absolute behaviour is used instead, so a process that has measured one volume behaves as it always did.
+    /// </remarks>
+    /// <param name="msPerCall">Milliseconds per read, or null when nothing has read from this volume.</param>
+    /// <param name="walkBytesPerMs">Bytes per millisecond a walk showed, or null when no walk has finished.</param>
+    /// <param name="referenceMsPerCall">The machine's best read latency, or null.</param>
+    /// <param name="referenceBytesPerMs">The machine's best walk throughput, or null.</param>
+    /// <param name="previousCap">The ceiling this volume was last held to, or null.</param>
+    /// <returns>The ceiling and the measurement behind it.</returns>
+    public static (int Cap, string Why) WalkCapForProfile(
+        double? msPerCall,
+        double? walkBytesPerMs,
+        double? referenceMsPerCall,
+        double? referenceBytesPerMs,
+        int? previousCap)
     {
+        if (walkBytesPerMs is { } walked && referenceBytesPerMs is { } bestWalk && bestWalk > 0)
+        {
+            var ratio = walked / bestWalk;
+            var share = $"{(walked / 1000.0):0.0} MB/s against the best {bestWalk / 1000.0:0.0} MB/s this machine has measured ({ratio:0.00}x)";
+            if (ratio < WalkBoundFraction)
+            {
+                return (StorageBoundWalkCap, $"this volume's last walk moved {share}, which is storage-bound");
+            }
+
+            if (ratio >= WalkReleaseFraction)
+            {
+                return (int.MaxValue, $"this volume's last walk moved {share}, which is fast");
+            }
+
+            return previousCap is { } held
+                ? (held, $"this volume's last walk moved {share}, inside the band between storage-bound and fast, so the last decision for it stands ({CapName(held)})")
+                : (StorageBoundWalkCap, $"this volume's last walk moved {share}, inside the band and nothing has been decided for it yet, so it is held conservatively");
+        }
+
+        if (msPerCall is { } ms && referenceMsPerCall is { } bestRead && bestRead > 0)
+        {
+            var ratio = ms / bestRead;
+            var share = $"{ms:0.00} ms per read against the best {bestRead:0.00} ms this machine has measured ({ratio:0.0}x)";
+            if (ratio >= ThrashingReadRatio)
+            {
+                return (1, $"this volume's reads measure {share}, which is thrashing");
+            }
+
+            if (ratio >= SlowReadRatio)
+            {
+                return (StorageBoundWalkCap, $"this volume's reads measure {share}, which is storage-bound");
+            }
+
+            if (ratio <= FastReadRatio)
+            {
+                return (int.MaxValue, $"this volume's reads measure {share}, which is fast");
+            }
+
+            return previousCap is { } heldReads
+                ? (heldReads, $"this volume's reads measure {share}, inside the band, so the last decision for it stands ({CapName(heldReads)})")
+                : (StorageBoundWalkCap, $"this volume's reads measure {share}, inside the band and nothing has been decided for it yet, so it is held conservatively");
+        }
+
+        // No reference to compare against: the absolute behaviour, unchanged, for a process that has not
+        // measured a second volume yet.
         (int Cap, string Why)? byReads = msPerCall is null ? null : CapFromReadCost(msPerCall.Value);
         (int Cap, string Why)? byWalk = walkBytesPerMs is null ? null : CapFromWalkThroughput(walkBytesPerMs.Value);
 
@@ -2908,6 +3028,8 @@ public class SubSyncService : IDisposable
         // is storage-bound for the walks, which is what this ceiling exists to limit.
         return byReads.Value.Cap <= byWalk.Value.Cap ? byReads.Value : byWalk.Value;
     }
+
+    private static string CapName(int cap) => cap >= int.MaxValue ? "none" : cap.ToString();
 
     private static (int Cap, string Why) CapFromReadCost(double msPerCall)
     {
