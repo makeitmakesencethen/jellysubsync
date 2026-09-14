@@ -4,6 +4,26 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.34 (beta)
+
+The item-scoped API endpoints now check that the calling account can see the item it names. They used to take
+the item id on trust: any authenticated account on the server could read any item's subtitle list, or queue a
+sync that **writes a subtitle file**, for an item in a library it had no access to - and the ids were
+discoverable through the plugin itself, because the job history is server-wide and its records carry the item id
+and the output path.
+
+- Per item, not per role. An account that can see the item behaves exactly as before, so the "Sync Subtitles"
+  button on a detail page keeps working for a non-admin. Making those endpoints administrator-only was the
+  tempting fix and the wrong one: it would have removed the feature rather than guarded it.
+- A request naming several items is refused as a whole when any one of them is not visible, so a batch never
+  starts half-queued.
+- A refusal does not confirm whether the item exists. The item id goes to the plugin log, which is
+  administrator-only, together with the folders the item was found under and the libraries the account holds -
+  so a refusal can be diagnosed rather than guessed at.
+- The decision lives in one place, `Services/ItemAccess.cs`, and fails closed: an account that cannot be
+  resolved, an item that cannot be resolved, an account with no libraries and an item with no resolved folders
+  all deny. 17 new checks cover it, including one that fails if any of the four endpoints stops asking.
+
 ## 2.0.33 (beta)
 
 The walk ceiling's fast/slow boundary is set between the two throughput populations the field has measured,
