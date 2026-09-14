@@ -49,7 +49,9 @@ the first read on a freshly opened handle charged 231 ms - the field's shape, by
 a volume thrashing, two reads agreeing can, the thrash verdict names how many reads back it, and the probe takes
 more than one read and logs the median.
 
-**Rollback:** if the new probe misbehaves, 2.0.37 remains installable from the beta catalogue.
+**Rollback:** if the new probe misbehaves, the previous build is still served and can be installed by URL -
+`https://makeitmakesencethen.github.io/jellysubsync/beta/Jellyfin.Plugin.SubSync_2.0.37.0.zip`
+(the beta catalogue lists only its newest version, so pinning means that link).
 
 ## 2.0.37 (beta)
 
