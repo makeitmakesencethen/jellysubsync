@@ -4,6 +4,29 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.32 (beta)
+
+The walk ceiling can now measure itself, and it says which measurement held a job.
+
+- **A volume can be measured by its own walks.** Until now the profile was fed only by reads the extraction
+  path made, and on a warm subtitle cache that path reads nothing - so a volume could keep the conservative
+  ceiling of 2 for ever, on fast storage as well. A finished audio-ruler walk now records the media file's
+  length and the engine's wall clock against its volume, and the ceiling takes the **more conservative of the
+  two measurements**, the read latency and the walk throughput. The thresholds are measured, not chosen: 5 and
+  100 ms per read, 20 and 1 MB/s for walks - local disk walks a 2,4 GB file in 17 s (137 MB/s), the same file
+  off the share in 903 s (2,6 MB/s), a whole season at 3,1-3,5 MB/s.
+- **A volume nothing has measured is still held at 2**, so the hole 2.0.30 shipped stays closed: not known to
+  be fast is not the same as fast. A fast volume leaves that case as soon as its own walk has finished, and
+  nothing changes for a setup that is not storage-bound.
+- **The hold line names the measurement** - in milliseconds per read or MB/s - instead of choosing its wording
+  from the ceiling value. Until now "nothing measured yet" and "measured storage-bound" printed identically,
+  which is how a working ceiling read as a broken one in a real run.
+- Every audio-ruler walk now logs what it measured, so the ceiling can be checked from the log alone:
+  `this walk moved 1876,4 MB of <file> in 402,0 s = 4,7 MB/s - the ceiling for that volume is 2 (this
+  volume's last walk moved 4,7 MB/s, which is storage-bound)`.
+- A walk is never recorded as a read: the two are kept apart, so a whole-file walk cannot pose as the cost of
+  one read.
+
 ## 2.0.31 (beta)
 
 The per-volume walk ceiling now applies to a volume nothing has read yet - which is exactly the case it is
