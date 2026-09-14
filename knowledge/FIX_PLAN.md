@@ -704,7 +704,7 @@ Fixed: the measurement now travels with the cap. `WalkCapOf` is a `Func<SyncJob,
 or `nothing has measured this volume yet, so it is treated as slow until something does`, never both for the
 same situation. Four checks pin it: the two cap-of-2 cases produce different reasons, only the unmeasured case
 says nothing has measured the volume, and the measured reasons quote their number and unit. Suite: 563 checks
-green. Commit `9671209`.
+green. Commit `af66eaf`.
 
 ### S33 - a fast volume's ceiling could never lift, because nothing fed the profile (done in code and checks)
 
