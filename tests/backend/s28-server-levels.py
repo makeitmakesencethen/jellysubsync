@@ -32,8 +32,12 @@ def main():
     ap.add_argument('--log', default='/subsync-logs/subsync.log')
     ap.add_argument('--files', nargs='*', default=DEFAULT_FILES)
     ap.add_argument('--all', action='store_true', help='ignore the file filter')
+    ap.add_argument('--since', default=None,
+                    help="only runs starting at/after this UTC time, 'YYYY-MM-DD HH:MM:SS'")
     args = ap.parse_args()
 
+    since = (datetime.datetime.strptime(args.since, '%Y-%m-%d %H:%M:%S')
+             if args.since else None)
     lines = open(args.log, errors='replace').read().splitlines()
     dispatch, jobs = [], collections.defaultdict(dict)
 
@@ -66,6 +70,8 @@ def main():
             continue
         name = (j.get('file') or j.get('out') or '')
         if not args.all and not any(f in name for f in args.files):
+            continue
+        if since and j['t0'] < since:
             continue
         rows.append(dict(jid=jid, name=name, dur=(j['t1'] - j['t0']).total_seconds(),
                          ref=j.get('ref'), cached=j.get('cached'), limit=j.get('limit'),
