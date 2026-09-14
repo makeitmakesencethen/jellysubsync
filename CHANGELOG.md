@@ -4,6 +4,38 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.35 (beta)
+
+Two changes to the walk ceiling, both about measuring a volume honestly instead of trusting a number that may
+belong to something else.
+
+**A walk only judges its own volume.** A walk's throughput is the storage's speed *and* whatever else happened to
+be running. On 2026-09-14 the same local NVMe volume walked at 68-91 MB/s with only its own jobs in flight, and at
+45-58 MB/s while a slow share was walked alongside it - which straddled the threshold, so the ceiling held the
+fast volume to two walks and a mixed batch ran one file at a time for twenty-five minutes. A walk taken while
+another volume was being read is now logged and **not** used to judge the volume: it measures the moment, not the
+storage.
+
+**The judgement is relative, not absolute.** Every threshold was a figure measured on one server, and a share or
+NAS that genuinely delivers more than 50 MB/s - 10 GbE, or a NAS backed by NVMe - was classified "fast" and got
+**no ceiling at all**, so eight full-file walks could land on one volume: exactly the thrash the ceiling exists to
+prevent, silently, on better hardware than the thresholds came from. Each volume is now compared with the best
+**that machine** has measured, requiring eight samples and excluding the volume being judged, so a volume cannot
+set its own bar:
+
+- below half the best walk on this machine is storage-bound (two at a time); two thirds or better is no ceiling;
+  in between the last decision stands - that gap is deliberate, because a volume whose walks straddle a single
+  boundary flips between two and none inside one batch;
+- the read latency decides only when there is no walk to go on, and the read reference is floored at 0,25 ms per
+  read: no storage answers faster than that, anything quicker is the page cache rather than evidence about a disk;
+- with nothing on the machine to compare against, the previous conservative behaviour applies unchanged;
+- and every decision states both numbers in the log, so it can be audited in the field:
+  `this volume's last walk moved 3.4 MB/s against the best 91.0 MB/s this machine has measured (0.04x), which is
+  storage-bound`.
+
+15 new checks cover it, including a second synthetic machine - a fast NAS - so "works on any machine" is tested
+rather than assumed.
+
 ## 2.0.34 (beta)
 
 The item-scoped API endpoints now check that the calling account can see the item it names. They used to take
