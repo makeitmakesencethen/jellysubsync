@@ -315,8 +315,59 @@ decided. `S21`/`S22` reuse ids that were proposed for the withdrawn Alex subtitl
 | done | **S24** | low | a run has no progress or ETA surface: the only queue depth anywhere is the dispatch line, emitted only when a job *starts* and naming only the batch that job belongs to | `02:13:00 dispatch: starting 1, running 7, limit 8, queued 304, batch ce6a7a65…` — nothing reports jobs left, files left, the lane's current file, or that a run has ended. On this run the backlog (338 jobs over 338 files, one job per file) and the ETA had to be derived by hand from lane lines and dispatch timestamps: 11 jobs in 918 s = 0,7/min ⇒ 4–8 h of uncertainty. The lane also spends long stretches inside a single file with no line in between. **Fixed** (commit logged with this row): one line a minute while work exists - `queue: N queued, M running, F file(s) left, lane currently on: <file>, T min elapsed on it` - emitted from the pump tick, with the lane's start time now stored per pass |
 | done | **S25** | low | batch history is in-memory and unpersisted, and progress follows a single batch, so the two read as one complaint ("there is no way to tell how many jobs are left" + "the history resets") | batches live in `SubSyncService` and are read back through `GetBatch` / `GET /SubSync/Batches` (server-side, shared by all viewers per `AGENTS.md`); no retention, eviction or persistence code was found for them, so a restart clears the list. The page watches one batch at a time (`watchOrQueueBatch(batchId, label, count)`), so creating a new batch replaces the progress the user was looking at. Reported by fabji after queueing four batches in one session. **Fixed** (commit logged with this row): `{StatePath}/batch-history.json` via `BatchHistory`, restored at start-up, written from the pump tick (signature + 60 s) and once on shutdown; restored jobs are display-only, exempt from the cleanup timer, and anything interrupted comes back as cancelled |
 | open | **S26** | medium | on one release the cue-indexed plan and its prefetch disagree with reality by ~20×, and the reads that follow are the single largest cost in the batch. The shared-pass route on the same file predicts correctly, so this is specific to the cue-indexed plan over that release | `WARN extract plan: solsidan.s03e02.swedish.1080p.bluray.x264-prince.mkv cue-indexed expected 0.63 MB/528 read(s) (118777.6 ms), actual 42.03 MB/10635 read(s) (3641220.3 ms) - bytes 66.…` then `WARN extract: solsidan.s03e02… read 0,09 MB past the fetch (a fetched range that did not cover the read it was made for) - fetched 789 range(s)…`; same shape on s03e03, s03e04, s03e05, s03e06 — lane passes of **17,6, 19,3, 23,5, 56,6, 78,5 and 95 min** for ~11 000 reads each, ~20 reads/cue against the family's ~2. Per-read cost on the same release: `extract profile: solsidan.s03e09…: storage 2,14 ms per read and 1,8 MB/s` versus `1613,40 ms/read, 0,0 MB/s` on s03e04. `past the fetch` has no row anywhere in this plan although it is in the tail watcher's filter list |
-| explained — no code change | **S28** | medium | the audio-ruler analysis costs **one full walk of the media file**, and that walk *is* the cost; the observed ~6x penalty over the share's own measured speed is concurrency (up to 8 walks at once on one volume). A fix that extracts a compact audio reference first was tested and **refuted**: through the share's profile the rip costs 901 s and the engine's own job costs 903 s, so the copy moves the walk rather than removing it (it would only help re-analysis, parked below). The real levers are (1) how many full-file walks run at once, (2) the storage path itself, (3) jobs that align against a subtitle reference and never walk the media (median 2,9 s) | Measured 2026-09-14 with `tests/backend/slowread.so` at fabji's share profile (10 ms/round trip + 11 MB/s), one 2,4 GB episode: audio rip **901 s** (capped, rip complete), engine with the media as reference **903 s exit 0**, engine against a **local** audio-only reference **9 s**, decode-only 160 s (killed by a cleanup, unusable), engine with the media reference on **local disk 17 s**, engine against the local audio-only file on local disk **8 s**, and both produced the same alignment within 70 ms (`offset seconds: 4.690` vs `4.620`). Field: 232 audio-ruler engine runs median **35,3 s**, films 57-111 min, per-read latency on the share 2,14-1613 ms within minutes, 8 concurrent walks + the extraction lane reading ~10 000 ranges. Concurrency experiment: `tests/backend/s28-concurrency.sh` (per-file wall clock at 1/2/4/8 concurrent walks, bandwidth-shared model) |
+| explained — no code change | **S28** | medium | the audio-ruler analysis costs **one full walk of the media file**, and that walk *is* the cost; the observed ~6x penalty over the share's own measured speed is concurrency (up to 8 walks at once on one volume). A fix that extracts a compact audio reference first was tested and **refuted**: through the share's profile the rip costs 901 s and the engine's own job costs 903 s, so the copy moves the walk rather than removing it (it would only help re-analysis, parked below). The real levers are (1) how many full-file walks run at once, (2) the storage path itself, (3) jobs that align against a subtitle reference and never walk the media (median 2,9 s) | Measured 2026-09-14 with `tests/backend/slowread.so` at fabji's share profile (10 ms/round trip + 11 MB/s), one 2,4 GB episode: audio rip **901 s** (capped, rip complete), engine with the media as reference **903 s exit 0**, engine against a **local** audio-only reference **9 s**, decode-only 160 s (killed by a cleanup, unusable), engine with the media reference on **local disk 17 s**, engine against the local audio-only file on local disk **8 s**, and both produced the same alignment within 70 ms (`offset seconds: 4.690` vs `4.620`). Field: 232 audio-ruler engine runs median **35,3 s**, films 57-111 min, per-read latency on the share 2,14-1613 ms within minutes, 8 concurrent walks + the extraction lane reading ~10 000 ranges. Concurrency experiment **measured** (`tests/backend/s28-concurrency.sh`) — see the concurrency section below the table for the raw per-level numbers, what they do to the capping question, and the server confirmation recipe |
 | done | **S27** | medium | no deadline and no heartbeat around the engine run: the plugin logs a start and an exit and nothing between, so a wedged engine pins a worker indefinitely and a correct 91-minute run is indistinguishable from a hang on every surface the user has. **Fixed in `8d2b548`**: `EngineHeartbeat` writes `[<job>] <file>: engine running, N min elapsed, reference=<ruler>` to the plugin log every 5 minutes for exactly as long as the process runs (started after the process is live, disposed when it is gone, best effort). No deadline and no kill were added - visibility only, as decided. The wording, the interval and the absence of a timeout are pinned by the suite | Hereditary `00:22:09 [d805de52…] ffsubsync start: … reference=a:0 …` with no exit line **111 minutes** later; Midsommar completed at `02:05:45 job c4d7d3ae… completed: … bytes=69518 change=+112836 ms` after **91,3 min**; Oppenheimer 65,5 min; The Lighthouse 57,2 min. During all of it the plugin log carries nothing between start and exit. `ExtractionTimeoutMinutes` (20, `timeoutCts.CancelAfter`) governs the ffmpeg extraction fallback only — the engine is killed solely through the caller's cancellation token. `ps` during the run: parent `ffsubsync` at **0,2–2,9 % CPU (18 s CPU in 106 min)** ⇒ waiting, not computing; the work sits in ffmpeg children, which `ps -C ffsubsync` does not show. Cost by ruler, whole run: `reference=a:0` n=232 median **35,3 s** max 5 479,8 s; subtitle ruler n=429 median **2,9 s** — a feature film with no usable embedded subtitle costs ~1 h |
+
+### Concurrency experiment - measured 2026-09-14 (`tests/backend/s28-concurrency.sh`)
+
+Fixture: a 218 MB / 5 min slice of a real 2,4 GB episode inside the shim's prefix, 59-cue sidecar, each
+job being exactly what an audio-ruler analysis costs the engine (`--vad webrtc --reference-stream a:0`).
+Levels 1/2/4/8 concurrent walks, run twice: once with the volume's **bytes** shared
+(`SLOWREAD_MS_PER_16K x N`, per-call latency unchanged) and once with bytes **and round trips** shared
+(both x N). All 30 jobs exited 0 and wrote output. Raw per-job times: `/tmp/s28-conc/job-*.time`
+(format `<ms> <exit>`).
+
+| model | N | min s | median s | max s | spread | aggregate |
+|---|---|---|---|---|---|---|
+| bandwidth | 1 | 83,444 | 83,444 | 83,444 | - | 43,1 files/h |
+| bandwidth | 2 | 102,621 | 102,632 | 102,644 | 23 ms | 70,2 |
+| bandwidth | 4 | 141,647 | 141,660 | 141,667 | 20 ms | 101,7 |
+| bandwidth | 8 | 219,641 | 219,922 | 219,945 | 304 ms | 131,0 |
+| bandwidth+queue | 1 | 83,212 | 83,212 | 83,212 | - | 43,3 |
+| bandwidth+queue | 2 | 163,413 | 163,421 | 163,428 | 15 ms | 44,1 |
+| bandwidth+queue | 4 | 324,035 | 324,047 | 324,059 | 24 ms | 44,4 |
+| bandwidth+queue | 8 | 644,884 | 645,041 | 645,074 | 190 ms | 44,7 |
+
+What it says:
+
+- **A walk costs `reads x per-call latency + bytes x per-byte charge`**, and at N=1 the latency term is
+  **77 %** of the total: fitting `c + b*N` gives c=63,9 s and b=19,5 s, predicting N=2 at 102,9 s and
+  N=4 at 141,9 s against 102,6 s and 141,7 s measured.
+- **bandwidth (bytes shared, latency not queued): aggregate rises with N**, 43 -> 131 files/h, because
+  the fixed latency term is amortised by overlapping jobs; per-file grows sublinearly.
+- **bandwidth+queue: per-file is proportional to N** (1,96x / 3,88x / 7,73x), so **aggregate is flat**,
+  43,3 -> 44,7 files/h (+3 %). Flat, *not falling* - a falling aggregate needs *super-linear* queueing
+  (per-read latency growing faster than N), which this model does not contain.
+- **Both pre-test predictions were wrong**: bandwidth-only was predicted flat (measured: rising) and
+  bandwidth+queue was predicted falling (measured: flat). The decomposition above is why.
+- Cross-check against the separate full-size run: 218 MB at N=1 = 83,4 s, and scaling the 2,4 GB walk
+  (903 s) by 218/2382 gives 82,6 s - two independent runs agree within 1 %.
+- Min/median/max are within 0,3 s at every level because the shim's charges are deterministic; it has
+  no variance and no cross-job randomness, so the spread is not evidence of anything.
+- **The two models give opposite answers about capping**, so the shim cannot settle it: under
+  bandwidth-only a cap costs throughput (43 vs 131 files/h); under bandwidth+queue a cap is free in
+  throughput and buys up to ~8x lower per-file latency. Which regime the real share is in is a property
+  of the share, not of this arithmetic.
+
+**Server confirmation (small, controlled, nothing to push).** `ParallelWorkers` is read live from
+`SettingsSource.Current()` (`SubSyncService.cs:2556/2565/2677`), so the limit can be lowered without a
+restart, and the installed 2.0.29.0 already logs `queued: job=...` and `job ... completed: mode=...`
+with ISO-ms timestamps plus `dispatch: ... limit L`, so per-file wall clock is derivable from the plugin
+log alone. Recipe: one fixed set of 3-4 audio-ruler files (their jobs show the `Analyzing speech`
+phase), each run once at ParallelWorkers 1 / 2 / 4, same files and same order, recording each level's
+wall-clock window, plus one known-file read before each level to time the share's idle throughput. Then
+per-file (queued -> completed) and aggregate per level discriminate the regime: flat, proportional, or
+worse than proportional.
 
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
