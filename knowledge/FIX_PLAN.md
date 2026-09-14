@@ -774,29 +774,60 @@ mapping directly, or use `/dev/shm`.
 - The share itself behaved: eight episodes, 16,8-23,1 MB/s per walk, 33-116 s each, 9,82 GB in 212 s -
   against 5,5-7,0 min per walk at eight concurrent before the ceiling existed.
 
-### S35 - the walk threshold sat inside the share's own measured range (high, fixed in code, field re-run owed)
+### S35 - the walk threshold sat inside the share's own measured range (done, verified in the field)
 
-The field run of 2026-09-14 failed criterion (b): the share ran **five concurrent walks**. The cause is the
-threshold this row is about, and it was set from a bad measurement.
+The field run on 2026-09-14 with 2.0.32 failed criterion (b): the share ran **five concurrent walks**. The
+threshold is why, and it was set from a bad measurement. `FastWalkMbPerSec` was 20, taken from "the share walks
+2,4 GB in 903 s = 2,6 MB/s" - measured while eight walks were already running on that volume, i.e. **while the
+volume was being throttled by the very ceiling the number was meant to decide**. Walked at its own pace the
+same share measures ~17-34 MB/s. At 20 the ceiling lifted after a 23,1 MB/s walk and dropped after a 17,4 MB/s
+one, so a wave planned while it read "fast" put five walks on the share at once (three within 11 s).
 
-`FastWalkMbPerSec` was 20, taken from "the share walks 2,4 GB in 903 s = 2,6 MB/s". That 903 s figure was
-measured while eight walks were already running on that volume - **the volume was being throttled by the very
-ceiling the number was supposed to decide**. Measured at its own pace, the same share walked eight episodes at
-16,8 / 17,1 / 17,4 / 18,9 / 19,7 / 22,7 / 22,7 / 23,1 MB/s. So 20 sat *inside* the share's range: the ceiling
-lifted after a 23,1 MB/s walk and dropped after a 17,4 MB/s one, and a wave planned while it read "fast" put
-five walks on the share at once - 22:21 to 22:38, three of them within 11 s of each other.
+Fixed by putting the boundary between the two populations the field has shown: **50 MB/s**, 2,2x above every
+walk the share has produced and 1,7x below every local walk (NVMe 84,4-137 MB/s). Commit `804f1f3`, 581 checks
+green, shipped in 2.0.33.
 
-Fixed by setting the boundary between the two populations the field has now shown, with margin on both sides:
-**50 MB/s** (2,2x above every walk this share has produced, 1,7x below every local walk: NVMe measured
-84,4-91,4 MB/s over five episodes and 137 MB/s on a lone 2,4 GB file). The whole share range now maps to one
-ceiling, so it cannot flip within a batch - pinned by a check that walks every measured throughput through the
-mapping. Suite: 581 checks green. Commit `804f1f3`.
+**Verified in the field on 2.0.33** (Outsiders S10 on `/media/synology`, `ParallelWorkers` 8, speech cache
+cleared first, and eight walks again - the batch repeats because every job ends `UNVERIFIED` and writes
+nothing):
 
-**Lesson, and the reason this shipped wrong:** a measurement taken while the thing under test is already being
-throttled cannot set the boundary for that throttling. The 20 came from a run in which the ceiling had failed
-to apply; the number that should have come out of it (23 MB/s) was the *evidence of the failure*, not the
-volume's speed. Field re-run owed: the share must show max concurrent walks <= 2, and local storage must still
-show more than two.
+- **criterion (b): passed.** 8 walks, **max concurrent 2**, per walk 35,8-54,2 s at 29,4-34,0 MB/s, 9,82 GB in
+  209 s = 48,1 MB/s aggregate. The hold line is stable for the whole run instead of flipping:
+  `15:04:20  walk ceiling: holding /media/synology|192.168.0.110:/volume1/JELLYFIN at 2 concurrent media
+  read(s) - this volume's last walk moved 34,0 MB/s, which is storage-bound`, and the same at 15:05:20 with
+  32,1 MB/s. Every walk in the run took 36-54 s against 5,5-7,0 min per walk before the ceiling existed.
+- **criterion (c): passed again.** Five episodes on `/Media` (`/dev/nvme0n1p2`) at 92,4-101,0 MB/s,
+  12,7-14,9 s each, every one `ceiling none (fast)`, with **3 concurrent** - 5,98 GB in 30 s = 203,9 MB/s.
+- The share's walks also got *faster* once the ceiling stopped flipping: 29,4-34,0 MB/s here against
+  16,8-23,1 MB/s in the 2.0.32 run, where the cap kept lifting and dropping under the same batch.
+
+**The goal is complete**: the ceiling measures itself from its own reads and its own walks, lifts for local
+storage, holds the share at 2, and all three criteria have now been seen in a field log.
+
+### S36 - a batch's first planning pass can see a worker limit of 1 before the configuration has loaded (low)
+
+Three batches in the 2026-09-14 log opened with a dispatch line reading `limit 1` and planned nothing
+(`starting 0`), then seconds later the next pass read `limit 8` and started work:
+
+    15:03:37  dispatch: starting 0, running 0, limit 1, queued 8, batch 681a0a2b
+    15:03:37  dispatch: starting 1, running 0, limit 1 -> and the next line limit 8
+
+Same shape for `341dc2d4` (14:54:37) and `e90a146c` (15:07:11). The plugin's default `ParallelWorkers` is 1 and
+a batch queued before the settings provider has loaded is planned against that default, so its first pass is
+throttled and the batch waits for the next pass to start. Harmless in these runs (the delay was seconds) but it
+is the plugin's own default deciding how a user's batch starts, and it is why a batch's log opens with a limit
+the user never chose. Not fixed: recorded while verifying S35, one item, one commit.
+
+### The first wave on any volume is deliberately conservative, and it is why a small local batch shows three walks
+
+A plugin restart empties the volume profiles (they are in memory on purpose - a profile restored after a reboot
+may describe a share that is no longer there), so the first wave on every volume is planned before anything has
+measured it and is held at 2. On the 2026-09-14 local run that is the whole of the user-visible "not all workers
+were used": five files on local disk, two walked first, the remaining three then ran at once - **3 concurrent
+out of 8 workers**, which is the arithmetic of the first wave rather than under-use. A local batch with eight or
+more files would reach the full worker count after that first wave; eight local files have not been run yet.
+The only way to remove even that one conservative wave is to persist volume profiles across restarts, which is
+a separate decision with its own staleness question (see `VolumeProfile`'s own remarks).
 
 ### S34 - the only way to force re-analysis is an API call (low)
 
