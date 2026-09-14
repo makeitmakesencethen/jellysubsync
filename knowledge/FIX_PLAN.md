@@ -1011,84 +1011,50 @@ read would land well under a millisecond on `/dev/nvme0n1p2` and at tens of mill
 one read per volume per process, and it replaces a guess with a measurement. Not done here: one item, one commit,
 and S37 is the item the field run asked for.
 
-### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high, open) - see `S39_RELATIVE_THRESHOLDS_GOAL_PROMPT.md`
+### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high; ratios shipped in the ceiling, extraction pricing and field run still owed)
 
-Raised while asking whether these fixes work on any machine rather than only on the one they were measured on.
-They do not, and the code says so in its own comments:
+Done for the ceiling; the extraction pricing still uses absolutes and is the next item.
 
-    SubSyncService.cs:2769  public const double SlowReadMsPerCall = 5.0;
-      /// Reads per call above which a volume is treated as storage-bound rather than fast. A wide margin
-      /// above the class default a read policy starts from (0,05 ms per call) and far below fabji's share,
-      /// which measures 13-46 ms per call at rest.
-    SubSyncService.cs:2775  public const double ThrashingReadMsPerCall = 100.0;
-      /// ... the bottom of what that share shows when it is thrashing (1419-1613 ms per call observed
-      /// while eight walks ran).
-    SubSyncService.cs:2833  public const double FastWalkMbPerSec = 50.0;
-      /// 50, set between the two populations the field has shown, with margin on both sides ... 2,2x above
-      /// every walk this share has produced and 1,7x below every local walk (S35).
-    SubSyncService.cs:2839  public const double ThrashingWalkMbPerSec = 1.0;
-    ReadPolicy.cs:346-347   DefaultMsPerCall = 0.05; DefaultBytesPerMs = 1500;   (a starting prior, also absolute)
+**What decides now.** `VolumeProfiles.FastestReadMsPerCall()` and `FastestWalkBytesPerMs()` give the best any
+volume on this machine has shown, requiring 8 samples (so one read cannot set the bar) and **excluding the
+volume being judged** (a volume must not set its own bar - without that, a lone volume would be its own
+reference, judge itself fast and get no ceiling at all, which would have reopened the hole 2.0.30 shipped). The
+read reference is floored at **0,25 ms per call**: no storage answers a read faster than that, anything quicker
+is the page cache. The floor's first value, 0,05 ms, was found wrong by the checks themselves - with it, a
+volume reading at 20 ms per call came out at 400x the reference and was classified as *thrashing* instead of
+storage-bound, which is the same species of mistake as the absolute thresholds, just sideways.
 
-**Why this is a defect rather than a compromise:** the failure is silent and it lands on *better* hardware than
-the machine the constants came from. A NAS or share that genuinely delivers more than 50 MB/s - 10 GbE, or a
-NAS backed by NVMe - is classified "fast" and gets **no ceiling at all**, so eight full-file walks go onto one
-volume: exactly the thrash the ceiling exists to prevent, on the setups most able to afford a big batch and
-therefore most likely to hit it. The inverse case (a slow local disk under the read threshold, capped at 2) is
-only a performance loss, not a correctness one, which is why this is high but not urgent-and-explosive.
+**The rule** (`WalkCapForProfile(reads, walks, referenceReads, referenceWalks, previousCap)`):
 
-What *is* machine-independent, and worth keeping separate from the numbers: the mechanism (per-volume accounting
-rather than one global limit), the contention rule (S37 - a walk taken while another volume was being read is not
-evidence about this volume, which is true on every machine), the fail-closed direction (unmeasured is held, never
-treated as fast) and the visibility work (S30-S34).
+- the **walks** decide when the volume has walks of its own, because walking is the operation being limited:
+  below **0,5x** the best walk on this machine is storage-bound (2), at **0,667x** or better there is no ceiling,
+  and in between the last decision stands - that gap is the hysteresis;
+- the **reads** decide only when there are no walks to go on (below 20x the best latency is storage-bound, within
+  10x is fast, above 100x is one walk at a time). A volume whose reads are slow but whose own walks are fine is
+  judged by its walks - over-capping exactly that is what held a local NVMe to two walks on 2026-09-14;
+- with **no reference at all** (nothing else on the machine has 8 samples) the old absolute behaviour decides,
+  unchanged, which is what a process that has measured one volume should do;
+- every reason names both numbers: `this volume's last walk moved 3.4 MB/s against the best 91.0 MB/s this
+  machine has measured (0.04x), which is storage-bound`.
 
-**Direction of the fix:** make every threshold *relative to the machine's own measurements* instead of to
-constants from someone else's. The best volume this process has measured sets the reference, and the others are
-classified by ratio - a volume whose reads are more than ~20x the fastest volume's latency, or whose uncontended
-walks are below ~1/5 of the fastest volume's, is storage-bound - with the absolute constants kept only as the
-fallback for a process that has measured nothing yet. Never uncap a volume with no uncontended measurement of its
-own (that keeps 2.0.30's hole closed), and S38's single small timed read gives a volume its first measurement
-without waiting for a walk. On fabji's machine the ratios reproduce today's behaviour (his share is 260-900x his
-local disk's read latency, and its walks are 1/25th of the NVMe's), which is the test that the generalisation did
-not break the case it was written for.
+**Verified in the suite - 618 checks**, including the two-machine requirement the goal set: on the machine the
+constants came from the share is still storage-bound (0,04x) and the local disk still has no ceiling; on a
+*faster* machine a 150 MB/s NAS against a 500 MB/s local disk is storage-bound (the silent hole that started
+this), while the same NAS against a 200 MB/s local disk keeps no ceiling. Also checked: the straddling sequence
+from the field (1,0 / 0,75 / 0,64 / 0,58 of the reference) never moves a ceiling once set, a capped volume stays
+capped inside the band while one below the bound is capped immediately, a volume never sets its own bar, the page
+cache cannot set the read reference, and with no reference the documented absolute rule still decides. Commit
+`503f292`.
 
-Not fixed here: it is its own item, and it touches the extraction pricing as well (`ReadPolicy` shares these
-constants), so it is one coherent change rather than a bundle with anything else.
+**Field run owed**, the same shape as the batch that failed: a mixed batch on fabji's server should show the
+local volume at `ceiling none (fast)` for the whole run while the share reads `storage-bound`, both stated
+against the reference, with no flipping - and the reference the log names should be the local disk's own numbers,
+not a floor.
 
-**The plan, concretely** (worked out after the row was written; it is a plan, not a fix):
-
-1. **The reference is the machine's own best.** `VolumeProfiles` gains `FastestReadMsPerCall()` and
-   `FastestWalkBytesPerMs()` over the profiles that have samples, requiring a minimum sample count so one read
-   cannot set the bar. Latency needs a floor - a volume serving out of the page cache answers in microseconds,
-   and letting that be the reference would make every real disk look slow - so the read reference is
-   `max(best observed, ~0,05 ms)`: no storage answers in less than that, anything faster is the page cache, not
-   the disk. Walk throughput needs no floor: it is bounded by the device.
-2. **Ratios replace the constants in the ceiling decision.** Storage-bound means reads above ~10-20x the
-   reference's latency, or uncontended walks below ~1/5 of the reference's throughput. This keeps protection on
-   *fast* setups as well, which is the part worth stating plainly: a 150 MB/s NAS against a 500 MB/s local disk
-   is still ~1/3 of the reference, and eight walks on it would saturate its link at ~19 MB/s each. Capping it at
-   2 leaves the aggregate exactly where it was and gives each file ~75 MB/s instead - the share's own shape,
-   which is why the rule is right for fast volumes too and not only for slow ones.
-3. **Hysteresis, because flipping is what broke the last two field runs.** Cap above the upper ratio, uncap below
-   a lower one (roughly half), so a volume's ceiling cannot oscillate between planning passes while a batch runs.
-4. **The read signal decides only when no walk has been measured**, since the walks are the operation being
-   limited; the read side still *tightens* (a volume whose reads are slow is held), but it must not over-cap a
-   volume whose own walks say it is fine - which is exactly the mistake that held fabji's NVMe at 2.
-5. **S38's single timed read** gives a volume its first measurement without waiting for a walk, and the relative
-   comparison is what makes that safe: a probe on the share lands at tens of milliseconds against NVMe's
-   fraction of one, so the ratio decides rather than the probe's own cost.
-6. **The pricing gets the same treatment** (`ReadPolicy` shares these constants), which is why this is one
-   coherent item and not a bundle.
-7. **The checks have to force generality, or it is just another intention.** The suite gets a second synthetic
-   machine - a *fast* NAS, ~1 ms per read and ~150 MB/s - alongside the existing slow-NAS shim, and must classify
-   both correctly against the local volume: unmeasured is still held at 2, a volume equal to the machine's best is
-   uncapped, a volume 20x its best is capped, and no volume flips within a batch. On fabji's machine the ratios
-   reproduce today's outcomes, which is the regression test for the generalisation.
-
-The four constants stay in the file, demoted to documentation of the ranges the field has shown - they stop
-deciding anything, which is the whole point.
-
-Suggested split, one item per commit: (a) the reference, the ratios and the hysteresis in the ceiling, plus the
-two-machine checks; (b) S38's timed read; (c) the pricing's ratios.
+**If this proves too blunt later:** the honest end state is a ceiling that varies concurrency and watches what it
+costs (`2 -> 4 -> 8`, keeping the level where per-walk throughput holds and dropping back where it falls), which
+needs no reference and no ratio at all. That is a larger change than this one, and it is the design worth
+reaching for if ratios turn out to need per-machine tuning after all.
 
 ## 2026-09-14 - the register triage
 
