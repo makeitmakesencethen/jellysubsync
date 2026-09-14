@@ -1089,6 +1089,7 @@ public class SubSyncService : IDisposable
                 job.FinishedAtUtc = DateTime.UtcNow;
                 queuedCancelled++;
                 _logger.LogInformation("Cancelled queued job {JobId} of batch {BatchId}", job.Id, batchId);
+                LogPluginCancellation(job);
             }
         }
 
@@ -1107,6 +1108,7 @@ public class SubSyncService : IDisposable
                 {
                     cts.Cancel();
                     stopped++;
+                    LogPluginCancellation(job);
                 }
                 catch (ObjectDisposedException)
                 {
@@ -1140,6 +1142,7 @@ public class SubSyncService : IDisposable
                 job.FinishedAtUtc = DateTime.UtcNow;
                 job.Phase = "Cancelled";
                 queuedCancelled++;
+                LogPluginCancellation(job);
             }
         }
 
@@ -1150,6 +1153,10 @@ public class SubSyncService : IDisposable
             {
                 kvp.Value.Cancel();
                 runningKilled++;
+                if (_jobs.TryGetValue(kvp.Key, out var killedJob))
+                {
+                    LogPluginCancellation(killedJob);
+                }
             }
             catch (ObjectDisposedException)
             {
@@ -5852,6 +5859,14 @@ public class SubSyncService : IDisposable
 
         return (null, true, originalInput);
     }
+
+    // The per-job cancellation line (S23). Cancelling used to leave only the batch-level count, so the
+    // only way to reconcile a cancelled batch from the plugin log was to take that number on trust.
+    // Same shape as the completed and failed lines, so every job in a batch has one terminal line of its
+    // own whatever happened to it.
+    private static void LogPluginCancellation(SyncJob job)
+        => PluginLog.Info(
+            $"job {job.Id} cancelled: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}");
 
     // One definition of the plugin log's completion line (S21). It used to be written inline on the
     // success path only, so a job that finished having written nothing logged the fact to Jellyfin's log

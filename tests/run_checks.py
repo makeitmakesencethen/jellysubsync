@@ -1616,6 +1616,34 @@ foreach (var line in nothingWrittenLines.TakeLast(2))
     Console.WriteLine("   " + line);
 }
 
+// ---------------- S23: a cancelled job has a line of its own ----------------
+// A cancel used to leave only the batch-level count (`cancel batch <id>: N queued cancelled, M running
+// stopped`), so 1 501 jobs in one night's run had no per-job record at all. This invokes the shared
+// helper the real cancel paths call.
+var cancelledJob = new SyncJob
+{
+    Id = "s23-cancelled-probe",
+    Mode = "parallel",
+    ItemId = Guid.Parse("11111111-2222-3333-4444-555555555555"),
+    SubtitleIndex = 7
+};
+var logCancellation = typeof(SubSyncService).GetMethod(
+    "LogPluginCancellation", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+Check("the cancellation line has one shared definition (S23)", logCancellation is not null);
+logCancellation!.Invoke(null, new object?[] { cancelledJob });
+var cancelledLines = File.Exists(heartbeatLog)
+    ? File.ReadAllLines(heartbeatLog).Where(l => l.Contains("s23-cancelled-probe")).ToArray()
+    : Array.Empty<string>();
+Check("a cancelled job gets its own plugin-log line (S23)",
+    cancelledLines.Any(l => l.Contains("cancelled:") && l.Contains("mode=parallel")
+                            && l.Contains("stream=7") && l.Contains("item=11111111-2222-3333-4444-555555555555")),
+    cancelledLines.LastOrDefault() ?? "no line");
+Console.WriteLine("---- S23 sample: a cancelled job ----");
+foreach (var line in cancelledLines.TakeLast(2))
+{
+    Console.WriteLine("   " + line);
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -2362,6 +2390,13 @@ def run_page_checks():
            'private static void LogPluginCompletion(SyncJob job, long? outputSize)' in service
            and service.count('LogPluginCompletion(job,') >= 3
            and 'job {job.Id} completed: mode={job.Mode} output={job.OutputPath ?? "(none)"}' in service)
+
+    # S23: every cancelled job has a terminal line of its own, whatever cancelled it - the batch
+    # cancel and the UI's kill both go through the one definition.
+    report('a cancelled job is traceable, not just counted (S23)',
+           'private static void LogPluginCancellation(SyncJob job)' in service
+           and service.count('LogPluginCancellation(') >= 5
+           and 'job {job.Id} cancelled: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}' in service)
 
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
