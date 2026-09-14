@@ -804,6 +804,41 @@ nothing):
 **The goal is complete**: the ceiling measures itself from its own reads and its own walks, lifts for local
 storage, holds the share at 2, and all three criteria have now been seen in a field log.
 
+### Considered and declined: persisting the volume profiles
+
+Raised while verifying S35: should the plugin build profiles for the different volumes *over time* and remember
+them across restarts, rather than measuring each volume live for the life of the process?
+
+**Declined.** What persistence would buy, measured on 2026-09-14: the conservative first wave at 2 costs one
+batch's first 13-16 s on local storage (the walks there take 13-16 s), and nothing at all on the share, which
+stays at 2 whatever the first wave was. That is the whole prize.
+
+What it would risk is the failure the ceiling exists to prevent, and for a stale entry rather than a fresh one:
+a volume remembered as fast because it was fast yesterday, now slow because the share is busy, degraded or
+simply has a heavier day, gets no conservative wave at all - eight walks on to one volume, 5,5-7,0 min per walk,
+every job in the batch slower. The key does not save the design: it is the volume's own identity
+(`/media/synology|192.168.0.110:/volume1/JELLYFIN`), so a share that *moves* gets a new key and no stale hit,
+but a share that stays put and gets slower keeps its key and its stale "fast".
+
+And the field has now shown how volatile the number itself is. The same share measured 16,8-23,1 MB/s in one
+batch and 29,4-34,0 MB/s in the next, an hour apart, a swing of about 2x. S35 *is* the story of a threshold set
+from one measurement taken under different conditions than the run that used it - 20 MB/s, derived from a walk
+measured while that volume was already being throttled, which put five concurrent walks on the share. Persisting
+throughputs is that same mistake with a longer gap between the measurement and the decision.
+
+The live profile already adapts, and that is the right amount: per volume, a 10-minute half-life so a share that
+was busy ten minutes ago stops being believed, the slowest fifth of samples dropped so the tail does not carry
+the average, two independent signals with the more conservative winning, and a fresh measurement at every
+restart - which is the safety property persistence would have to give up. It costs a volume at most one
+conservative wave to re-earn that, and the extraction route that shares the same profile re-derives just as
+cheaply.
+
+**If this is ever revisited**, the bar to clear is not "it saves 15 s a restart" but a run in which the first
+wave at 2 is *hurting*: a fast volume, many files, every batch, after every restart. Then the cheaper fix is to
+re-plan immediately after the first walk finishes (already the behaviour) rather than to trust a remembered
+number. Persisting the profile would also need a staleness rule - a maximum age, and a rule for what happens
+the first time a remembered-fast volume measures slow - which is a design, not a cache.
+
 ### S36 - a batch's first planning pass can see a worker limit of 1 before the configuration has loaded (low)
 
 Three batches in the 2026-09-14 log opened with a dispatch line reading `limit 1` and planned nothing
