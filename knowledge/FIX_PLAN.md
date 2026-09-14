@@ -1054,6 +1054,42 @@ not break the case it was written for.
 Not fixed here: it is its own item, and it touches the extraction pricing as well (`ReadPolicy` shares these
 constants), so it is one coherent change rather than a bundle with anything else.
 
+**The plan, concretely** (worked out after the row was written; it is a plan, not a fix):
+
+1. **The reference is the machine's own best.** `VolumeProfiles` gains `FastestReadMsPerCall()` and
+   `FastestWalkBytesPerMs()` over the profiles that have samples, requiring a minimum sample count so one read
+   cannot set the bar. Latency needs a floor - a volume serving out of the page cache answers in microseconds,
+   and letting that be the reference would make every real disk look slow - so the read reference is
+   `max(best observed, ~0,05 ms)`: no storage answers in less than that, anything faster is the page cache, not
+   the disk. Walk throughput needs no floor: it is bounded by the device.
+2. **Ratios replace the constants in the ceiling decision.** Storage-bound means reads above ~10-20x the
+   reference's latency, or uncontended walks below ~1/5 of the reference's throughput. This keeps protection on
+   *fast* setups as well, which is the part worth stating plainly: a 150 MB/s NAS against a 500 MB/s local disk
+   is still ~1/3 of the reference, and eight walks on it would saturate its link at ~19 MB/s each. Capping it at
+   2 leaves the aggregate exactly where it was and gives each file ~75 MB/s instead - the share's own shape,
+   which is why the rule is right for fast volumes too and not only for slow ones.
+3. **Hysteresis, because flipping is what broke the last two field runs.** Cap above the upper ratio, uncap below
+   a lower one (roughly half), so a volume's ceiling cannot oscillate between planning passes while a batch runs.
+4. **The read signal decides only when no walk has been measured**, since the walks are the operation being
+   limited; the read side still *tightens* (a volume whose reads are slow is held), but it must not over-cap a
+   volume whose own walks say it is fine - which is exactly the mistake that held fabji's NVMe at 2.
+5. **S38's single timed read** gives a volume its first measurement without waiting for a walk, and the relative
+   comparison is what makes that safe: a probe on the share lands at tens of milliseconds against NVMe's
+   fraction of one, so the ratio decides rather than the probe's own cost.
+6. **The pricing gets the same treatment** (`ReadPolicy` shares these constants), which is why this is one
+   coherent item and not a bundle.
+7. **The checks have to force generality, or it is just another intention.** The suite gets a second synthetic
+   machine - a *fast* NAS, ~1 ms per read and ~150 MB/s - alongside the existing slow-NAS shim, and must classify
+   both correctly against the local volume: unmeasured is still held at 2, a volume equal to the machine's best is
+   uncapped, a volume 20x its best is capped, and no volume flips within a batch. On fabji's machine the ratios
+   reproduce today's outcomes, which is the regression test for the generalisation.
+
+The four constants stay in the file, demoted to documentation of the ranges the field has shown - they stop
+deciding anything, which is the whole point.
+
+Suggested split, one item per commit: (a) the reference, the ratios and the hysteresis in the ceiling, plus the
+two-machine checks; (b) S38's timed read; (c) the pricing's ratios.
+
 ## 2026-09-14 - the register triage
 
 **Before:** 78 open rows and 4 open sections, of which only 23 rows carried a severity and about 55 carried
