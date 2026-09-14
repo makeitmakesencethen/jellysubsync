@@ -526,6 +526,66 @@ Check("a path with no volume reported is uncapped",
         $"{nasProfile.MsPerCall():0.00} ms per read");
 }
 
+
+// End to end through the real dispatch entry: two volumes that really exist on different devices, one of
+// them measured slow. This is the mixed-storage case the ceiling exists for - a batch spanning a fast
+// volume and a storage-bound one - driven through PlanStart with the same predicates the plugin passes.
+{
+    var fastPath = "/opt/data/s28-fast-probe.mkv";     // whatever device this checkout lives on
+    var slowPath = "/dev/shm/s28-slow-probe.mkv";      // tmpfs: a genuinely different device
+    var probeFastVolume = MediaVolume.Of(fastPath);
+    var probeSlowVolume = MediaVolume.Of(slowPath);
+
+    Check("two paths on different devices are two volumes",
+        !string.Equals(probeFastVolume, probeSlowVolume, StringComparison.Ordinal),
+        $"fast {probeFastVolume} vs slow {probeSlowVolume}");
+
+    // Feed the slow volume the latencies this user's share shows at rest; leave the other one alone.
+    for (var i = 0; i < 20; i++)
+    {
+        VolumeProfiles.For(slowPath).Observe(2048, 20 + (i % 3));
+    }
+
+    Check("a volume measured at 20 ms per read carries a ceiling of 2",
+        SubSyncService.WalkCapOfPath(slowPath) == 2, "got " + SubSyncService.WalkCapOfPath(slowPath));
+    Check("a volume that measures fast keeps no ceiling",
+        SubSyncService.WalkCapOfPath(fastPath) == int.MaxValue,
+        "got " + SubSyncService.WalkCapOfPath(fastPath));
+
+    var pathOf = new Dictionary<Guid, string>();
+    var probeQueue = new List<SyncJob>();
+    foreach (var (path, count) in new[] { (slowPath, 3), (fastPath, 3) })
+    {
+        for (var k = 0; k < count; k++)
+        {
+            var job = new SyncJob
+            {
+                Id = Guid.NewGuid().ToString("N"), BatchId = "b", BatchIndex = probeQueue.Count,
+                ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued
+            };
+            pathOf[job.ItemId] = path;
+            probeQueue.Add(job);
+        }
+    }
+
+    var planned = SubSyncService.PlanStart(
+        probeQueue,
+        new List<SyncJob>(),
+        "ultimate",
+        "b",
+        6,
+        job => MediaVolume.Of(pathOf.TryGetValue(job.ItemId, out var p) ? p : null),
+        _ => true,
+        _ => false,
+        walkCapOf: job => SubSyncService.WalkCapOfPath(pathOf.TryGetValue(job.ItemId, out var p) ? p : null));
+
+    var slowPlanned = planned.Count(j => pathOf[j.ItemId] == slowPath);
+    var fastPlanned = planned.Count(j => pathOf[j.ItemId] == fastPath);
+    Check("the storage-bound volume is held to 2 while the fast volume takes all 3",
+        slowPlanned == 2 && fastPlanned == 3,
+        $"slow {slowPlanned} of 3, fast {fastPlanned} of 3, {planned.Count} of 6 slots used");
+}
+
 Console.WriteLine();
 // ---------------- The per-volume storage profile ----------------
 var mkvScenarioPath = Environment.GetEnvironmentVariable("MKV_FIX_CUES") ?? string.Empty;
