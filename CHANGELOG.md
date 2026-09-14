@@ -4,6 +4,28 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.36 (beta)
+
+A volume that nothing has measured gets measured rather than guessed at - and one threshold is recalibrated, so
+the behaviour before the change to ratios survives it.
+
+**Why, from a real run.** A mixed batch spanning a share and a local disk produced four walks on the local volume
+at 69,9-76,6 MB/s, every one of them discarded: `… but it is not being used to judge that volume: 2 job(s) on
+another volume were being read at the same time`. So neither volume had a measurement, both were held to two
+walks, and the batch read `dispatch: starting 2, running 0, limit 8, queued 55` for minutes with six workers idle.
+The contention rule was doing exactly its job - refusing to be fooled by a walk taken while another volume was
+being read - but refusing evidence is not the same as having any.
+
+- A volume with nothing measured about it is now **read once**: 16 KB, a third of the way into the file (a header
+  is usually in the page cache and says little about the disk underneath it), once per volume per process, taken
+  in the job's own thread just before the engine starts - never while the queue lock is held.
+- What the read measured is logged together with the ceiling it produced, so the decision can be read in the
+  field instead of inferred.
+- **Recalibrated:** the thrash tier is now 400x the machine's best read latency rather than 100x. With the read
+  reference floored at 0,25 ms, 100x would have meant 25 ms per read - which would hold a share reading at
+  13-46 ms to *one* walk at a time, where its own measurements say two is its best. 400x is the old absolute
+  100 ms reproduced from a ratio, which is what "portable" has to mean.
+
 ## 2.0.35 (beta)
 
 Two changes to the walk ceiling, both about measuring a volume honestly instead of trusting a number that may
