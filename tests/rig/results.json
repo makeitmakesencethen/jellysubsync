@@ -93,5 +93,263 @@
     ],
     "batch": "9936aebd8c9844038f39270f069b9f6d",
     "seconds": 14.4
+  },
+  {
+    "scenario": "s41-cold-read",
+    "when": "2026-09-15 00:38:51",
+    "plugin": "SubSync_2.0.37.0",
+    "shim": {
+      "MS_PER_CALL": 13.0,
+      "MS_PER_16K": 0.0,
+      "FIRST_CALL_MS": 231.0,
+      "FIRST_CALLS": 1
+    },
+    "note": "S41 reproduction: one cold read, then a share at rest",
+    "repo_head": "eed433a",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": false,
+        "detail": "S41 defect when absent -> 2026-09-14 22:39:03.358Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 13.16 ms - the ceiling for that volume is 2 (this volume measured 13.2 ms per read, which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": false,
+        "detail": "samples=0 (one cold read), verdict=2 (this volume measured 13.2 ms per read, which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:39:02.944Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.03 ms - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 13.2 ms per read, which is storage-bound"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 22:39:02.944Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.03 ms - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 22:39:03.358Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 13.16 ms - the ceiling for that volume is 2 (this volume measured 13.2 ms per read, which is storage-bound)"
+    ],
+    "batch": "aef49d09473141f7810e867df7807907",
+    "seconds": 14.3
+  },
+  {
+    "scenario": "s41-cold-read",
+    "when": "2026-09-15 00:41:49",
+    "plugin": "SubSync_2.0.37.0",
+    "shim": {
+      "MS_PER_CALL": 13.0,
+      "MS_PER_16K": 0.0,
+      "FD_FIRST_MS": 231.0,
+      "FD_FIRST_READS": 1
+    },
+    "note": "S41 reproduction: one cold read on a fresh handle, then 13 ms",
+    "repo_head": "eed433a",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": false,
+        "detail": "S41 defect when absent -> 2026-09-14 22:42:00.970Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 231.13 ms - the ceiling for that volume is 1 (this volume measured 231.1 ms per read, which is thrashing)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": false,
+        "detail": "samples=0 (one cold read), verdict=1 (this volume measured 231.1 ms per read, which is thrashing)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:42:00.362Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.02 ms - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": false,
+        "detail": "ceiling=1 because this volume measured 231.1 ms per read, which is thrashing"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 22:42:00.362Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.02 ms - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 22:42:00.970Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 231.13 ms - the ceiling for that volume is 1 (this volume measured 231.1 ms per read, which is thrashing)"
+    ],
+    "batch": "6b3f3394074645c7b317da8b4165c9bd",
+    "seconds": 14.3
+  },
+  {
+    "scenario": "s41-cold-read",
+    "when": "2026-09-15 00:49:32",
+    "plugin": "SubSync_2.0.37.0",
+    "shim": {
+      "MS_PER_CALL": 13.0,
+      "MS_PER_16K": 0.0,
+      "FD_FIRST_MS": 231.0,
+      "FD_FIRST_READS": 1
+    },
+    "note": "S41 fixed: probe samples three reads, median decides",
+    "repo_head": "eed433a",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": true,
+        "detail": "S41 defect when the line says \"read once\" -> 2026-09-14 22:49:44.681Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 13.11 ms (slowest 81.14 ms) - the ceiling for that volume is 2 (this volume measured 13.1 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": true,
+        "detail": "samples=3 (one cold read decides at 1), median=13.11 ms, verdict=2 (this volume measured 13.1 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:49:44.218Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.03 ms (slowest 0.03 ms) - the ceiling for that volume is none (this volume measured 0.03 ms per read, over 3 read(s), which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 13.1 ms per read, over 3 read(s), which is storage-bound"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-14 22:49:44.218Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.03 ms (slowest 0.03 ms) - the ceiling for that volume is none (this volume measured 0.03 ms per read, over 3 read(s), which is fast)",
+      "2026-09-14 22:49:44.681Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 13.11 ms (slowest 81.14 ms) - the ceiling for that volume is 2 (this volume measured 13.1 ms per read, over 3 read(s), which is storage-bound)"
+    ],
+    "batch": "b79390e0b69644dc815e09a8d7e83977",
+    "seconds": 14.4
+  },
+  {
+    "scenario": "s41-cold-read",
+    "when": "2026-09-15 00:55:30",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 13.0,
+      "MS_PER_16K": 0.0,
+      "FD_FIRST_MS": 231.0,
+      "FD_FIRST_READS": 1
+    },
+    "note": "S41 fixed in 2.0.38: three reads, median decides",
+    "repo_head": "eed433a",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": true,
+        "detail": "S41 defect when the line says \"read once\" -> 2026-09-14 22:55:42.593Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 14.08 ms (slowest 232.07 ms) - the ceiling for that volume is 2 (this volume measured 14.1 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": true,
+        "detail": "samples=3 (one cold read decides at 1), median=14.08 ms, verdict=2 (this volume measured 14.1 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:55:41.988Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.02 ms (slowest 0.03 ms) - the ceiling for that volume is none (this volume measured 0.02 ms per read, over 3 read(s), which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 14.1 ms per read, over 3 read(s), which is storage-bound"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-14 22:55:41.988Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.02 ms (slowest 0.03 ms) - the ceiling for that volume is none (this volume measured 0.02 ms per read, over 3 read(s), which is fast)",
+      "2026-09-14 22:55:42.593Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 14.08 ms (slowest 232.07 ms) - the ceiling for that volume is 2 (this volume measured 14.1 ms per read, over 3 read(s), which is storage-bound)"
+    ],
+    "batch": "285a9a2e8dc74bffb49130f076a1d323",
+    "seconds": 14.4
+  },
+  {
+    "scenario": "s41-steady",
+    "when": "2026-09-15 00:55:45",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 10.0,
+      "MS_PER_16K": 1.46
+    },
+    "note": "S41 acceptance at fabji's measured share (10 ms/read, 11 MB/s)",
+    "repo_head": "eed433a",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": true,
+        "detail": "S41 defect when the line says \"read once\" -> 2026-09-14 22:55:56.526Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 11.60 ms (slowest 11.75 ms) - the ceiling for that volume is 2 (this volume measured 11.6 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": true,
+        "detail": "samples=3 (one cold read decides at 1), median=11.60 ms, verdict=2 (this volume measured 11.6 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:55:56.411Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.02 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 11.6 ms per read, over 3 read(s), which is storage-bound"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-14 22:55:56.411Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.02 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-14 22:55:56.526Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 11.60 ms (slowest 11.75 ms) - the ceiling for that volume is 2 (this volume measured 11.6 ms per read, over 3 read(s), which is storage-bound)"
+    ],
+    "batch": "ef71af9abf9943cc80f2fa39a977e720",
+    "seconds": 14.4
   }
 ]

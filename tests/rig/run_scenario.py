@@ -91,13 +91,32 @@ def volume_key_of(path: str) -> str:
     return device
 
 
-# "volume <key> had nothing measured about it, so it was read once: 16 KB took 231,13 ms - the ceiling
-# for that volume is 1 (<why>)". One line carries the whole verdict, so a scenario parses it into fields
-# rather than guessing at token positions - the first version of this read the volume key out of
-# `line.split()[1]`, which is the timestamp, and so matched nothing at all.
+# The first-measurement line, in the shape the fix writes it:
+#   volume <key> had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took
+#   13,16 ms (slowest 231,13 ms) - the ceiling for that volume is 2 (<why>)
+# and in the shape before it, so a scenario run against an older build parses the line and fails the
+# assertions that are about the fix, rather than reporting that it saw nothing:
+#   volume <key> had nothing measured about it, so it was read once: 16 KB took 231,13 ms - the ceiling ...
 PROBE = re.compile(
+    r'volume (\S+) had nothing measured about it, so it was read (\d+) time\(s\) of (\d+) KB: '
+    r'median of (\d+) reads took ([\d.,]+) ms.*? - the ceiling for that volume is (\S+?)(?: \((.*)\))?$')
+PROBE_LEGACY = re.compile(
     r'volume (\S+) had nothing measured about it, so it was read once: (\d+) KB took ([\d.,]+) ms'
     r' - the ceiling for that volume is (\S+?)(?: \((.*)\))?$')
+
+
+def parse_probe(line: str) -> dict | None:
+    """One first-measurement line as fields: volume, how many reads it stands on, the figure, the verdict."""
+    m = PROBE.search(line)
+    if m:
+        return {'line': line, 'key': m.group(1), 'reads': int(m.group(2)), 'kb': int(m.group(3)),
+                'ms': m.group(5), 'ceiling': m.group(6), 'why': (m.group(7) or '').strip()}
+    m = PROBE_LEGACY.search(line)
+    if m:
+        # "read once": one read, and no median - the defect's own wording, kept parseable on purpose.
+        return {'line': line, 'key': m.group(1), 'reads': 1, 'kb': int(m.group(2)),
+                'ms': m.group(3), 'ceiling': m.group(4), 'why': (m.group(5) or '').strip()}
+    return None
 
 
 def log(message: str) -> None:
@@ -197,9 +216,7 @@ def _s41(rig, args, ctx, expect_slow_ceiling=None):
     lines, probed = [], {}
     while True:
         lines = rig.log_lines(since)
-        probed = {m.group(1): {'line': ln, 'kb': m.group(2), 'ms': m.group(3),
-                               'ceiling': m.group(4), 'why': (m.group(5) or '').strip()}
-                  for ln in lines for m in [PROBE.search(ln)] if m}
+        probed = {p['key']: p for p in (parse_probe(ln) for ln in lines) if p}
         if wanted <= set(probed) or time.time() >= deadline:
             break
         time.sleep(3)
@@ -209,16 +226,18 @@ def _s41(rig, args, ctx, expect_slow_ceiling=None):
     ctx['waited_s'] = round(time.time() - started, 1)
     ctx['probed'] = probed
 
-    samples = re.search(r'(?:median of|from) (\d+) read', slow['line']) if slow else None
+    samples = slow['reads'] if slow else 0
 
     assertions = found + [
         ('both volumes were probed in one run', wanted <= set(probed),
          f'probed {sorted(probed)} in {ctx["waited_s"]}s (wanted {sorted(wanted)})'),
-        ('the slow volume\'s verdict names how many reads it stands on', bool(samples),
-         f'S41 defect when absent -> {slow["line"] if slow else "(the slow volume was never probed)"}'),
-        ('a verdict does not rest on a single read', bool(samples) and int(samples.group(1)) >= 2,
-         f'samples={samples.group(1) if samples else "0 (one cold read)"}, '
-         f'verdict={slow["ceiling"] + " (" + slow["why"] + ")" if slow else "?"}'),
+        ('the slow volume\'s verdict names how many reads it stands on', bool(slow),
+         f'S41 defect when the line says "read once" -> '
+         f'{slow["line"] if slow else "(the slow volume was never probed)"}'),
+        ('a verdict does not rest on a single read', samples >= 2,
+         f'samples={samples} (one cold read decides at 1), '
+         f'median={slow["ms"] if slow else "?"} ms, verdict={slow["ceiling"] if slow else "?"} '
+         f'({slow["why"] if slow else "?"})'),
         ('the fast volume gets no ceiling', bool(fast) and fast['ceiling'] == 'none',
          fast['line'] if fast else '(the fast volume was never probed)'),
     ]
@@ -245,6 +264,24 @@ def scenario_s41_thrash_tier(rig, args, ctx):
     return _s41(rig, args, ctx)
 
 
+def scenario_s41_cold_read(rig, args, ctx):
+    """S41's acceptance, in the shape the field reported it.
+
+    The shim answers the first read on a freshly opened handle in 231 ms and every later read in 13 ms -
+    one cold read, then a share at rest - so the volume's own steady state is 13 ms and two walks is its
+    best. The probe opens its own handle and reads once, so it is the read that gets the cold price, and
+    the reads that follow in the same pass are warm: the field's shape, reproduced by construction rather
+    than by a lucky ordering.
+    A probe that takes that first read as the volume's class calls it thrashing and holds it to one
+    walk for the whole run, which is what happened on 2026-09-14. A probe that samples more than once
+    and takes the median lands on 13 ms and allows the two walks.
+
+    Assertions: two walks for the shimmed volume, no ceiling on the fast one, and a verdict that says
+    what it stands on. Against 2.0.37 this FAILS on the ceiling and on the sample count.
+    """
+    return _s41(rig, args, ctx, expect_slow_ceiling='2')
+
+
 def scenario_s41_steady(rig, args, ctx):
     """S41's acceptance: on a share in its normal state (fabji's measured 10 ms/read, 11 MB/s), the
     shimmed volume must be allowed two walks and the fast volume none, in the same run."""
@@ -254,9 +291,15 @@ def scenario_s41_steady(rig, args, ctx):
 SCENARIOS = {
     'smoke': dict(run=scenario_smoke, storage='any',
                   needs='nothing: it is the harness checking itself (2 volumes, fixtures, log)'),
-    's41-thrash-tier': dict(run=scenario_s41_thrash_tier, storage='shim', ms_per_call=231.0, ms_per_16k=0.0,
+    's41-thrash-tier': dict(run=scenario_s41_thrash_tier, storage='shim',
+                            shim={'MS_PER_CALL': 231.0, 'MS_PER_16K': 0.0},
                             needs='231 ms per read: a share that answers one cold read slowly, from the field'),
-    's41-steady': dict(run=scenario_s41_steady, storage='shim', ms_per_call=10.0, ms_per_16k=1.46,
+    's41-cold-read': dict(run=scenario_s41_cold_read, storage='shim',
+                          shim={'MS_PER_CALL': 13.0, 'MS_PER_16K': 0.0,
+                                'FD_FIRST_MS': 231.0, 'FD_FIRST_READS': 1},
+                          needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
+    's41-steady': dict(run=scenario_s41_steady, storage='shim',
+                       shim={'MS_PER_CALL': 10.0, 'MS_PER_16K': 1.46},
                        needs="fabji's measured share (10 ms/read, 11 MB/s): two walks, and no ceiling on the fast one"),
 }
 
@@ -295,9 +338,12 @@ def main() -> int:
         return 2
 
     spec = SCENARIOS[args.scenario]
-    shim = None if (args.no_shim or spec['storage'] == 'any') else {
-        'MS_PER_CALL': spec.get('ms_per_call', 231.0) if args.ms_per_call is None else args.ms_per_call,
-        'MS_PER_16K': spec.get('ms_per_16k', 0.0) if args.ms_per_16k is None else args.ms_per_16k}
+    shim = None if (args.no_shim or spec['storage'] == 'any') else dict(spec.get('shim') or {})
+    if shim is not None:
+        if args.ms_per_call is not None:
+            shim['MS_PER_CALL'] = args.ms_per_call
+        if args.ms_per_16k is not None:
+            shim['MS_PER_16K'] = args.ms_per_16k
 
     prepare_fixtures()
     installed = riglib.install_plugin(

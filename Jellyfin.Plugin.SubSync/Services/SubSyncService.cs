@@ -2824,7 +2824,8 @@ public class SubSyncService : IDisposable
             profile.WalkBytesPerMs(),
             Services.VolumeProfiles.FastestReadMsPerCall(profile.Key),
             Services.VolumeProfiles.FastestWalkBytesPerMs(profile.Key),
-            profile.LastCeiling);
+            profile.LastCeiling,
+            profile.SampleCount);
         profile.RememberCeiling(cap.Cap);
         return cap;
     }
@@ -2856,15 +2857,43 @@ public class SubSyncService : IDisposable
     private const int ProbeBytes = 16 * 1024;
 
     /// <summary>
-    /// Gives a volume that has nothing measured about it one timed read, once per process.
+    /// Reads the first measurement of a volume takes. See <see cref="ThrashTierMinReads"/>: one read cannot
+    /// tell a volume's steady state, and the field's single cold read held a share to one walk for a run.
+    /// </summary>
+    private const int ProbeReads = 3;
+
+    /// <summary>
+    /// Where the index-th read of a volume's first measurement starts.
+    /// </summary>
+    /// <remarks>
+    /// Spread over the file rather than repeated at one place: a page cache that holds one region must not
+    /// provide all of the samples that decide the volume. A file too small to hold three separated reads is
+    /// read from its start, where the samples still differ by what the storage did between them.
+    /// </remarks>
+    /// <param name="length">The file's length in bytes.</param>
+    /// <param name="index">Which read of the set this is.</param>
+    /// <param name="reads">How many reads the set holds.</param>
+    /// <returns>The offset to read at.</returns>
+    private static long ProbeOffset(long length, int index, int reads)
+    {
+        if (length <= ProbeBytes * (reads + 1))
+        {
+            return 0;
+        }
+
+        return (long)((length - ProbeBytes) * ((index + 1.0) / (reads + 1.0)));
+    }
+
+    /// <summary>
+    /// Gives a volume that has nothing measured about it its first measurement, once per process.
     /// </summary>
     /// <remarks>
     /// Taken in the job's own thread and never while the queue lock is held: the scheduler must not touch
-    /// storage on its way to a decision. One 16 KB read per volume per process, and the latency thresholds are
-    /// more than sharp enough to classify it - a local disk answers well inside a millisecond, a share in tens of
-    /// them. It replaces a guess about a volume with a measurement of it, which is what a cold mixed batch
-    /// needed: every walk on its fast volume was contended by the slow volume's walks, so it had nothing
-    /// measured about it and paid the conservative two for the whole run while workers sat idle.
+    /// storage on its way to a decision. <see cref="ProbeReads"/> 16 KB reads are taken at separated offsets and
+    /// the median of them is what the volume is classified by - one read cannot tell a volume's steady state,
+    /// and on 2026-09-14 a single cold read of 231 ms against a steady 13-46 ms held a share to one walk for a
+    /// whole run (S41). Every read is fed to the profile, so the figure the ceiling is decided from is the
+    /// median of these and the line says what the median stands on.
     /// </remarks>
     /// <param name="videoPath">The media file, which names the volume, or null when it is not known yet.</param>
     private void ProbeVolumeIfUnmeasured(string? videoPath)
@@ -2888,30 +2917,48 @@ public class SubSyncService : IDisposable
                 return;
             }
 
-            // Not at the start: a header is often in the page cache and says little about the disk under it.
-            var offset = length > ProbeBytes * 4 ? length / 3 : 0;
             var buffer = new byte[ProbeBytes];
             using var stream = new FileStream(
                 videoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, ProbeBytes, FileOptions.RandomAccess);
-            if (offset > 0)
+
+            var samples = new List<double>(ProbeReads);
+            var bytesRead = 0;
+            for (var index = 0; index < ProbeReads; index++)
             {
-                stream.Seek(offset, SeekOrigin.Begin);
+                var offset = ProbeOffset(length, index, ProbeReads);
+                if (offset > 0)
+                {
+                    stream.Seek(offset, SeekOrigin.Begin);
+                }
+
+                var watch = System.Diagnostics.Stopwatch.StartNew();
+                var read = stream.Read(buffer, 0, ProbeBytes);
+                watch.Stop();
+                if (read <= 0)
+                {
+                    break;
+                }
+
+                bytesRead = read;
+                // Every read is fed to the profile, so the figure the ceiling is decided from is the median of
+                // these and not the first one - the defect S41 was: one cold read became the volume's class.
+                var ms = Math.Max(watch.Elapsed.TotalMilliseconds, 0.001);
+                samples.Add(ms);
+                profile.Observe(read, ms);
             }
 
-            var watch = System.Diagnostics.Stopwatch.StartNew();
-            var read = stream.Read(buffer, 0, ProbeBytes);
-            watch.Stop();
-            if (read <= 0)
+            if (samples.Count == 0)
             {
                 return;
             }
 
-            var ms = Math.Max(watch.Elapsed.TotalMilliseconds, 0.001);
-            profile.Observe(read, ms);
+            samples.Sort();
+            var median = samples[samples.Count / 2];
             var cap = WalkCapOfPath(videoPath);
             PluginLog.Info(
-                $"volume {profile.Key} had nothing measured about it, so it was read once: {read / 1024} KB took "
-                + $"{ms:0.00} ms - the ceiling for that volume is "
+                $"volume {profile.Key} had nothing measured about it, so it was read {samples.Count} time(s) of "
+                + $"{bytesRead / 1024} KB: median of {samples.Count} reads took {median:0.00} ms "
+                + $"(slowest {samples[^1]:0.00} ms) - the ceiling for that volume is "
                 + $"{(cap.Cap >= int.MaxValue ? "none" : cap.Cap.ToString())} ({cap.Why})");
         }
         catch (Exception ex)
@@ -2962,6 +3009,21 @@ public class SubSyncService : IDisposable
     /// is what the field showed on 2026-09-14, twice, before this existed.
     /// </remarks>
     public const double WalkReleaseFraction = 0.667;
+
+    /// <summary>
+    /// How many reads must stand behind a read sample before it may call a volume thrashing.
+    /// </summary>
+    /// <remarks>
+    /// From the field, 2026-09-14 (S41): the first measurement of a volume was a *single* cold read, taken a
+    /// third of the way into a file while that share was still loaded. It came back at 231,34 ms against a
+    /// steady state of 13-46 ms, and because 231 ms is over the absolute thrash threshold the share was held
+    /// to one walk for the whole run - fifteen hold lines over fourteen minutes, all quoting 231,3 ms, while
+    /// its own later walks moved 16,8-23,1 MB/s, which is two walks' worth. One read is not a steady state, so
+    /// a thrash verdict now needs backing: below this many reads the volume is held at
+    /// <see cref="StorageBoundWalkCap"/> and the reason says why. Two is the smallest number that can disagree
+    /// with one, which is the whole point of the threshold.
+    /// </remarks>
+    public const int ThrashTierMinReads = 2;
 
     /// <summary>How many times the machine's best read latency counts as storage-bound.</summary>
     public const double SlowReadRatio = 20.0;
@@ -3031,13 +3093,19 @@ public class SubSyncService : IDisposable
     /// <param name="referenceMsPerCall">The machine's best read latency, or null.</param>
     /// <param name="referenceBytesPerMs">The machine's best walk throughput, or null.</param>
     /// <param name="previousCap">The ceiling this volume was last held to, or null.</param>
+    /// <param name="readSamples">
+    /// Reads the volume's per-read figure is a median of, or null when the caller has no sample count - a
+    /// median of one is a single observation, and only a backing of <see cref="ThrashTierMinReads"/> reads
+    /// or more lets it call the volume thrashing.
+    /// </param>
     /// <returns>The ceiling and the measurement behind it.</returns>
     public static (int Cap, string Why) WalkCapForProfile(
         double? msPerCall,
         double? walkBytesPerMs,
         double? referenceMsPerCall,
         double? referenceBytesPerMs,
-        int? previousCap)
+        int? previousCap,
+        int? readSamples = null)
     {
         if (walkBytesPerMs is { } walked && referenceBytesPerMs is { } bestWalk && bestWalk > 0)
         {
@@ -3062,19 +3130,28 @@ public class SubSyncService : IDisposable
         {
             var ratio = ms / bestRead;
             var share = $"{ms:0.00} ms per read against the best {bestRead:0.00} ms this machine has measured ({ratio:0.0}x)";
+            if (ratio >= ThrashingReadRatio && Backed(readSamples))
+            {
+                return (1, $"this volume's reads measure {share}{Backing(readSamples)}, which is thrashing");
+            }
+
             if (ratio >= ThrashingReadRatio)
             {
-                return (1, $"this volume's reads measure {share}, which is thrashing");
+                return (StorageBoundWalkCap,
+                    $"this volume's reads measure {share}, but that is {Backing(readSamples)?.TrimStart(',', ' ')} "
+                    + $"and one read is not a steady state, so it is held at {StorageBoundWalkCap} until the volume "
+                    + "has been read again");
             }
 
             if (ratio >= SlowReadRatio)
             {
-                return (StorageBoundWalkCap, $"this volume's reads measure {share}, which is storage-bound");
+                return (StorageBoundWalkCap,
+                    $"this volume's reads measure {share}{Backing(readSamples)}, which is storage-bound");
             }
 
             if (ratio <= FastReadRatio)
             {
-                return (int.MaxValue, $"this volume's reads measure {share}, which is fast");
+                return (int.MaxValue, $"this volume's reads measure {share}{Backing(readSamples)}, which is fast");
             }
 
             return previousCap is { } heldReads
@@ -3084,7 +3161,7 @@ public class SubSyncService : IDisposable
 
         // No reference to compare against: the absolute behaviour, unchanged, for a process that has not
         // measured a second volume yet.
-        (int Cap, string Why)? byReads = msPerCall is null ? null : CapFromReadCost(msPerCall.Value);
+        (int Cap, string Why)? byReads = msPerCall is null ? null : CapFromReadCost(msPerCall.Value, readSamples);
         (int Cap, string Why)? byWalk = walkBytesPerMs is null ? null : CapFromWalkThroughput(walkBytesPerMs.Value);
 
         if (byReads is null && byWalk is null)
@@ -3110,20 +3187,46 @@ public class SubSyncService : IDisposable
 
     private static string CapName(int cap) => cap >= int.MaxValue ? "none" : cap.ToString();
 
-    private static (int Cap, string Why) CapFromReadCost(double msPerCall)
+    private static (int Cap, string Why) CapFromReadCost(double msPerCall, int? readSamples)
     {
+        if (msPerCall >= ThrashingReadMsPerCall && Backed(readSamples))
+        {
+            return (1, $"this volume measured {msPerCall:0.0} ms per read{Backing(readSamples)}, which is thrashing");
+        }
+
         if (msPerCall >= ThrashingReadMsPerCall)
         {
-            return (1, $"this volume measured {msPerCall:0.0} ms per read, which is thrashing");
+            return (StorageBoundWalkCap,
+                $"this volume measured {msPerCall:0.0} ms on {Backing(readSamples)?.TrimStart(',', ' ')} and nothing "
+                + $"else, which is not a steady state, so it is held at {StorageBoundWalkCap} until the volume has "
+                + "been read again");
         }
 
         if (msPerCall >= SlowReadMsPerCall)
         {
-            return (2, $"this volume measured {msPerCall:0.0} ms per read, which is storage-bound");
+            return (StorageBoundWalkCap,
+                $"this volume measured {msPerCall:0.0} ms per read{Backing(readSamples)}, which is storage-bound");
         }
 
-        return (int.MaxValue, $"this volume measured {msPerCall:0.00} ms per read, which is fast");
+        return (int.MaxValue,
+            $"this volume measured {msPerCall:0.00} ms per read{Backing(readSamples)}, which is fast");
     }
+
+    /// <summary>Whether enough reads stand behind a per-read figure for it to reach the thrash tier.</summary>
+    /// <param name="readSamples">How many reads the figure is a median of, or null when that is not tracked.</param>
+    /// <returns>True when the figure may be believed about the volume's steady state.</returns>
+    private static bool Backed(int? readSamples) => readSamples is null || readSamples >= ThrashTierMinReads;
+
+    /// <summary>Names the backing of a per-read figure, for the log line that quotes it.</summary>
+    /// <param name="readSamples">How many reads the figure is a median of, or null when that is not tracked.</param>
+    /// <returns>A fragment to append to the reason, empty when the backing is unknown.</returns>
+    private static string Backing(int? readSamples) => readSamples switch
+    {
+        null => string.Empty,
+        0 => string.Empty,
+        1 => ", but that is one read",
+        _ => $", over {readSamples} read(s)",
+    };
 
     private static (int Cap, string Why) CapFromWalkThroughput(double bytesPerMs)
     {

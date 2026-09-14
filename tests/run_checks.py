@@ -521,6 +521,26 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         $"{s32Thrashing.Cap}: {s32Thrashing.Why} | {s32Fast.Cap}: {s32Fast.Why}");
 }
 
+// S41: one cold read must not decide a volume is thrashing. Measured on the rig: a shimmed share whose
+// first read took 231 ms and whose steady state is 13 ms was classified thrashing (231 ms is over the
+// absolute tier) and held to one walk for a whole run, because the profile's figure was a median of one.
+{
+    var s41OneRead = SubSyncService.WalkCapForProfile(231.0, null, null, null, null, 1);
+    var s41TwoReads = SubSyncService.WalkCapForProfile(231.0, null, null, null, null, 2);
+    var s41ThreeReads = SubSyncService.WalkCapForProfile(231.0, null, null, null, null, 3);
+
+    Check("a verdict from a single read cannot call a volume thrashing",
+        s41OneRead.Cap == SubSyncService.StorageBoundWalkCap && s41OneRead.Why.Contains("one read"),
+        $"{s41OneRead.Cap}: {s41OneRead.Why}");
+    Check("two reads agreeing are enough to reach the thrash tier",
+        s41TwoReads.Cap == 1 && s41ThreeReads.Cap == 1,
+        $"{s41TwoReads.Cap}: {s41TwoReads.Why} | {s41ThreeReads.Cap}: {s41ThreeReads.Why}");
+    Check("the thrash verdict names how many reads back it",
+        s41ThreeReads.Why.Contains("3 read(s)") && s41TwoReads.Why.Contains("2 read(s)"),
+        $"{s41ThreeReads.Why} | {s41TwoReads.Why}");
+}
+
+
 // S33: the walk is the second signal, and the only one that exists when every extraction in a run was served
 // from the subtitle cache and nothing was read through the policy at all. A volume measured this way must not
 // sit at the conservative ceiling for ever. The throughputs are the ones measured on 2026-09-14: the share
@@ -2769,6 +2789,12 @@ def run_page_checks():
            # and not back in the audio-reference branch, which jobs on a real server never take (S38, 2026-09-14)
            and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
+
+    report('the first measurement of a volume is more than one read, and says what its median stands on',
+           'private const int ProbeReads = 3;' in service_source
+           and 'median of {samples.Count} reads took' in service_source
+           and 'profile.Observe(read, ms);' in service_source
+           and 'ProbeOffset(length, index, ProbeReads)' in service_source)
 
     report('the page reads and writes settings through the plugin, not the web client',
            "api('SubSync/Configuration')" in pages['subsyncMain.html']

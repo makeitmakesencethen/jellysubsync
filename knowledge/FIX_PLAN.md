@@ -1037,7 +1037,7 @@ still means 100 ms rather than 25. A source-level check pins the call to the job
 starting, while the share stays at 2. The 2.0.35 run could not evaluate S39's ratio criteria at all - no walk was
 ever *used*, so no ratio was ever computed - which is the other reason that run has to be repeated.
 
-### S41 - one cold read can decide a volume's class, and a loaded share reads cold (high, open, from the field)
+### S41 - one cold read can decide a volume's class, and a loaded share reads cold (high, done: reproduced and fixed on the rig, 2026-09-15)
 
 The first field run of the probe (2.0.37, 2026-09-14) is a success and a defect at once. The successes first,
 because they are what the last four runs were missing:
@@ -1075,6 +1075,56 @@ single read is not a steady state.
 
 **Verified the same run**: the fast volume's nine used walks, the eight concurrent jobs, and S37's contention rule
 holding (three local walks were refused as contended rather than counted).
+
+**Reproduced, fixed and verified on the rig, 2026-09-15.** `tests/rig/run_scenario.py` starts a local Jellyfin
+with the `slowread.so` shim in front of one media directory, queues a batch through the plugin's own API and
+asserts on the plugin log; `results.json` keeps every run. The shim was given the field's shape rather than an
+average: every read costs 13 ms, and the **first read on a freshly opened handle costs 231 ms** (new knobs
+`SLOWREAD_FD_FIRST_MS` / `SLOWREAD_FD_FIRST_READS`), which is exactly what the probe does - it opens its own
+handle and reads once. The two volumes are genuinely different filesystems (`media-slow/` on the disk, the fast
+library on a tmpfs): the plugin names a volume by the device behind the longest mount point, so `media/` and
+`media-slow/` would have been one volume and produced one verdict.
+
+The command, one line:
+
+    python3 tests/rig/run_scenario.py --scenario s41-cold-read --timeout 240
+
+**Before the fix (2.0.37), the defect, verbatim:**
+
+    2026-09-14 22:42:00.970Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB
+        took 231.13 ms - the ceiling for that volume is 1 (this volume measured 231.1 ms per read, which is thrashing)
+
+Failing assertions, from the same run: *the slow volume's verdict names how many reads it stands on* (the line
+says "read once"), *a verdict does not rest on a single read* (`samples=0 (one cold read)`), and *the shimmed
+volume is allowed the walks its own state says (2)* (`ceiling=1`). The fast volume came out `none` in that same
+run, so the two verdicts were read side by side - production behaviour, reproduced here.
+
+**After the fix (2.0.38), the same command, 6 of 6 assertions:**
+
+    2026-09-14 22:49:44.681Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of
+        16 KB: median of 3 reads took 13.11 ms (slowest 81.14 ms) - the ceiling for that volume is 2 (this volume
+        measured 13.1 ms per read, over 3 read(s), which is storage-bound)
+
+    PASS  the slow volume's verdict names how many reads it stands on
+    PASS  a verdict does not rest on a single read - samples=3 (one cold read decides at 1), median=13.11 ms, verdict=2
+    PASS  the fast volume gets no ceiling      (volume shm ... ceiling for that volume is none ... over 3 read(s), which is fast)
+    PASS  the shimmed volume is allowed the walks its own state says (2)
+
+The single cold read is still in that median - it is the `slowest 81.14 ms` - which is the point: it no longer
+decides. The steady case is pinned separately against fabji's own measured share (10 ms per read, 11 MB/s):
+
+    python3 tests/rig/run_scenario.py --scenario s41-steady
+
+    PASS  the shimmed volume is allowed the walks its own state says (2) - ceiling=2 because this volume measured
+          11.6 ms per read, which is storage-bound
+    PASS  the fast volume gets no ceiling
+
+**The change** (commit with this row, 2.0.38): `ProbeVolumeIfUnmeasured` takes `ProbeReads = 3` reads of 16 KB at
+separated offsets (`ProbeOffset`) and feeds each to the volume's profile, so the figure the ceiling is decided
+from is a median of three; the line reports `median of N reads` and the slowest sample; and the read-side tier
+gained `ThrashTierMinReads = 2`, so a figure a *single* read produced is held at two walks with the reason
+*"but that is one read and one read is not a steady state, so it is held at 2 until the volume has been read
+again"*. Four checks pin it (629 in the suite, green before the release commit).
 
 ### S40 - the enqueue itself is the slow part of a batch's start (high, open, from the field)
 
