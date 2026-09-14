@@ -413,6 +413,53 @@ on the same volume. Measured curve points at **1 or 2**: limit 1 is the fastest 
 file for the same aggregate, while 4 costs 4,2x and 8 costs 19x *and half the throughput*. Decide between
 1 and 2 when this is scoped.
 
+### Producer/consumer (pre-warm the analysis) - viability measured 2026-09-14, scope assessed
+
+**The assumption that decides it**: a *warm* analysis must remove the media read, or a pre-warm lane just
+moves the walk (the mistake the audio-copy idea made). Measured on the test server with the purpose-built
+`Single Track (2026)` fixture, which can only be an audio ruler (one subtitle track, so no sibling
+reference), same item and track twice, log timestamps rather than polling:
+
+| run | engine line | engine start -> terminal |
+|---|---|---|
+| cold | `cachedSpeech=False reference=a:0 args=.../speech-cache/1367190121e143d85ea6317` | 1,03 s |
+| warm | `cachedSpeech=True reference=a:0 args=.../speech-cache/1367190121e143d85ea6317c` | **0,29 s** |
+
+The engine is handed the same speech-cache path either way and `cachedSpeech=True` is what makes it use
+the stored analysis instead of walking the media. **The assumption holds**: a warm analysis removes the
+I/O, leaving the alignment CPU (~seconds, and ~10-30 s on a full film's features). Scaled to fabji's
+share that replaces 22-421 s of walking per file with a local feature read.
+
+**What it does not do**: the walk still happens once per file, exactly as the audio-copy test showed. A
+pre-warm lane does not reduce total NAS reads - it takes the walk off the workers' critical path, so
+workers stop stalling and stop competing with each other for the volume. The win is stall/latency in
+mixed batches, not throughput.
+
+**Refuted**: "might also help on fast local storage". Where the volume is not shared, concurrency *raises*
+aggregate throughput (shim bandwidth model: 43 -> 131 files/h from 1 -> 8 concurrent walks), so a 1-2
+worker analysis pool would *cut* throughput there. This must stay opt-in for storage-bound setups.
+
+**Can the existing architecture support it cleanly - yes, but not as "one pool hands jobs to another".**
+A job is atomic (extract -> build reference -> run engine -> write) and analysis+alignment happen inside a
+single ffsubsync invocation, so there is no "finished analysis" object to hand over. The shape that fits
+the existing code is a *pre-warm lane*: a small pool that populates the speech cache ahead of the workers.
+Precedents already in place: `ExtractLaneAsync` + `_laneTasks` is exactly that pattern and its size is
+already derived from config (`ParallelWorkers / 2`, `SubSyncService.cs:1807`); `SpeechIsCached(job)`
+(`:2104`) already tells the scheduler which jobs will walk; `_speechGates` already stops two callers
+walking the same file.
+
+**Scope, plainly** (estimates, before building):
+- cap alone - a predicate in the existing `PlanStart` dispatch (`:2445`, called at `:2680`) + a setting +
+  one check: **small, one file, ~30-60 lines**.
+- pre-warm lane - clone `ExtractLaneAsync` + a pre-warm policy (which files, under what storage
+  condition) + its own setting (1-2, default off) + admission so walkers and workers never double-walk +
+  tests: **roughly 2-4x the cap**, ~150-300 lines, and the risk is in policy rather than plumbing.
+- delivering the described behaviour needs **both**: the lane keeps walkers busy, the cap bounds what
+  workers do when the cache is cold. Cost is the union; the cap is worth doing regardless.
+
+Defaults, given the measured curve (122 / 135 / 133 / 66 files/h at limits 1 / 2 / 4 / 8): the current
+default of 4 is already the best aggregate measured, so a cap must be opt-in, not a new default.
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
