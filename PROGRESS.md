@@ -36,14 +36,31 @@ One cold read could decide a volume's class and hold it to one walk for a whole 
 - Suite: 629 checks green (`python3 tests/run_checks.py`), including four new ones for this row; register
   linter PASS; `python3 tests/check_fixplan.py` now reports 7 open sections (S41 closed).
 
+## Item 2 — S39 (done, register row closed; no release: rig and register only)
+
+A volume was judged by constants measured on one machine; the row owed proof that the judgement is a ratio
+between two numbers *this* machine measured, and it now has it.
+
+    python3 tests/rig/run_scenario.py --scenario s39-ratio --timeout 600      # 7 of 7, 97 s
+
+    walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved
+                  1.3 MB/s against the best 162.7 MB/s this machine has measured (0.01x), which is storage-bound
+
+One volume (overlay filesystem, a library the scenario registers itself) sets the bar with 12 walks; the judged
+one walks once at 1,3 MB/s on the shimmed share; the hold line states both numbers and picks 2. The scenario had
+to be sequenced: a hold only exists while a volume is *at* its cap (three judged jobs queued together, two run,
+the third is held), and the judged volume needs a walk of its own first or the line falls back to the read tier —
+both measured, both written down in `results.json`.
+
+**Found while proving it, now S42 (medium, open):** the same file on the same shimmed volume "walked" at
+280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
+divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
+
 ## Next, in the order the goal sets
 
-1. **S39** — prove a ceiling chosen between two measured numbers, quoting the log line that names the volume's
-   own walk against the best this machine has measured. The ratio machinery is implemented; the row still owes
-   the proof. Needs a scenario in which two volumes of the same run produce walks at different throughputs
-   (the shim on one, the tmpfs on the other), then a hold line that quotes both numbers.
-2. **S40 + S7** — the enqueue's `log` phase costs 8-21 s per item. Diagnose what that phase writes before
+1. **S40 + S7** — the enqueue's `log` phase costs 8-21 s per item. Diagnose what that phase writes before
    changing anything; the fix must show the same batch queued in a fraction of the time, measured.
+2. **S42** — a walk measured against a file the engine never read (found above; ranked medium).
 3. Then B6, B8, B23, B13, F10, D3, the mediums in tier order, the lows, S30. **S31** stays parked on the
    user's decision.
 

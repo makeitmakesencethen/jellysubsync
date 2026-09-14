@@ -351,5 +351,266 @@
     ],
     "batch": "ef71af9abf9943cc80f2fa39a977e720",
     "seconds": 14.4
+  },
+  {
+    "scenario": "s39-ratio",
+    "when": "2026-09-15 01:23:29",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 0.0,
+      "MS_PER_16K": 12.8
+    },
+    "note": "S39: a ceiling decided by ratio to this machine's best walk",
+    "repo_head": "d4fd2dd",
+    "assertions": [
+      {
+        "check": "the walk volume holds the reference fixtures",
+        "passed": true,
+        "detail": "8 of 12 on /tmp/s39-fast (overlay)"
+      },
+      {
+        "check": "the judged volume holds its single-track files",
+        "passed": true,
+        "detail": "3 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the reference volume measured itself with at least 8 walk(s)",
+        "passed": true,
+        "detail": "8 walk line(s) | [2f874d1c442e4269b03002ac638ce4b3] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.5 s = 182."
+      },
+      {
+        "check": "the judged volume walked slower than the reference",
+        "passed": false,
+        "detail": "(no walk line for it)"
+      },
+      {
+        "check": "a walk was held on the judged volume, so the ceiling was stated",
+        "passed": true,
+        "detail": "walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume measured 12.9 ms per read, over 2 read(s), which is storage-bound"
+      },
+      {
+        "check": "the hold quotes both numbers this machine measured, not a constant",
+        "passed": false,
+        "detail": "numbers: []"
+      },
+      {
+        "check": "the ceiling it chose is the storage-bound one (2), not none and not one",
+        "passed": true,
+        "detail": "cap in the line: 2"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 23:23:52.503Z INFO  [2f874d1c442e4269b03002ac638ce4b3] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.5 s = 182.6 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:52.690Z INFO  [3632cdb1e8bc49f68de31efab385c3bc] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 04 (2026).mkv in 0.4 s = 193.3 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:52.844Z INFO  [cc760e4dcc0348b7992fd05d3d7cf85a] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 01 (2026).mkv in 0.6 s = 175.5 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:53.148Z INFO  [a617a4fa59a64b7a9dd642bbcddc7e02] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 02 (2026).mkv in 0.5 s = 178.4 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:53.235Z INFO  [32796778e0c345c8a7cdfc1dba66ddbf] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 05 (2026).mkv in 0.6 s = 179.6 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:53.247Z INFO  [307eef61f782463890a2688c473cb8dd] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 06 (2026).mkv in 0.5 s = 179.2 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:53.540Z INFO  [79a68e893fab42cf9d5f544061aa221d] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 07 (2026).mkv in 0.5 s = 176.5 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:54.598Z INFO  [9f56c203c7294051b74e8467f4d0e3aa] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 08 (2026).mkv in 1.3 s = 171.8 MB/s - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 23:23:56.854Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume measured 12.9 ms per read, over 2 read(s), which is storage-bound"
+    ],
+    "batch": null,
+    "seconds": 32.2
+  },
+  {
+    "scenario": "s39-ratio",
+    "when": "2026-09-15 01:28:52",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 0.0,
+      "MS_PER_16K": 12.8
+    },
+    "note": "S39: judged walk first, then the hold that states the ratio",
+    "repo_head": "d4fd2dd",
+    "assertions": [
+      {
+        "check": "the walk volume holds the reference fixtures",
+        "passed": true,
+        "detail": "12 of 12 on /tmp/s39-fast (overlay)"
+      },
+      {
+        "check": "the judged volume holds its single-track files",
+        "passed": true,
+        "detail": "3 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the reference volume measured itself with at least 8 walk(s)",
+        "passed": true,
+        "detail": "12 walk line(s) | [ff40fdb33a9f4bd4906411f10489300e] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.4 s = 236."
+      },
+      {
+        "check": "the judged volume walked, so it has a walk of its own to be judged by",
+        "passed": false,
+        "detail": "(no walk line for it)"
+      },
+      {
+        "check": "a walk was held on the judged volume, so the ceiling was stated",
+        "passed": true,
+        "detail": "walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.3 MB/s against the best 122.9 MB/s this machine has measured (0.01x), which is storage-bo"
+      },
+      {
+        "check": "the hold quotes both numbers this machine measured, not a constant",
+        "passed": true,
+        "detail": "numbers: ['1.3', '122.9']"
+      },
+      {
+        "check": "the ceiling it chose is the storage-bound one (2), not none and not one",
+        "passed": true,
+        "detail": "cap in the line: 2"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 23:29:04.978Z INFO  [ff40fdb33a9f4bd4906411f10489300e] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.4 s = 236.9 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.273Z INFO  [283ca80431934bcbaadfc73449f9a416] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 04 (2026).mkv in 0.5 s = 212.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.292Z INFO  [bb29917f6f0d4dcb9ead9710851c641e] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 01 (2026).mkv in 0.5 s = 203.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.744Z INFO  [bdaba19c897943508b6f1e353c9649fd] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 02 (2026).mkv in 0.5 s = 195.1 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.825Z INFO  [79d6e01f96c141a8affc308525ac1dc1] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 05 (2026).mkv in 0.6 s = 195.1 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.891Z INFO  [46589f3ff4e645449e0eb8167987817e] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 07 (2026).mkv in 0.5 s = 192.6 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:05.940Z INFO  [cbedc905536e4abcb15fa7253cfd5dea] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 06 (2026).mkv in 0.5 s = 186.3 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:06.293Z INFO  [72aeb917242743998173b51e0f03e800] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 08 (2026).mkv in 0.5 s = 187.5 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:07.681Z INFO  [acbbc6132f98447ead72981ac45f1a25] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 10 (2026).mkv in 1.7 s = 179.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:07.697Z INFO  [2b17152e012e4b73ade02df3458486f2] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 09 (2026).mkv in 1.8 s = 179.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:07.841Z INFO  [517f86cc95cd4efcbc8fd1d5a42c758c] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 11 (2026).mkv in 1.8 s = 141.3 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:29:07.899Z INFO  [e1c3873242524187bf9d3c962c2c6c28] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 12 (2026).mkv in 1.5 s = 122.9 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:09.917Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.3 MB/s against the best 122.9 MB/s this machine has measured (0.01x), which is storage-bound"
+    ],
+    "batch": null,
+    "seconds": 621.9
+  },
+  {
+    "scenario": "s39-ratio",
+    "when": "2026-09-15 01:39:42",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 0.0,
+      "MS_PER_16K": 12.8
+    },
+    "note": "S39: judged walk first, then the hold that states the ratio",
+    "repo_head": "d4fd2dd",
+    "assertions": [
+      {
+        "check": "the walk volume holds the reference fixtures",
+        "passed": true,
+        "detail": "12 of 12 on /tmp/s39-fast (overlay)"
+      },
+      {
+        "check": "the judged volume holds its single-track files",
+        "passed": true,
+        "detail": "3 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the reference volume measured itself with at least 8 walk(s)",
+        "passed": true,
+        "detail": "12 walk line(s) | [63fa67829ed747f4a63f72ff0bb43280] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.4 s = 212."
+      },
+      {
+        "check": "the judged volume walked, so it has a walk of its own to be judged by",
+        "passed": true,
+        "detail": "[8e5683c844044fb1b4f13a58c5a2a59f] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 0.3 s = 280.1 MB/s - the ceiling for that volume "
+      },
+      {
+        "check": "a walk was held on the judged volume, so the ceiling was stated",
+        "passed": false,
+        "detail": "(no hold line)"
+      },
+      {
+        "check": "the hold quotes both numbers this machine measured, not a constant",
+        "passed": false,
+        "detail": "numbers: []"
+      },
+      {
+        "check": "the ceiling it chose is the storage-bound one (2), not none and not one",
+        "passed": false,
+        "detail": "cap in the line: ?"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 23:39:55.124Z INFO  [63fa67829ed747f4a63f72ff0bb43280] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.4 s = 212.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:55.380Z INFO  [ee337a1ad3c34cbfb0d689e54746398c] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 01 (2026).mkv in 0.4 s = 205.0 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:55.438Z INFO  [a421c3d5409a465b85e9387d9ae20a21] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 04 (2026).mkv in 0.5 s = 194.9 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:55.812Z INFO  [9b39e8d9e12b4c6da738d02ae61d7a02] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 02 (2026).mkv in 0.5 s = 189.4 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:56.100Z INFO  [ea2ef5c03d0d441dba1a600b359aa852] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 05 (2026).mkv in 0.7 s = 189.4 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:56.282Z INFO  [b19a1e193d67480fba7bbc4cd5359d86] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 06 (2026).mkv in 0.8 s = 170.1 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:56.375Z INFO  [74fcff4c1ef54ba0b2111f040ae9585e] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 07 (2026).mkv in 0.8 s = 156.7 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:56.412Z INFO  [0ce1f072b68741c3a6212cd682ca42c2] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 08 (2026).mkv in 0.4 s = 162.3 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:57.006Z INFO  [aaa89d8d6354476ea7e07a85f4d887bf] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 09 (2026).mkv in 0.8 s = 154.4 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:57.047Z INFO  [2d6a8ceafcd74d33a9a9de3490f62559] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 12 (2026).mkv in 0.5 s = 162.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:57.053Z INFO  [e498a8173f2b4667b1fdb22e7b43533c] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 11 (2026).mkv in 0.6 s = 161.6 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:39:57.055Z INFO  [1027727eb0e7448db5d79818649da6f1] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 10 (2026).mkv in 0.7 s = 158.4 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:40:00.092Z INFO  [8e5683c844044fb1b4f13a58c5a2a59f] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 0.3 s = 280.1 MB/s - the ceiling for that volume is 2 (this volume measured 13.2 ms per read, which is storage-bound)"
+    ],
+    "batch": null,
+    "seconds": 621.9
+  },
+  {
+    "scenario": "s39-ratio",
+    "when": "2026-09-15 01:50:46",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": {
+      "MS_PER_CALL": 0.0,
+      "MS_PER_16K": 12.8
+    },
+    "note": "S39: judged walk on an uncached file, then the hold that states the ratio",
+    "repo_head": "d4fd2dd",
+    "assertions": [
+      {
+        "check": "the walk volume holds the reference fixtures",
+        "passed": true,
+        "detail": "12 of 12 on /tmp/s39-fast (overlay)"
+      },
+      {
+        "check": "the judged volume holds its single-track files",
+        "passed": true,
+        "detail": "3 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the reference volume measured itself with at least 8 walk(s)",
+        "passed": true,
+        "detail": "12 walk line(s) | [fde47b32e9c14a63b1ada9c8e9026317] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.5 s = 172."
+      },
+      {
+        "check": "the judged volume walked, so it has a walk of its own to be judged by",
+        "passed": true,
+        "detail": "[733a27ecca6c487fbc1b71f904a2331a] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 70.0 s = 1.3 MB/s - the ceiling for that volume i | caches cleared first: Cleared 17 cached audio analysis files, 21 extracted subtitles, the reference subtitles of"
+      },
+      {
+        "check": "a walk was held on the judged volume, so the ceiling was stated",
+        "passed": true,
+        "detail": "walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.3 MB/s against the best 162.7 MB/s this machine has measured (0.01x), which is storage-bo"
+      },
+      {
+        "check": "the hold quotes both numbers this machine measured, not a constant",
+        "passed": true,
+        "detail": "numbers: ['1.3', '162.7']"
+      },
+      {
+        "check": "the ceiling it chose is the storage-bound one (2), not none and not one",
+        "passed": true,
+        "detail": "cap in the line: 2"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-14 23:50:58.978Z INFO  [fde47b32e9c14a63b1ada9c8e9026317] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.5 s = 172.9 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:50:59.402Z INFO  [bb5e78442ec44ad38cc00b178d16119f] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 04 (2026).mkv in 0.6 s = 157.9 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:50:59.656Z INFO  [b4ceea64afbd4e4e9ce29eae8686c2e8] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 05 (2026).mkv in 0.6 s = 156.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:50:59.800Z INFO  [03f8f3c128ff4c84832f5545a1dcb0d6] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 01 (2026).mkv in 1.0 s = 129.7 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:50:59.913Z INFO  [025eae999bdf4ed285c9a69eb6923509] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 02 (2026).mkv in 0.8 s = 140.0 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.184Z INFO  [0c48e4ad6c6b4ce58d0ff7f559769d54] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 06 (2026).mkv in 0.7 s = 136.7 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.220Z INFO  [0bdb20b809db445faa25745bce9e7ff6] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 07 (2026).mkv in 0.4 s = 144.1 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.500Z INFO  [e7c83873a380417ead9dd02027ded109] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 08 (2026).mkv in 0.6 s = 145.1 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.603Z INFO  [d94f3399c0414ac1ae53dd2fde6ad9af] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 09 (2026).mkv in 0.6 s = 144.8 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.772Z INFO  [2cd6cf1434474cf19f88c3c3e4dd6591] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 10 (2026).mkv in 0.5 s = 156.4 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.851Z INFO  [5cb9cb78372b482cba19e244eb2d71e8] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 11 (2026).mkv in 0.6 s = 156.7 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:51:00.972Z INFO  [63846b108f3d478ca4a7bda35b000e45] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 12 (2026).mkv in 0.4 s = 162.7 MB/s - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 23:52:13.684Z INFO  [733a27ecca6c487fbc1b71f904a2331a] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 70.0 s = 1.3 MB/s - the ceiling for that volume is 2 (this volume measured 13.1 ms per read, which is storage-bound)",
+      "2026-09-14 23:52:18.453Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.3 MB/s against the best 162.7 MB/s this machine has measured (0.01x), which is storage-bound"
+    ],
+    "batch": null,
+    "seconds": 97.1
   }
 ]

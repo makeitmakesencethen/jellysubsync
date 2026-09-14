@@ -123,6 +123,53 @@ def log(message: str) -> None:
     print(message, flush=True)
 
 
+# The fixture a *walk* needs: one embedded subtitle track and no other, because the plugin only measures a
+# walk when the job fell back to the audio (`!usedSubtitleReference`). A second text track would serve as the
+# reference and the engine run would never be counted as a walk of the volume.
+WALK_FIXTURE = JELLYFIN / 'media-slow' / 'Slow Single Track (2026).mkv'
+
+# A library of the rig's own, pointing at a directory on the overlay filesystem: it is a different device from
+# the media on /opt/nvme (and from the tmpfs), so the plugin treats it as a volume of its own - which is what a
+# ratio needs: one volume to be the reference, another to be judged against it.
+WALK_LIBRARY_NAME = 'S39 Walk Storage'
+WALK_VOLUME_DIR = pathlib.Path('/tmp/s39-fast')
+
+
+def ensure_library(name: str, path: pathlib.Path) -> None:
+    """Registers a media library in the rig, the way the rig's own libraries are stored.
+
+    Jellyfin keeps a virtual folder as `data/root/default/<name>/` holding `options.xml` (with the paths), a
+    `<slug>.mblink` naming the folder, and a `<type>.collection` marker - so a library is created by copying
+    that shape, not by driving the UI. The rig is stopped when this runs.
+    """
+    options = JELLYFIN / 'data' / 'root' / 'default' / 'S39 Fast Storage' / 'options.xml'
+    target = JELLYFIN / 'data' / 'root' / 'default' / name
+    target.mkdir(parents=True, exist_ok=True)
+    (target / 'options.xml').write_text(
+        options.read_text().replace('/dev/shm/s39-fast', str(path)))
+    slug = name.lower().replace(' ', '-')
+    (target / f'{slug}.mblink').write_text(str(path))
+    (target / 'movies.collection').write_text('')
+    log(f'[rig] library "{name}" registered for {path}')
+
+
+def prepare_walk_fixtures(count: int) -> None:
+    """Copies the single-track fixture onto the walk volume, once per job the reference needs.
+
+    Copies rather than hardlinks: a hardlink shares the inode, size and mtime of the media/ original, and the
+    extractor keys its subtitle cache on exactly that, so a linked file would be answered from cache and the
+    engine run would never happen. `count` files because a walk is one engine run per job, and a volume must
+    have `MinSamplesForReference` (8) of them before it can set the bar for the others.
+    """
+    WALK_VOLUME_DIR.mkdir(parents=True, exist_ok=True)
+    for index in range(1, count + 1):
+        target = WALK_VOLUME_DIR / f'Walk Reference {index:02d} (2026).mkv'
+        if not target.exists():
+            shutil.copy2(WALK_FIXTURE, target)
+    log(f'[rig] {count} walk fixture(s) on {WALK_VOLUME_DIR} '
+        f'({len(list(WALK_VOLUME_DIR.glob("*.mkv")))} present)')
+
+
 def prepare_fixtures() -> None:
     """Puts the small fixture on both scenario volumes, as a plain copy each time.
 
@@ -288,6 +335,123 @@ def scenario_s41_steady(rig, args, ctx):
     return _s41(rig, args, ctx, expect_slow_ceiling='2')
 
 
+def prepare_judged_fixtures(count: int) -> None:
+    """Copies the single-track fixture onto the shimmed volume, once per job that must be held.
+
+    The S39 line is a *hold* line - the scheduler only says why a volume is capped when it actually holds a
+    walk back - so the judged volume needs `cap` walks running (2) plus one more being planned. Copies, not
+    links: a link shares the cache identity of the media/ original and the pass would be answered from cache.
+    """
+    for index in range(1, count + 1):
+        target = SLOW_VOLUME_DIR / f'Judged Clip {index:02d} (2026).mkv'
+        if not target.exists():
+            shutil.copy2(WALK_FIXTURE, target)
+    log(f'[rig] {count} judged fixture(s) on {SLOW_VOLUME_DIR}')
+
+
+def scenario_s39_ratio(rig, args, ctx):
+    """S39: a ceiling chosen between two numbers this machine measured, not from a constant.
+
+    What the row owes: the judgement has to quote *both* throughputs - this volume's last walk and the best
+    this machine has measured - instead of a threshold someone picked for one machine.
+
+    The two volumes are genuinely different devices (the walk fixtures on the overlay filesystem, the judged
+    ones on the shimmed share), because the plugin names a volume by the device behind its longest mount point.
+    The reference needs 8 walks before it can set the bar for anything else, so the volume is given more than
+    that (`--fast-files`, default 12): a walk taken while another volume is being read is discarded by design,
+    and one lost sample must not cost the run its reference.
+    """
+    prepare_walk_fixtures(int(args.fast_files))
+    prepare_judged_fixtures(3)
+    rig.refresh_library()
+    reference = ensure_items(rig, str(WALK_VOLUME_DIR), 'Walk Reference', args)
+    judged = ensure_items(rig, 'media-slow', 'Judged Clip', args)
+    fast_key = volume_key_of(str(WALK_VOLUME_DIR))
+    slow_key = volume_key_of(str(SLOW_VOLUME_DIR))
+    found = [('the walk volume holds the reference fixtures', len(reference) >= 8,
+              f'{len(reference)} of {args.fast_files} on {WALK_VOLUME_DIR} ({fast_key})'),
+             ('the judged volume holds its single-track files', len(judged) >= 3,
+              f'{len(judged)} on {SLOW_VOLUME_DIR} ({slow_key})')]
+    if len(reference) < 8 or len(judged) < 3:
+        return found
+
+    # 1) the reference: one batch of walks on the fast volume, alone on the machine.
+    rig.log_lines()
+    since = rig._log_offset
+    batch = rig.queue_batch(reference, label='rig-s39-reference')
+    ctx['reference_batch'] = batch
+    walked, deadline = [], time.time() + float(args.timeout)
+    while time.time() < deadline:
+        lines = rig.log_lines(since)
+        walked = [ln for ln in lines if 'this walk moved' in ln and 'not being used' not in ln]
+        live = [t for t in (rig.batch(batch).get('Tasks') or [])
+                if (t.get('Status') or '').lower() in ('queued', 'running')]
+        if len(walked) >= 8 or not live:
+            break
+        time.sleep(5)
+    ctx['observations'] = list(walked)
+
+    # 2) the judged volume walks once, alone. It has to *have* a walk before it can be judged by one: with no
+    #    walk of its own the ceiling falls back to the read tier (measured 2026-09-15 - the hold line then
+    #    quoted "12,9 ms per read", the absolute behaviour, instead of the ratio the row is about).
+    #
+    #    The caches are cleared first, and that is the difference between a walk that measures this volume and
+    #    one that measures nothing: with the audio analysis cached (it survives a restart) the engine runs on
+    #    the cached speech file and never reads the media, so the same job "walked" at 280 MB/s with the shim
+    #    in place and at 1,3 MB/s without it. Both are real plugin behaviour; the slow one is the one that
+    #    needs the volume, and it is also the one a first run on a fresh file produces.
+    cleared = rig.post('/SubSync/SpeechCache/Clear')
+    ctx['cache_cleared'] = cleared
+    log(f"[rig] caches cleared before the judged walk: {cleared.get('message', cleared)}")
+
+    since = rig._log_offset
+    first = rig.queue_batch(judged[:1], label='rig-s39-judged-walk')
+    ctx['judged_walk_batch'] = first
+    judged_lines, deadline = [], time.time() + min(float(args.timeout), 300.0)
+    while time.time() < deadline:
+        lines = rig.log_lines(since)
+        judged_lines = [ln for ln in lines if 'this walk moved' in ln and str(SLOW_VOLUME_DIR) in ln]
+        if judged_lines:
+            break
+        time.sleep(5)
+    ctx['observations'] = list(walked) + list(judged_lines)
+
+    # 3) now fill the volume's ceiling: two walks run (its cap) and a third is held, which is the only moment
+    #    the scheduler states what the ceiling was decided from.
+    since = rig._log_offset
+    slow_batch = rig.queue_batch(judged[1:3] + judged[:1], label='rig-s39-judged')
+    ctx['judged_batch'] = slow_batch
+    held, deadline = [], time.time() + float(args.timeout)
+    while time.time() < deadline:
+        lines = rig.log_lines(since)
+        held = [ln for ln in lines if 'walk ceiling: holding' in ln and slow_key in ln]
+        if held:
+            break
+        time.sleep(5)
+    ctx['observations'] = list(walked) + list(judged_lines) + list(held)
+    ctx['held_lines'] = list(held)
+
+    hold = next((ln for ln in held if slow_key in ln), held[0] if held else '')
+    numbers = re.findall(r'([\d.,]+) MB/s', hold)
+    return found + [
+        (f'the reference volume measured itself with at least 8 walk(s)', len(walked) >= 8,
+         f'{len(walked)} walk line(s) | {walked[0].split("INFO")[-1].strip()[:120] if walked else "(none)"}'),
+        ('the judged volume walked, so it has a walk of its own to be judged by',
+         bool(judged_lines),
+         (judged_lines[-1].split('INFO')[-1].strip()[:170] if judged_lines else
+          f'(no walk line mentioning {SLOW_VOLUME_DIR})')
+         + f" | caches cleared first: {ctx.get('cache_cleared', {}).get('message', '(no answer)')[:90]}"),
+        ('a walk was held on the judged volume, so the ceiling was stated',
+         bool(hold), hold.split('INFO')[-1].strip()[:200] if hold else '(no hold line)'),
+        ('the hold quotes both numbers this machine measured, not a constant',
+         len(numbers) >= 2 and 'this machine has measured' in hold,
+         f'numbers: {numbers}'),
+        ('the ceiling it chose is the storage-bound one (2), not none and not one',
+         re.search(r'holding \S+ at 2 concurrent', hold) is not None,
+         f'cap in the line: {re.search(r"holding \S+ at (\S+) concurrent", hold).group(1) if re.search(r"holding \S+ at (\S+) concurrent", hold) else "?"}'),
+    ]
+
+
 SCENARIOS = {
     'smoke': dict(run=scenario_smoke, storage='any',
                   needs='nothing: it is the harness checking itself (2 volumes, fixtures, log)'),
@@ -298,6 +462,9 @@ SCENARIOS = {
                           shim={'MS_PER_CALL': 13.0, 'MS_PER_16K': 0.0,
                                 'FD_FIRST_MS': 231.0, 'FD_FIRST_READS': 1},
                           needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
+    's39-ratio': dict(run=scenario_s39_ratio, storage='shim',
+                      shim={'MS_PER_CALL': 0.0, 'MS_PER_16K': 12.8},
+                      needs='8 walks on one volume, then a slow walk on another: the ratios must decide, not a constant'),
     's41-steady': dict(run=scenario_s41_steady, storage='shim',
                        shim={'MS_PER_CALL': 10.0, 'MS_PER_16K': 1.46},
                        needs="fabji's measured share (10 ms/read, 11 MB/s): two walks, and no ceiling on the fast one"),
@@ -323,6 +490,9 @@ def main() -> int:
     parser.add_argument('--timeout', type=float, default=900.0, help='seconds to wait for the evidence')
     parser.add_argument('--settle', type=float, default=20.0, help='seconds after a refresh before queueing')
     parser.add_argument('--keep-rig', action='store_true', help='leave the server running for inspection')
+    parser.add_argument('--fast-files', type=int, default=12,
+                        help='walk fixtures (one engine run each): the reference needs 8 to count, so a few extra '
+                             'survive the walks that are discarded for contention')
     parser.add_argument('--note', default='', help='a line to store beside this run')
     args = parser.parse_args()
 
@@ -346,6 +516,8 @@ def main() -> int:
             shim['MS_PER_16K'] = args.ms_per_16k
 
     prepare_fixtures()
+    if args.scenario == 's39-ratio':
+        ensure_library(WALK_LIBRARY_NAME, WALK_VOLUME_DIR)
     installed = riglib.install_plugin(
         version=args.plugin_version,
         source=pathlib.Path(args.plugin_source) if args.plugin_source else None)

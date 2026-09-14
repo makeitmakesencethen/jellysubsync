@@ -1189,7 +1189,7 @@ the reason for the move is written into the code so the next reader does not rep
 arithmetic: `dispatch: … running 2-4` with both volumes unmeasured is exactly two per volume, so the ceiling was
 the binding constraint on concurrency even though the batch's *start* was S40's problem.
 
-### S39 - a volume was judged by constants measured on one machine (high, implemented; the ratios have not yet decided a ceiling in the field)
+### S39 - a volume was judged by constants measured on one machine (high, done: the ratios decided a ceiling on the rig, 2026-09-15)
 
 Implemented in `503f292`: the rule compares each volume against the best this machine has measured
 (`FastestReadMsPerCall()`, `FastestWalkBytesPerMs()` in `Jellyfin.Plugin.SubSync/Services/VolumeProfiles.cs:412`),
@@ -1202,3 +1202,46 @@ instead, which is itself the finding that produced S41:
 
 The absolute fallback's own words, not a ratio's. S39 closes when a mixed run shows a ceiling chosen between two
 measured numbers.
+
+**Proved on the rig, 2026-09-15.** What the row owed was a ceiling chosen *between two numbers this machine
+measured*, and it now does: one volume sets the bar with its own walks, another is judged against that number.
+
+    python3 tests/rig/run_scenario.py --scenario s39-ratio --timeout 600
+
+The two volumes are different devices — the reference on the overlay filesystem (`/tmp/s39-fast`, a library the
+scenario registers itself), the judged one on the shimmed share — because the plugin names a volume by the device
+behind its longest mount point. The reference needs 8 walks before it can set the bar, so the scenario gives it
+12 (one walk is discarded for contention often enough that 8 exactly is a coin toss: the first attempt measured
+7 of 8 and had to be repeated).
+
+    12 walk line(s)  e.g. this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 0.5 s = 172.1 MB/s
+    judged volume:   this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 70.0 s = 1.3 MB/s
+    the line:        walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last
+                     walk moved 1.3 MB/s against the best 162.7 MB/s this machine has measured (0.01x), which is
+                     storage-bound
+
+That is the ratio, both numbers, and the cap it chose (2) — not a constant anyone picked for one machine. The
+hold line only exists while a volume is *at* its cap, which is why the scenario fills it: three judged jobs are
+queued together, two run and the third is held, and that is the moment the scheduler says what the ceiling came
+from. Two earlier attempts are worth remembering: judging before the judged volume had a walk of its own fell
+back to the read tier (the line then read `this volume measured 12,9 ms per read`, the absolute behaviour), and
+R1's note about the rig measuring one axis still applies - the walk volume's figure moves with the page cache
+(172-236 MB/s across runs), which the ratio absorbs because it compares two numbers from the *same* run.
+
+Evidence: `tests/rig/results.json` (scenario `s39-ratio`, 7 of 7 assertions), rig scenario
+`tests/rig/run_scenario.py:scenario_s39_ratio`.
+
+### S42 - a walk is measured against the file's length even when the engine never read the file (medium, open)
+
+Found while proving S39, 2026-09-15, and measured rather than argued: the same file, on the same shimmed volume,
+with the same shim settings, "walked" at **280,1 MB/s** with the audio analysis cached and at **1,3 MB/s** without
+it (83,6 MB in 0,3 s against 83,6 MB in 70,0 s). The walk figure is `MediaLengthOf(videoPath) / engineWatch`
+(`Services/SubSyncService.cs:4828`, `:4850`), so when ffsubsync runs on a cached speech file it reads no media at
+all and the file's length is divided by the engine's own time. That number is then fed to the ceiling
+(`ObserveWalk`), which is how a share can read as its fastest volume: the ceiling it produces is
+`this volume's last walk moved 280,1 MB/s ... which is fast`.
+
+Not fixed here: correcting it means deciding what a walk *is* when the read did not happen (skip the sample, or
+measure the extraction pass's own reads instead), and that is a decision for its own item, not a rider on S39.
+Until then, any walk-based ceiling on a run whose speech was already cached is suspect, and the tests/rig S39
+scenario clears the caches before the walk it needs for exactly this reason.
