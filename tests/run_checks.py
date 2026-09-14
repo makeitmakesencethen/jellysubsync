@@ -629,6 +629,64 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         s33Warm.Count == 8, "planned " + s33Warm.Count + " - " + SubSyncService.WalkCapOfPath(s33Path).Why);
 }
 
+// F3: the item-scoped endpoints used to take the item id on trust, so any authenticated account could read
+// any item's subtitle list or queue a sync that wrote a subtitle for an item in a library it cannot see. The
+// decision is a pure predicate so it can be driven here rather than needing a live server and a second account.
+{
+    var libraryId = Guid.NewGuid().ToString("N");
+    var elsewhere = Guid.NewGuid().ToString("N");
+
+    Check("an account with all-folders permission may act on anything",
+        ItemAccess.Allows(true, null, null)
+        && ItemAccess.Allows(true, new[] { libraryId }, Array.Empty<string>()));
+    Check("an item in a library the account can see is allowed",
+        ItemAccess.Allows(false, new[] { libraryId }, new[] { elsewhere, libraryId }));
+    Check("a folder match at any depth counts, not just the immediate parent",
+        ItemAccess.Allows(false, new[] { libraryId }, new[] { "season", "series", libraryId }));
+    Check("an item in a library the account cannot see is denied",
+        !ItemAccess.Allows(false, new[] { libraryId }, new[] { elsewhere }));
+    Check("an account with no libraries at all is denied",
+        !ItemAccess.Allows(false, Array.Empty<string>(), new[] { libraryId })
+        && !ItemAccess.Allows(false, null, new[] { libraryId }));
+    Check("an item whose folders cannot be resolved is denied, not allowed",
+        !ItemAccess.Allows(false, new[] { libraryId }, Array.Empty<string>())
+        && !ItemAccess.Allows(false, new[] { libraryId }, null));
+    Check("the same folder is recognised in either of Jellyfin's id forms",
+        ItemAccess.Allows(
+            false,
+            new[] { "6a9d1b3e-2f4c-4a5b-8c7d-9e0f1a2b3c4d" },
+            new[] { "6a9d1b3e2f4c4a5b8c7d9e0f1a2b3c4d" }));
+
+    var visible = Guid.NewGuid().ToString("N");
+    var unseen = Guid.NewGuid().ToString("N");
+    var foldersOf = new Dictionary<string, IReadOnlyCollection<string>>
+    {
+        [visible] = new[] { libraryId },
+        [unseen] = new[] { elsewhere },
+    };
+    Check("a list with one item the account cannot see is refused as a whole",
+        ItemAccess.FirstDenied(false, new[] { libraryId }, new[] { visible, unseen }, id => foldersOf[id]) == unseen,
+        "refused " + ItemAccess.FirstDenied(false, new[] { libraryId }, new[] { visible, unseen }, id => foldersOf[id]));
+    Check("a list the account can see entirely is not refused",
+        ItemAccess.FirstDenied(false, new[] { libraryId }, new[] { visible }, id => foldersOf[id]) is null);
+
+    var account = Guid.NewGuid();
+    Check("the account id is read from the identity claim",
+        ItemAccess.UserIdFrom(new[]
+        {
+            new KeyValuePair<string, string>(
+                "http://schemas.xmlsoap.org/ws/2005/05/identity/claims/nameidentifier", account.ToString())
+        }) == account);
+    Check("the account id is read from the jwt subject claim",
+        ItemAccess.UserIdFrom(new[] { new KeyValuePair<string, string>("sub", account.ToString("D")) }) == account);
+    Check("a request with no usable account id resolves to nothing, never to a default account",
+        ItemAccess.UserIdFrom(Array.Empty<KeyValuePair<string, string>>()) is null
+        && ItemAccess.UserIdFrom(null) is null
+        && ItemAccess.UserIdFrom(new[] { new KeyValuePair<string, string>("sub", "not-a-guid") }) is null
+        && ItemAccess.UserIdFrom(new[] { new KeyValuePair<string, string>("sub", Guid.Empty.ToString()) }) is null
+        && ItemAccess.UserIdFrom(new[] { new KeyValuePair<string, string>("sub", account.ToString()) }) == account);
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
     SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,
@@ -2543,6 +2601,26 @@ def run_page_checks():
            "api('SubSync/Configuration')" in pages['subsyncMain.html']
            and 'getPluginConfiguration' not in pages['subsyncMain.html']
            and 'updatePluginConfiguration' not in pages['subsyncMain.html'])
+    # F3: the four item-scoped endpoints must ask who is calling. A future endpoint that skips the check is the
+    # realistic way this regresses, and so is a refactor that drops it from one of the four.
+    controller_text = '\n'.join(plugin_sources)
+    for signature, guard in [
+        ('public ActionResult<List<SubtitleInfo>> GetSubtitles(Guid itemId)', 'CallerMayActOn(itemId)'),
+        ('public ActionResult<SyncJob> SyncSubtitle([FromBody] SyncRequest request)', 'CallerMayActOn(request.ItemId)'),
+        ('public ActionResult<BatchView> CreateBatch([FromBody] BatchCreateRequest request)',
+         'RefuseInvisibleItems(request.Tasks.Select(t => t.ItemId))'),
+        ('public ActionResult<object> GetSubtitlesBatch([FromBody] SubtitleBatchRequest request)',
+         'RefuseInvisibleItems(request.ItemIds)'),
+    ]:
+        at = controller_text.find(signature)
+        body = controller_text[at:at + 1400] if at >= 0 else ''
+        report('the item-scoped endpoint asks who is calling: ' + signature.split('(')[0].split(' ')[-1],
+               at >= 0 and guard in body,
+               'the endpoint is gone' if at < 0 else 'no guard in its body')
+    report('the open-by-design note for the item-scoped endpoints is gone with the hole',
+           'about the items that account' in controller_text
+           and 'stay open to any authenticated user on purpose' not in controller_text)
+
     report('the plugin serves the configuration endpoints the page uses',
            '[HttpGet("Configuration")]' in controller_source
            and '[HttpPost("Configuration")]' in controller_source)

@@ -24,8 +24,15 @@ public class SubSyncController : ControllerBase
     /// the plugin inherits the server's idea of "administrator" rather than inventing a check. It
     /// gates the four endpoints that have no per-user meaning: installing packages, wiping the
     /// caches, stopping every run on the server, and reading the plugin log with the server's own
-    /// paths in it. The item-scoped endpoints stay open to any authenticated user on purpose, so
-    /// the "Sync Subtitles" button on a detail page keeps working for a non-admin.
+    /// paths in it.
+    ///
+    /// The item-scoped endpoints are open to any authenticated account -*about the items that account
+    /// can see*, which is not the same thing and is what `ItemAccess` decides. They used to take the
+    /// item id on trust, so any account could read any item's subtitle list or queue a sync that wrote
+    /// a subtitle for an item in a library it had no access to (F3, verified 2026-09-14). The check is
+    /// per item rather than per role on purpose: the "Sync Subtitles" button on a detail page must keep
+    /// working for a non-admin, and making it admin-only would remove the feature instead of guarding
+    /// it.
     /// </summary>
     private const string RequiresElevationPolicy = "RequiresElevation";
 
@@ -41,6 +48,73 @@ public class SubSyncController : ControllerBase
     }
 
     /// <summary>
+    /// Whether the calling account may act on an item.
+    /// </summary>
+    /// <remarks>
+    /// The refusal is logged with the item id, because the plugin log is admin-only and belongs to the
+    /// server operator, while the caller gets a reply that does not say whether the item exists.
+    /// </remarks>
+    /// <param name="itemId">The item the request names.</param>
+    /// <returns>True when the caller may act on it.</returns>
+    private bool CallerMayActOn(Guid itemId)
+    {
+        var userId = CallerId();
+        if (userId is null)
+        {
+            PluginLog.Info($"refused item {itemId}: the request carries no account id");
+            return false;
+        }
+
+        if (_syncService.CanUserSeeItem(userId.Value, itemId))
+        {
+            return true;
+        }
+
+        PluginLog.Info($"refused item {itemId} for account {userId.Value}: not in a library that account can see");
+        return false;
+    }
+
+    /// <summary>
+    /// Refuses a request that names several items when any one of them is not available to the caller.
+    /// </summary>
+    /// <remarks>
+    /// The whole request is refused rather than the offending item dropped: a partially queued batch looks
+    /// to the user like a batch that started, with no way to tell what was left out.
+    /// </remarks>
+    /// <param name="itemIds">Every item the request names.</param>
+    /// <returns>A refusal to return, or null when the caller may act on all of them.</returns>
+    private ActionResult? RefuseInvisibleItems(IEnumerable<Guid> itemIds)
+    {
+        var userId = CallerId();
+        if (userId is null)
+        {
+            PluginLog.Info("refused a bulk request: the request carries no account id");
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                "This request could not be attributed to an account.");
+        }
+
+        var denied = _syncService.FirstItemNotVisibleTo(userId.Value, itemIds);
+        if (denied is not null)
+        {
+            PluginLog.Info(
+                $"refused a bulk request for account {userId.Value}: item {denied.Value} is not in a library that account can see");
+            return StatusCode(
+                StatusCodes.Status403Forbidden,
+                "One or more items in this request are not available to this account.");
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the calling account's id from the request's claims, or null when there is none to trust.
+    /// </summary>
+    /// <returns>The account id, or null.</returns>
+    private Guid? CallerId() => ItemAccess.UserIdFrom(
+        User.Claims.Select(c => new KeyValuePair<string, string>(c.Type, c.Value)));
+
+    /// <summary>
     /// Lists subtitle tracks for a given video item.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
@@ -50,6 +124,11 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<List<SubtitleInfo>> GetSubtitles(Guid itemId)
     {
+        if (!CallerMayActOn(itemId))
+        {
+            return NotFound("Item not found or not available to this account.");
+        }
+
         var subtitles = _syncService.ListSubtitles(itemId);
         if (subtitles is null)
         {
@@ -70,6 +149,11 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<SyncJob> SyncSubtitle([FromBody] SyncRequest request)
     {
+        if (!CallerMayActOn(request.ItemId))
+        {
+            return NotFound("Item not found or not available to this account.");
+        }
+
         try
         {
             var job = _syncService.StartSync(request.ItemId, request.SubtitleIndex, request.Mode);
@@ -135,6 +219,12 @@ public class SubSyncController : ControllerBase
         if (request.Tasks.Count > 1000)
         {
             return BadRequest("Batch is too large (max 1000 tasks).");
+        }
+
+        var refused = RefuseInvisibleItems(request.Tasks.Select(t => t.ItemId));
+        if (refused is not null)
+        {
+            return refused;
         }
 
         var tasks = request.Tasks
@@ -403,6 +493,12 @@ public class SubSyncController : ControllerBase
         if (request.ItemIds.Count > 500)
         {
             return BadRequest("Too many items in one request (max 500).");
+        }
+
+        var refused = RefuseInvisibleItems(request.ItemIds);
+        if (refused is not null)
+        {
+            return refused;
         }
 
         var items = _syncService.ListSubtitlesBulk(request.ItemIds, request.ExpandSeries);

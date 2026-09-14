@@ -8,6 +8,10 @@ using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.Extensions.Logging;
 
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Enums;
+using MediaBrowser.Controller.Extensions;
+
 namespace Jellyfin.Plugin.SubSync.Services;
 
 /// <summary>
@@ -249,7 +253,99 @@ public class SweepResult
 public class SubSyncService : IDisposable
 {
     private readonly ILogger<SubSyncService> _logger;
+    /// <summary>
+    /// Whether an account may act on an item: the same check the item-scoped API endpoints make before
+    /// they read anything or queue anything.
+    /// </summary>
+    /// <remarks>
+    /// Fails closed at every step. An account that cannot be resolved, an item that cannot be resolved, a
+    /// user with no libraries and an item with no ancestors all deny.
+    /// </remarks>
+    /// <param name="userId">The calling account.</param>
+    /// <param name="itemId">The item the request names.</param>
+    /// <returns>True when the account may act on the item.</returns>
+    public bool CanUserSeeItem(Guid userId, Guid itemId)
+    {
+        var item = _libraryManager.GetItemById(itemId);
+        if (item is null)
+        {
+            return false;
+        }
+
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            return false;
+        }
+
+        // The account's libraries. Read through the preference API rather than a named type: Jellyfin
+        // moved its entity namespace between versions, and this plugin must not care which one it built
+        // against. Anything unexpected here denies, because the alternative is allowing.
+        IReadOnlyCollection<string> folders;
+        try
+        {
+            var enabled = user.GetPreference(PreferenceKind.EnabledFolders);
+            folders = enabled is null
+                ? Array.Empty<string>()
+                : enabled.Where(f => !string.IsNullOrWhiteSpace(f)).ToArray();
+        }
+        catch (Exception)
+        {
+            folders = Array.Empty<string>();
+        }
+
+        return ItemAccess.Allows(
+            user.HasPermission(PermissionKind.EnableAllFolders),
+            folders,
+            AncestorIds(item));
+    }
+
+    /// <summary>
+    /// Gets the first item in a request that the account may not act on, or null when it may act on all
+    /// of them. The bulk endpoints refuse the whole request when this returns anything.
+    /// </summary>
+    /// <param name="userId">The calling account.</param>
+    /// <param name="itemIds">Every item the request names.</param>
+    /// <returns>The first denied item id, or null.</returns>
+    public Guid? FirstItemNotVisibleTo(Guid userId, IEnumerable<Guid> itemIds)
+    {
+        var user = _userManager.GetUserById(userId);
+        if (user is null)
+        {
+            // The account itself cannot be resolved: refuse the request rather than each item, because
+            // there is nothing to check any of them against.
+            return itemIds.FirstOrDefault();
+        }
+
+        foreach (var itemId in itemIds)
+        {
+            if (!CanUserSeeItem(userId, itemId))
+            {
+                return itemId;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Gets the ids of every folder an item sits under, itself excluded.
+    /// </summary>
+    /// <param name="item">The item.</param>
+    /// <returns>Folder ids, nearest first.</returns>
+    private static IReadOnlyCollection<string> AncestorIds(BaseItem item)
+    {
+        var ids = new List<string>();
+        for (var parent = item.GetParent(); parent is not null; parent = parent.GetParent())
+        {
+            ids.Add(parent.Id.ToString("N"));
+        }
+
+        return ids;
+    }
+
     private readonly ILibraryManager _libraryManager;
+    private readonly IUserManager _userManager;
     private readonly ILibraryMonitor _libraryMonitor;
 
     // Lets the item refresh run once per item instead of once per subtitle track; the folder report
@@ -368,10 +464,12 @@ public class SubSyncService : IDisposable
     /// <param name="logger">Logger instance.</param>
     /// <param name="libraryManager">Jellyfin library manager.</param>
     /// <param name="libraryMonitor">Jellyfin library filesystem monitor (for targeted folder rescans).</param>
-    public SubSyncService(ILogger<SubSyncService> logger, ILibraryManager libraryManager, ILibraryMonitor libraryMonitor)
+    /// <param name="userManager">Jellyfin's user manager, for the per-item access check.</param>
+    public SubSyncService(ILogger<SubSyncService> logger, ILibraryManager libraryManager, ILibraryMonitor libraryMonitor, IUserManager userManager)
     {
         _logger = logger;
         _libraryManager = libraryManager;
+        _userManager = userManager;
         _libraryMonitor = libraryMonitor;
 
         // Evict completed/failed jobs older than 1 hour, check every 30 minutes
