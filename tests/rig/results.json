@@ -1,0 +1,97 @@
+[
+  {
+    "scenario": "s41-thrash-tier",
+    "when": "2026-09-15 00:33:23",
+    "plugin": "SubSync_2.0.37.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "9148452",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 6.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": false,
+        "detail": "S41 defect when absent -> 2026-09-14 22:33:38.316Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 231.12 ms - the ceiling for that volume is 1 (this volume measured 231.1 ms per read, which is thrashing)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": false,
+        "detail": "samples=0 (one cold read), verdict=1 (this volume measured 231.1 ms per read, which is thrashing)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:33:34.904Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.02 ms - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 22:33:34.904Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.02 ms - the ceiling for that volume is none (this volume measured 0.02 ms per read, which is fast)",
+      "2026-09-14 22:33:38.316Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 231.12 ms - the ceiling for that volume is 1 (this volume measured 231.1 ms per read, which is thrashing)"
+    ],
+    "batch": "086208dda58249e0a0ea20dbcdd4c426",
+    "seconds": 17.3
+  },
+  {
+    "scenario": "s41-steady",
+    "when": "2026-09-15 00:33:40",
+    "plugin": "SubSync_2.0.37.0",
+    "shim": {
+      "MS_PER_CALL": 10.0,
+      "MS_PER_16K": 1.46
+    },
+    "note": "",
+    "repo_head": "9148452",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": false,
+        "detail": "S41 defect when absent -> 2026-09-14 22:33:52.412Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 11.55 ms - the ceiling for that volume is 2 (this volume measured 11.6 ms per read, which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": false,
+        "detail": "samples=0 (one cold read), verdict=2 (this volume measured 11.6 ms per read, which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-14 22:33:52.313Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.03 ms - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 11.6 ms per read, which is storage-bound"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-14 22:33:52.313Z INFO  volume shm had nothing measured about it, so it was read once: 16 KB took 0.03 ms - the ceiling for that volume is none (this volume measured 0.03 ms per read, which is fast)",
+      "2026-09-14 22:33:52.412Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 11.55 ms - the ceiling for that volume is 2 (this volume measured 11.6 ms per read, which is storage-bound)"
+    ],
+    "batch": "9936aebd8c9844038f39270f069b9f6d",
+    "seconds": 14.4
+  }
+]
