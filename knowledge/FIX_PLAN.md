@@ -997,82 +997,45 @@ are not, and every other volume counts. 603 checks green. Commit `8373662`.
 The share's half of that batch was correct throughout - 2 concurrent, 29-31 MB/s, stable for 75 walks - so this
 was one volume being misjudged, not the ceiling misbehaving.
 
-### S38 - a cold mixed batch still has no uncontended measurement of its fast volume (medium, open)
+### S38 - a cold mixed batch has no uncontended measurement of its fast volume (high, fixed in `f7954eb`, field run owed)
 
-S37 removed the false evidence; it does not create any. In a mixed batch started on a cold plugin process, every
-walk on the fast volume is contended by the slow volume's walks, so it never gets a measurement of its own and
-stays at the conservative 2 for the whole batch - the same gap S33 described from the other side (a volume whose
-extractions are all cache-served is never measured by a read either).
+Confirmed in the field on 2026-09-14, on the 2.0.35 run, and it is why that run used two workers on a volume with
+six free slots:
 
-The fix, when it is wanted: give a volume with no measurement one small timed read of its own, once per process -
-4 KB is enough to classify it, because the latency thresholds already in use (under 5 ms fast, 5-100 ms
-storage-bound, over 100 ms thrashing) separate local disk from the share cleanly: measured today, the same small
-read would land well under a millisecond on `/dev/nvme0n1p2` and at tens of milliseconds on the share. It costs
-one read per volume per process, and it replaces a guess with a measurement. Not done here: one item, one commit,
-and S37 is the item the field run asked for.
+    17:33:22.661  [c8…] this walk moved 1235,5 MB of /Media/…/Tusen bröder S01E01.mkv in 17,7 s = 69,9 MB/s, but it
+                  is not being used to judge that volume: 2 job(s) on another volume were being read at the same time
+    17:33:22.723  … S01E02 68,6 MB/s, same reason
+    17:33:54.871  … S01E04 76,6 MB/s, same reason
+    17:33:54.952  … S01E03 70,4 MB/s, same reason
 
-### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high; ratios shipped in the ceiling, extraction pricing and field run still owed)
+Four walks on the fast volume, **none of them usable**, because the share's walks were running throughout. So both
+volumes still said `nothing has measured this volume yet` (five hold lines for the share, two for the local disk)
+and both stayed at the conservative two, while the dispatches read `starting 2 running 0 limit 8 queued 55` for
+minutes. S37 was doing its job exactly - it refused the contaminated samples rather than being misled by them -
+but refusing evidence is not the same as having any.
 
-Done for the ceiling; the extraction pricing still uses absolutes and is the next item.
+**Fixed** by giving a volume with nothing measured about it one timed read of its own: 16 KB, at a third of the
+file rather than at the header (a header is often in the page cache and says little about the disk under it),
+once per volume per process (claimed by `VolumeProfile.TryBeginProbe`), taken in the job's own thread just before
+the audio-ruler engine starts and **never while the queue lock is held** - the scheduler must not touch storage on
+its way to a decision (B3, B5). It records through `Observe`, so the volume can then be classified on its own
+latency, and it logs the result: `volume <key> had nothing measured about it, so it was read once: 16 KB took
+1,42 ms - the ceiling for that volume is 2 (…)`.
 
-**What decides now.** `VolumeProfiles.FastestReadMsPerCall()` and `FastestWalkBytesPerMs()` give the best any
-volume on this machine has shown, requiring 8 samples (so one read cannot set the bar) and **excluding the
-volume being judged** (a volume must not set its own bar - without that, a lone volume would be its own
-reference, judge itself fast and get no ceiling at all, which would have reopened the hole 2.0.30 shipped). The
-read reference is floored at **0,25 ms per call**: no storage answers a read faster than that, anything quicker
-is the page cache. The floor's first value, 0,05 ms, was found wrong by the checks themselves - with it, a
-volume reading at 20 ms per call came out at 400x the reference and was classified as *thrashing* instead of
-storage-bound, which is the same species of mistake as the absolute thresholds, just sideways.
+**The recalibration this forced.** With the read reference floored at 0,25 ms, the thrash tier at 100x would mean
+25 ms per read - so fabji's share, at 13-46 ms, would have been held to **one** walk at a time where its own
+measurements say two is its best. `ThrashingReadRatio` is now 400, which is 100 ms against the floor: the old
+absolute threshold, reproduced from a ratio. Ratios have to be chosen so the old behaviour falls out of them, or
+"portable" quietly means "different".
 
-**The rule** (`WalkCapForProfile(reads, walks, referenceReads, referenceWalks, previousCap)`):
+**Verified**: 625 checks green, including the probe's one-shot behaviour (on standalone profiles, because
+`VolumeProfiles` keys by device and a path under /dev/shm shares its profile with every other check that read
+there), that one measured read is enough to hold a share at 2 and let local storage go, and that the thrash tier
+still means 100 ms rather than 25. A source-level check pins the call to the job's own thread and to one site.
 
-- the **walks** decide when the volume has walks of its own, because walking is the operation being limited:
-  below **0,5x** the best walk on this machine is storage-bound (2), at **0,667x** or better there is no ceiling,
-  and in between the last decision stands - that gap is the hysteresis;
-- the **reads** decide only when there are no walks to go on (below 20x the best latency is storage-bound, within
-  10x is fast, above 100x is one walk at a time). A volume whose reads are slow but whose own walks are fine is
-  judged by its walks - over-capping exactly that is what held a local NVMe to two walks on 2026-09-14;
-- with **no reference at all** (nothing else on the machine has 8 samples) the old absolute behaviour decides,
-  unchanged, which is what a process that has measured one volume should do;
-- every reason names both numbers: `this volume's last walk moved 3.4 MB/s against the best 91.0 MB/s this
-  machine has measured (0.04x), which is storage-bound`.
-
-**Verified in the suite - 618 checks**, including the two-machine requirement the goal set: on the machine the
-constants came from the share is still storage-bound (0,04x) and the local disk still has no ceiling; on a
-*faster* machine a 150 MB/s NAS against a 500 MB/s local disk is storage-bound (the silent hole that started
-this), while the same NAS against a 200 MB/s local disk keeps no ceiling. Also checked: the straddling sequence
-from the field (1,0 / 0,75 / 0,64 / 0,58 of the reference) never moves a ceiling once set, a capped volume stays
-capped inside the band while one below the bound is capped immediately, a volume never sets its own bar, the page
-cache cannot set the read reference, and with no reference the documented absolute rule still decides. Commit
-`503f292`.
-
-**Field run owed**, the same shape as the batch that failed: a mixed batch on fabji's server should show the
-local volume at `ceiling none (fast)` for the whole run while the share reads `storage-bound`, both stated
-against the reference, with no flipping - and the reference the log names should be the local disk's own numbers,
-not a floor.
-
-**What the local rig could and could not prove (2026-09-14).** A two-volume end-to-end run was attempted on the
-dev box instead of waiting for the server, and it stopped one step short: the rig's Jellyfin would not index the
-two freshly cut clips (`ffprobe` confirms both are h264 + eac3, and neither a library refresh nor a scoped
-`POST /Items/{id}/Refresh` produced an item - only the folder), so no batch could be queued for them. What the
-attempt did establish, and what the next session should not redo:
-
-- The rig's live instance **is** preloaded with the read shim (`LD_PRELOAD=…/slowread.so`,
-  `SLOWREAD_PREFIX=/opt/data/jf12test/media-slow/`, `SLOWREAD_MS_PER_16K=12.8`), so a genuinely slow volume exists
-  there without root. `/dev/shm` is the only other device, and it is 64 MB with no way to remount it: user
-  namespaces are blocked (`unshare: Operation not permitted`), so a fast volume big enough for a real walk is not
-  available on this box at all. Two clips on two different devices were made and verified (`stat`: device 99 for
-  `/dev/shm/s39-fast/fast-clip.mkv`, 66306 for `media-slow/s39-slow/slow-clip.mkv`), and a `S39 Fast Storage`
-  library was registered over the tmpfs path - the pieces are in place if a future session wants to finish it, and
-  the current build is installed in the rig as `SubSync_2.0.35.0` (the two older plugin directories are parked in
-  `/tmp/s39-old/`).
-- The consequence: the mixed-batch verification stays a **field run on the real server**, which is also the run
-  that has already failed twice with absolute thresholds. It is the last thing standing between S39 and done.
-
-**If this proves too blunt later:** the honest end state is a ceiling that varies concurrency and watches what it
-costs (`2 -> 4 -> 8`, keeping the level where per-walk throughput holds and dropping back where it falls), which
-needs no reference and no ratio at all. That is a larger change than this one, and it is the design worth
-reaching for if ratios turn out to need per-machine tuning after all.
+**Field run owed** on 2.0.36: in a mixed batch the local volume should lift within a wave or two of its first job
+starting, while the share stays at 2. The 2.0.35 run could not evaluate S39's ratio criteria at all - no walk was
+ever *used*, so no ratio was ever computed - which is the other reason that run has to be repeated.
 
 ## 2026-09-14 - the register triage
 
