@@ -58,6 +58,7 @@ public sealed class VolumeProfile
     private readonly List<Sample> _samples = new();
     private readonly List<Sample> _walks = new();
     private int? _lastCeiling;
+    private bool _probed;
     private readonly Func<DateTimeOffset> _clock;
 
     /// <summary>Initializes a new instance of the <see cref="VolumeProfile"/> class.</summary>
@@ -184,6 +185,44 @@ public sealed class VolumeProfile
         lock (_gate)
         {
             _lastCeiling = cap;
+        }
+    }
+
+    /// <summary>
+    /// Whether this volume still needs one small read of its own before it can be judged at all.
+    /// </summary>
+    /// <remarks>
+    /// A volume whose extractions are served from the subtitle cache and whose walks are all contended has
+    /// nothing measured about it after a batch has run for minutes - which is what a mixed batch on 2026-09-14
+    /// showed: every walk on the fast volume had a slow volume's walk alongside it, so the fast volume stayed at
+    /// the conservative two for the whole run while six of eight workers sat idle. One timed read settles it.
+    /// </remarks>
+    public bool NeedsProbe
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return !_probed && _samples.Count == 0 && _walks.Count == 0;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Claims the one probe this volume gets, returning false when it has already been taken or is not needed.
+    /// </summary>
+    /// <returns>True when the caller should take the read.</returns>
+    public bool TryBeginProbe()
+    {
+        lock (_gate)
+        {
+            if (_probed || _samples.Count > 0 || _walks.Count > 0)
+            {
+                return false;
+            }
+
+            _probed = true;
+            return true;
         }
     }
 

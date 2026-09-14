@@ -804,6 +804,48 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         && SubSyncService.WalkCapForProfile(null, 137_000).Cap == int.MaxValue);
 }
 
+// S38: a volume with nothing measured about it gets one timed read of its own, once per process. The field
+// evidence for needing it: a cold mixed batch in which every walk on the fast volume was contended by the slow
+// volume's walks, so it had no measurement at all and paid the conservative two for the whole run while six of
+// eight workers sat idle.
+//
+// Standalone profiles rather than the registry, and deliberately: VolumeProfiles keys by device, so a path under
+// /dev/shm or /tmp shares a profile with every other check that has read there, and these four checks are about
+// what a volume with *nothing* measured does.
+{
+    var s38Fresh = new VolumeProfile("s38/fresh");
+    Check("a volume nothing has measured about it needs its one timed read",
+        s38Fresh.NeedsProbe && s38Fresh.TryBeginProbe(), "the first probe was refused");
+    Check("that read is taken once, not once per planning pass",
+        !s38Fresh.NeedsProbe && !s38Fresh.TryBeginProbe());
+
+    var s38Read = new VolumeProfile("s38/read");
+    s38Read.Observe(16384, 0.4);
+    Check("a volume its own reads have measured does not need the probe",
+        !s38Read.NeedsProbe && !s38Read.TryBeginProbe());
+
+    var s38Walked = new VolumeProfile("s38/walked");
+    s38Walked.ObserveWalk(1_000_000_000, 12_000);
+    Check("nor does one its own walk has measured",
+        !s38Walked.NeedsProbe && !s38Walked.TryBeginProbe());
+
+    // One measured read is enough to classify: a local disk's fraction of a millisecond against a share's tens.
+    Check("one measured read is enough to hold a share at 2 and to let local storage go",
+        SubSyncService.WalkCapForProfile(21.0, null, 0.25, null, null).Cap == SubSyncService.StorageBoundWalkCap
+        && SubSyncService.WalkCapForProfile(0.4, null, null, null, null).Cap == int.MaxValue
+        && SubSyncService.WalkCapForProfile(0.4, null, 21.0, null, null).Cap == int.MaxValue,
+        $"{SubSyncService.WalkCapForProfile(21.0, null, 0.25, null, null).Cap} / "
+        + $"{SubSyncService.WalkCapForProfile(0.4, null, 21.0, null, null).Cap}");
+
+    // The thrash tier has to reproduce the old absolute 100 ms once the reference is the 0,25 ms floor: at 100x
+    // it would be 25 ms, which would hold fabji's share at one walk where its own measurements say two is best.
+    Check("the thrash tier still means the old 100 ms per read, not 25",
+        SubSyncService.WalkCapForProfile(21.0, null, 0.25, null, null).Cap == SubSyncService.StorageBoundWalkCap
+        && SubSyncService.WalkCapForProfile(120.0, null, 0.25, null, null).Cap == 1,
+        $"{SubSyncService.WalkCapForProfile(21.0, null, 0.25, null, null).Cap} / "
+        + $"{SubSyncService.WalkCapForProfile(120.0, null, 0.25, null, null).Cap}");
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
     SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,
@@ -2718,6 +2760,13 @@ def run_page_checks():
            'VolumesOtherThan(' in service_source
            and 'job(s) on another volume were being ' in service_source
            and service_source.count('ObserveWalk(') == 1)
+
+    report('an unmeasured volume is read once instead of guessed at, in the job\'s own thread',
+           'ProbeVolumeIfUnmeasured(' in service_source
+           and 'ProbeBytes = 16 * 1024' in service_source
+           and 'TryBeginProbe()' in service_source
+           and service_source.count('ProbeVolumeIfUnmeasured(videoPath);') == 1
+           and 'needs the queue lock' not in service_source)
 
     report('the page reads and writes settings through the plugin, not the web client',
            "api('SubSync/Configuration')" in pages['subsyncMain.html']

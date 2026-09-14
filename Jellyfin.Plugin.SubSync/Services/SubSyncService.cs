@@ -2852,6 +2852,71 @@ public class SubSyncService : IDisposable
     /// </summary>
     public const double ThrashingWalkMbPerSec = 1.0;
 
+    /// <summary>How much a volume is read to give it its first measurement, when it has none.</summary>
+    private const int ProbeBytes = 16 * 1024;
+
+    /// <summary>
+    /// Gives a volume that has nothing measured about it one timed read, once per process.
+    /// </summary>
+    /// <remarks>
+    /// Taken in the job's own thread and never while the queue lock is held: the scheduler must not touch
+    /// storage on its way to a decision. One 16 KB read per volume per process, and the latency thresholds are
+    /// more than sharp enough to classify it - a local disk answers well inside a millisecond, a share in tens of
+    /// them. It replaces a guess about a volume with a measurement of it, which is what a cold mixed batch
+    /// needed: every walk on its fast volume was contended by the slow volume's walks, so it had nothing
+    /// measured about it and paid the conservative two for the whole run while workers sat idle.
+    /// </remarks>
+    /// <param name="videoPath">The media file, which names the volume.</param>
+    private void ProbeVolumeIfUnmeasured(string videoPath)
+    {
+        var profile = Services.VolumeProfiles.For(videoPath);
+        if (!profile.NeedsProbe || !profile.TryBeginProbe())
+        {
+            return;
+        }
+
+        try
+        {
+            var length = MediaLengthOf(videoPath);
+            if (length <= 0)
+            {
+                return;
+            }
+
+            // Not at the start: a header is often in the page cache and says little about the disk under it.
+            var offset = length > ProbeBytes * 4 ? length / 3 : 0;
+            var buffer = new byte[ProbeBytes];
+            using var stream = new FileStream(
+                videoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, ProbeBytes, FileOptions.RandomAccess);
+            if (offset > 0)
+            {
+                stream.Seek(offset, SeekOrigin.Begin);
+            }
+
+            var watch = System.Diagnostics.Stopwatch.StartNew();
+            var read = stream.Read(buffer, 0, ProbeBytes);
+            watch.Stop();
+            if (read <= 0)
+            {
+                return;
+            }
+
+            var ms = Math.Max(watch.Elapsed.TotalMilliseconds, 0.001);
+            profile.Observe(read, ms);
+            var cap = WalkCapOfPath(videoPath);
+            PluginLog.Info(
+                $"volume {profile.Key} had nothing measured about it, so it was read once: {read / 1024} KB took "
+                + $"{ms:0.00} ms - the ceiling for that volume is "
+                + $"{(cap.Cap >= int.MaxValue ? "none" : cap.Cap.ToString())} ({cap.Why})");
+        }
+        catch (Exception ex)
+        {
+            PluginLog.Info(
+                $"volume {profile.Key} could not be read for its first measurement ({ex.GetType().Name}); it stays "
+                + "unmeasured and conservatively held");
+        }
+    }
+
     /// <summary>
     /// Counts how many of the volumes given are not the one a walk just measured.
     /// </summary>
@@ -2899,8 +2964,17 @@ public class SubSyncService : IDisposable
     /// <summary>Within how many times that latency a volume's reads count as fast.</summary>
     public const double FastReadRatio = 10.0;
 
-    /// <summary>How many times that latency counts as thrashing, where even two concurrent walks are too many.</summary>
-    public const double ThrashingReadRatio = 100.0;
+    /// <summary>
+    /// How many times that latency counts as thrashing, where even two concurrent walks are too many.
+    /// </summary>
+    /// <remarks>
+    /// 400, because the reference is floored at 0,25 ms (see `VolumeProfiles.PageCacheFloorMsPerCall`) and
+    /// 400 x 0,25 is the 100 ms per read that used to be the absolute thrash threshold. At 100 this would have
+    /// been 25 ms, so a share reading at 13-46 ms - fabji's, on 2026-09-14 - would have been held to one walk at
+    /// a time instead of the two its own measurements say are its best. Ratios have to be chosen so the old
+    /// behaviour comes out of them, or "portable" quietly means "different".
+    /// </remarks>
+    public const double ThrashingReadRatio = 400.0;
 
     /// <summary>
     /// Gets the ceiling for a volume from a measured cost per read, with no reference to compare against.
@@ -4841,6 +4915,11 @@ public class SubSyncService : IDisposable
                     "the reference subtitle is not the same cut as the video").ConfigureAwait(false);
                 var audioArgs = BuildFfSubSyncArgs(
                     config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null);
+
+                // This job is about to read the media, so if nothing has measured this volume yet, do it now:
+                // the next planning pass can then judge the volume on a measurement instead of holding it.
+                ProbeVolumeIfUnmeasured(videoPath);
+
                 var audioExit = await RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, audioArgs, tempDir, null, cancellationToken,
                     new EngineWatch(job.Id, Path.GetFileName(videoPath), "audio")).ConfigureAwait(false);
