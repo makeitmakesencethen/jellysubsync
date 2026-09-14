@@ -55,8 +55,15 @@ def main():
         jid, rest = jm.group(1), line[jm.end():]
         s = START.search(rest)
         if s:
-            jobs[jid].update(t0=t, cached=(s.group(1) == 'True'),
-                             ref=s.group(2), limit=limit_at(dispatch, t))
+            # keep the FIRST start of this job: a job that lands on the search window is retried once
+            # with a doubled window, and that second run reads a cached analysis - timing it would
+            # measure the cheap run instead of the job's real cost.
+            jobs[jid].setdefault('t0', t)
+            jobs[jid]['runs'] = jobs[jid].get('runs', 0) + 1
+            if 'cached' not in jobs[jid] or (jobs[jid]['cached'] and s.group(1) == 'False'):
+                jobs[jid]['cached'] = (s.group(1) == 'True')
+            jobs[jid].setdefault('ref', s.group(2))
+            jobs[jid].setdefault('limit', limit_at(dispatch, t))
             continue
         e = END.match(rest.strip())
         if e and 't0' in jobs[jid]:
@@ -75,7 +82,7 @@ def main():
             continue
         rows.append(dict(jid=jid, name=name, dur=(j['t1'] - j['t0']).total_seconds(),
                          ref=j.get('ref'), cached=j.get('cached'), limit=j.get('limit'),
-                         outcome=j.get('outcome'), t0=j['t0'], t1=j['t1']))
+                         outcome=j.get('outcome'), runs=j.get('runs', 1), t0=j['t0'], t1=j['t1']))
 
     if not rows:
         print("no matching engine runs in the log yet")
@@ -101,8 +108,9 @@ def main():
     for lim in sorted(by_limit, key=lambda x: (x is None, x)):
         for r in sorted(by_limit[lim], key=lambda r: r['t0']):
             flag = '' if (r['ref'] == 'a:0' and not r['cached']) else '  <-- INVALID (not audio/fresh)'
+            rr = '' if r.get('runs', 1) == 1 else f" [{r['runs']} engine runs]"
             print(f"  limit={lim} {r['dur']/60:6.1f} min  {r['outcome']:10} "
-                  f"{r['name'][:110]}{flag}")
+                  f"{r['name'][:100]}{rr}{flag}")
 
     complete = {lim: len(v) for lim, v in by_limit.items()}
     if len(complete) < 2:
@@ -110,7 +118,7 @@ def main():
         return 0
     walls = {lim: (max(r['t1'] for r in v) - min(r['t0'] for r in v)).total_seconds()
              for lim, v in by_limit.items()}
-    lo, hi = min(walls), max(walls)
+    lo, hi = min(walls.values()), max(walls.values())   # values, not keys: min() on a dict returns a key
     print(f"\nlevel wall clock across limits: " +
           ", ".join(f"limit {k}: {v/60:.1f} min" for k, v in sorted(walls.items())))
     if hi <= lo * 1.25:

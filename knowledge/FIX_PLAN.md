@@ -369,6 +369,40 @@ wall-clock window, plus one known-file read before each level to time the share'
 per-file (queued -> completed) and aggregate per level discriminate the regime: flat, proportional, or
 worse than proportional.
 
+### Server confirmation - measured 2026-09-14 (8 episodes, `Outsiders` S10, `/media/synology`, one batch per level)
+
+Same 8 files, same order, audio analysis cleared before every level (verified: all 24 engine runs logged
+`reference=a:0 cachedSpeech=False`), worker limit changed between levels, read from the plugin log
+(`tests/backend/s28-server-levels.py`).
+
+| limit | files | per-file min / median / max | level wall | aggregate | validity |
+|---|---|---|---|---|---|
+| 1 | 8 | 18,0 / **22,2** / 32,8 s | 235,8 s | 122,15 files/h | OK |
+| 2 | 8 | 34,1 / **48,9** / 53,5 s | 213,9 s | 134,63 | OK |
+| 4 | 8 | 68,6 / **94,1** / 107,1 s | 216,7 s | 132,89 | OK |
+
+- **Per-file time is proportional to the limit** (1 : 2,20 : 4,24) - the queueing signature, exactly what
+  the shim's bandwidth+queue model predicted.
+- **The level's wall clock is flat** (3,9 / 3,6 / 3,6 min) and so is the aggregate (122-135 files/h).
+- **Verdict: this share is in the queueing regime.** Concurrency buys no throughput at all; it only
+  multiplies how long one file waits. All 8 files needing analysis cost ~3,6 min of wall clock whether
+  the limit is 1 or 4, but a single file finishes in 22 s at limit 1 against 94 s at limit 4.
+- The earlier limit-8 point for the same episodes (median 503,4 s, 20,74 files/h) came from inside a
+  2 500-task batch, so the other 2 492 tasks' extraction shared the volume. The pure queueing model
+  predicts ~176 s per file at limit 8 (22,2 x 8); the measured 503 s means that mixed load cost a further
+  ~3x. **That is the production shape**: at a high limit with other work queued, per-file time collapses
+  and aggregate throughput falls with it (20,7 vs 133 files/h).
+- Caveat: one show's episodes, one share, one batch of audio-ruler jobs per level. The regime is
+  measured; the exact cap that is optimal under mixed load is not.
+
+**Proposed change (not scoped, nothing built).** Cap concurrent *audio-ruler* analyses separately from
+subtitle-ruler jobs, since the two cost entirely different things: an audio ruler walks the whole
+container (22-500 s per file), a subtitle ruler reads the container index (field median 2,9 s). The
+measurement says an audio cap is free - aggregate is flat between limit 1 and 4 - while it cuts the time
+for any *individual* file up to 4x, and it protects the extraction lane from competing with eight walks
+on the same volume. Cap 2 keeps a second job moving during the first one's waits; cap 1 is the fastest
+per file. Decide the number when this is scoped.
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
