@@ -4,6 +4,26 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.33 (beta)
+
+The walk ceiling's fast/slow boundary is set between the two throughput populations the field has measured,
+instead of inside one of them.
+
+2.0.32 introduced that boundary at 20 MB/s, taken from "the share walks a 2,4 GB file in 903 s = 2,6 MB/s".
+The 903 s was measured while **eight walks were already running on that volume** - the volume being throttled
+by the very ceiling the number was meant to decide. Walked at its own pace, the same share measures
+**16,8-23,1 MB/s** over eight episodes, and local NVMe 84,4-137 MB/s. At 20 the ceiling lifted after a
+23,1 MB/s walk and dropped after a 17,4 MB/s one, so a wave planned while it read "fast" could put five
+concurrent walks on the share - which is exactly what a field run on 2026-09-14 did.
+
+- The boundary is now **50 MB/s**: 2,2x above every walk this share has produced, 1,7x below every local walk.
+  The whole share range maps to the same ceiling, so it can no longer flip between planning passes within a
+  batch.
+- Nothing else changes. The ceiling still measures itself from the volume's own reads and walks, still holds an
+  unmeasured volume at 2, and still lifts for a volume that measures fast: in the same field run local storage
+  walked at 84,4-91,4 MB/s with three concurrent walks and `ceiling none (fast)`, while the share stayed at
+  33-116 s per walk against 5,5-7,0 min before the ceiling existed.
+
 ## 2.0.32 (beta)
 
 The walk ceiling can now measure itself, and it says which measurement held a job.
