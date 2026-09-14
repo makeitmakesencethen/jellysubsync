@@ -1667,6 +1667,44 @@ logProgress.Invoke(null, new object?[] { 4, 0, 2, null, null });
 Check("the progress line does not claim a lane when the lane is idle",
     File.ReadAllLines(heartbeatLog).Any(l => l.Contains("queue: 4 queued") && l.Contains("lane idle")));
 
+// ---------------- S25: the history survives a restart ----------------
+// The real Save/Load pair against a real file: a batch is written, read back, and the line the plugin
+// logs on restore is produced. Batches used to live only in memory, so a restart emptied History.
+var historyPath = Path.Combine(Path.GetTempPath(), "s25-batch-history.json");
+File.Delete(historyPath);
+var historyEntry = new BatchHistoryEntry
+{
+    BatchId = "s25-batch-probe",
+    Label = "Series - Season 1",
+    CreatedUtc = new DateTime(2026, 9, 13, 22, 47, 0, DateTimeKind.Utc),
+    Jobs = new List<BatchHistoryJob>
+    {
+        new BatchHistoryJob
+        {
+            Id = "s25-job-1", SubtitleIndex = 3, Mode = "parallel", BatchId = "s25-batch-probe",
+            Status = "Completed", Outcome = "no change needed",
+            CreatedAtUtc = new DateTime(2026, 9, 13, 22, 47, 0, DateTimeKind.Utc)
+        },
+        new BatchHistoryJob
+        {
+            Id = "s25-job-2", SubtitleIndex = 4, Mode = "parallel", BatchId = "s25-batch-probe",
+            Status = "Running",
+            CreatedAtUtc = new DateTime(2026, 9, 13, 22, 47, 1, DateTimeKind.Utc)
+        }
+    }
+};
+BatchHistory.Save(historyPath, new[] { historyEntry });
+var historyBack = BatchHistory.Load(historyPath);
+Check("a batch survives being written and read back (S25)",
+    historyBack.Count == 1 && historyBack[0].BatchId == "s25-batch-probe" && historyBack[0].Jobs.Count == 2
+    && historyBack[0].Jobs[0].SubtitleIndex == 3 && historyBack[0].Jobs[0].Outcome == "no change needed"
+    && historyBack[0].Jobs[1].Status == "Running",
+    historyBack.Count + " batch(es), " + (historyBack.Count > 0 ? historyBack[0].Jobs.Count : 0) + " job(s)");
+Check("a missing history file is an empty history, not an error (S25)",
+    BatchHistory.Load(Path.Combine(Path.GetTempPath(), "s25-does-not-exist.json")).Count == 0);
+Console.WriteLine("---- S25 sample: what a restart now finds ----");
+Console.WriteLine("   " + BatchHistory.DescribeRestore(historyBack.Count, historyBack.Sum(b => b.Jobs.Count), historyPath));
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -2430,6 +2468,22 @@ def run_page_checks():
            and 'MaybeLogProgress();' in service
            and 'ProgressLineSeconds = 60' in service
            and 'ConcurrentDictionary<string, DateTime> _passInFlight' in service)
+
+    # S25: the batch history is persisted in the same shape of state file the sweep already keeps, so a
+    # restart no longer empties the History tab. Restored jobs are display rows (no job context, so the
+    # pump can never start one), the cleanup timer leaves them alone, and a job interrupted by the
+    # restart comes back as cancelled rather than as a phantom running job.
+    batch_history = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                      'BatchHistory.cs'), encoding='utf-8').read()
+    report('the batch history survives a restart (S25)',
+           'public static class BatchHistory' in batch_history
+           and 'public const int MaxBatches = 20' in batch_history
+           and 'private void RestoreBatchHistory()' in service
+           and 'RestoreBatchHistory();' in service
+           and 'MaybePersistBatchHistory();' in service
+           and '_historyOnlyJobs.Contains(kvp.Key)' in service
+           and 'interrupted by a plugin restart' in service
+           and 'BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());' in service)
 
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)

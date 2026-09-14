@@ -376,6 +376,8 @@ public class SubSyncService : IDisposable
 
         // Evict completed/failed jobs older than 1 hour, check every 30 minutes
         _cleanupTimer = new Timer(_ => CleanupOldJobs(), null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
+
+        RestoreBatchHistory();
     }
 
     /// <summary>
@@ -1127,6 +1129,13 @@ public class SubSyncService : IDisposable
         }
     }
 
+    // S25: the batch history is persisted so a restart no longer empties the History tab. Jobs restored
+    // from disk are display rows only - a job with no _jobContexts entry can never be started by the
+    // pump - and are marked here so the cleanup timer never evicts the history as if it were live work.
+    private readonly HashSet<string> _historyOnlyJobs = new(StringComparer.Ordinal);
+    private string _historySignature = string.Empty;
+    private DateTime _historySavedUtc = DateTime.MinValue;
+
     // S24: the periodic progress line. The only depth figure the plugin had was the dispatch line, which
     // appears only when a job starts and names only the batch that job belongs to - so "how much is left"
     // could not be answered from the log without hand-parsing lane lines and dispatch timestamps (which is
@@ -1151,6 +1160,144 @@ public class SubSyncService : IDisposable
 
     private static void LogPluginProgress(int queued, int running, int filesLeft, string? laneFile, TimeSpan? laneElapsed)
         => PluginLog.Info(DescribeProgress(queued, running, filesLeft, laneFile, laneElapsed));
+
+    // S25: batches live in memory, and a restart used to lose the History tab entirely. The file is the
+    // same shape the sweep already keeps; restoring it adds display rows only, and anything that was
+    // still queued or running when the plugin stopped comes back as cancelled, because it was interrupted.
+    private void RestoreBatchHistory()
+    {
+        try
+        {
+            var path = BatchHistory.DefaultPath;
+            var entries = BatchHistory.Load(path);
+            if (entries.Count == 0)
+            {
+                return;
+            }
+
+            var restoredJobs = 0;
+            foreach (var entry in entries)
+            {
+                foreach (var stored in entry.Jobs)
+                {
+                    if (_jobs.ContainsKey(stored.Id))
+                    {
+                        continue;
+                    }
+
+                    var job = new SyncJob
+                    {
+                        Id = stored.Id,
+                        ItemId = stored.ItemId,
+                        SubtitleIndex = stored.SubtitleIndex,
+                        Mode = SyncJobMode.Normalize(stored.Mode),
+                        BatchId = stored.BatchId ?? entry.BatchId,
+                        BatchIndex = stored.BatchIndex,
+                        BatchLabel = stored.BatchLabel ?? entry.Label,
+                        Label = stored.Label,
+                        Outcome = stored.Outcome,
+                        OutputPath = stored.OutputPath,
+                        Error = stored.Error,
+                        ExtractionNote = stored.ExtractionNote,
+                        Phase = stored.Phase,
+                        Progress = stored.Progress,
+                        CreatedAtUtc = stored.CreatedAtUtc,
+                        FinishedAtUtc = stored.FinishedAtUtc
+                    };
+
+                    var status = Enum.TryParse<SyncJobStatus>(stored.Status, true, out var parsed)
+                        ? parsed
+                        : SyncJobStatus.Completed;
+                    if (status is SyncJobStatus.Queued or SyncJobStatus.Running)
+                    {
+                        status = SyncJobStatus.Cancelled;
+                        job.Phase = "Cancelled";
+                        job.Outcome = "interrupted by a plugin restart";
+                        job.FinishedAtUtc ??= DateTime.UtcNow;
+                    }
+
+                    job.Status = status;
+                    if (_jobs.TryAdd(job.Id, job))
+                    {
+                        _historyOnlyJobs.Add(job.Id);
+                        restoredJobs++;
+                    }
+                }
+            }
+
+            if (restoredJobs > 0)
+            {
+                PluginLog.Info(BatchHistory.DescribeRestore(entries.Count, restoredJobs, path));
+            }
+        }
+        catch (Exception ex)
+        {
+            // A history that cannot be read is not worth a failed start-up.
+            _logger.LogDebug(ex, "Could not restore the batch history");
+        }
+    }
+
+    private List<BatchHistoryEntry> SnapshotBatchHistory()
+    {
+        var entries = new List<BatchHistoryEntry>();
+        foreach (var group in _jobs.Values.Where(j => !string.IsNullOrEmpty(j.BatchId)).GroupBy(j => j.BatchId!))
+        {
+            entries.Add(new BatchHistoryEntry
+            {
+                BatchId = group.Key,
+                Label = group.Select(j => j.BatchLabel).FirstOrDefault(l => !string.IsNullOrEmpty(l)),
+                CreatedUtc = group.Min(j => j.CreatedAtUtc),
+                Jobs = group.OrderBy(j => j.BatchIndex).Select(j => new BatchHistoryJob
+                {
+                    Id = j.Id,
+                    ItemId = j.ItemId,
+                    SubtitleIndex = j.SubtitleIndex,
+                    Mode = j.Mode,
+                    BatchId = j.BatchId,
+                    BatchIndex = j.BatchIndex,
+                    BatchLabel = j.BatchLabel,
+                    Label = j.Label,
+                    Status = j.Status.ToString(),
+                    Outcome = j.Outcome,
+                    OutputPath = j.OutputPath,
+                    Error = j.Error,
+                    ExtractionNote = j.ExtractionNote,
+                    Phase = j.Phase,
+                    Progress = j.Progress,
+                    CreatedAtUtc = j.CreatedAtUtc,
+                    FinishedAtUtc = j.FinishedAtUtc
+                }).ToList()
+            });
+        }
+
+        return entries;
+    }
+
+    // Called from the pump's tick. The cheap count signature decides whether anything changed at all,
+    // and a minute has to have passed since the last write, so a running batch costs one small write a
+    // minute rather than one per completed job.
+    private void MaybePersistBatchHistory()
+    {
+        var terminal = 0;
+        foreach (var job in _jobs.Values)
+        {
+            if (job.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled)
+            {
+                terminal++;
+            }
+        }
+
+        var signature = $"{_jobs.Count}|{terminal}";
+        if (signature == _historySignature
+            || DateTime.UtcNow - _historySavedUtc < TimeSpan.FromSeconds(60))
+        {
+            return;
+        }
+
+        _historySignature = signature;
+        _historySavedUtc = DateTime.UtcNow;
+        BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());
+    }
 
     // Called once per pump tick (about every 750 ms) and throttled to once a minute. The pump keeps
     // ticking while an engine run is silent, so a run reports even in the hour it spends inside one file.
@@ -2483,6 +2630,7 @@ public class SubSyncService : IDisposable
 
             LogWorkerLimit();
             MaybeLogProgress();
+            MaybePersistBatchHistory();
 
             lock (_queueLock)
             {
@@ -4874,6 +5022,9 @@ public class SubSyncService : IDisposable
     {
         _disposing = true;
 
+        // Last write wins on shutdown, so the history a restart comes back to is the one just left.
+        BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());
+
         // A pass in flight is reading the media share; shutdown must not wait for it.
         try { _laneStop.Cancel(); }
         catch (ObjectDisposedException) { /* already cancelled */ }
@@ -4914,6 +5065,7 @@ public class SubSyncService : IDisposable
 
             var cutoff = DateTime.UtcNow.AddHours(-1);
             var toRemove = _jobs
+                .Where(kvp => !_historyOnlyJobs.Contains(kvp.Key))
                 .Where(kvp => kvp.Value.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled)
                 .Where(kvp => kvp.Value.Status != SyncJobStatus.Completed ||
                               (kvp.Value.FinishedAtUtc is not null && kvp.Value.FinishedAtUtc < cutoff) ||
