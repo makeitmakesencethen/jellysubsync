@@ -682,7 +682,7 @@ with anything in it. Two holes: `WalkCapForProfile(null)` and `WalkCapOfPath(nul
 not be resolved) both returned "no ceiling". Fixed in 2.0.31 by treating an unmeasured volume, and an
 unidentifiable one, as **not known to be fast** - held at 2 until that volume's own reads say otherwise.
 
-### S32 - the ceiling's own log line cannot say which of two cases it is in (low, small)
+### S32 - the ceiling's own log line cannot say which of two cases it is in (low, small) - see `WALK_CEILING_GOAL_PROMPT.md`
 
 `walk ceiling: holding <volume> at 2 concurrent media read(s)` picks its wording from the *cap value*, and 2
 is both the unmeasured fallback and what a volume measured between 5 and 100 ms per read gets. On 2026-09-14
@@ -690,7 +690,7 @@ it printed "this volume has not been read yet" for a volume whose extraction pas
 read minutes earlier, so the line could not distinguish "nothing measured yet" from "measured slow". Fix: pass
 the measured value into the message. This is the one output S33 is diagnosed from, so it is worth having.
 
-### S33 - a fast volume's ceiling may never lift, because nothing feeds the profile (medium, correctness)
+### S33 - a fast volume's ceiling may never lift, because nothing feeds the profile (medium, correctness) - see `WALK_CEILING_GOAL_PROMPT.md`
 
 `VolumeProfiles` is fed only by reads made through `ReadPolicy` (`ReadPolicy.cs:466 _volume?.Observe`), and
 those come from the extraction path. Two consequences:
