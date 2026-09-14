@@ -552,6 +552,62 @@ server - a tmpfs volume as the fast one and the disk under the shim's prefix as 
 identity really differs; one mixed batch to show the fast volume's jobs are not throttled by the slow
 volume's cap and vice versa; the four-level curve re-confirmed for the slow volume alone; suite green.
 
+### Per-volume walk ceiling - BUILT 2026-09-14 (`WalkCapOf`), with the invariant reversal recorded
+
+**The new rule** (this replaces "the worker count is the only bound", which the checks used to enforce):
+a volume that nothing has measured, or that measures fast, has **no** ceiling and behaves exactly as it did
+before; a volume whose own reads have shown it storage-bound carries a ceiling of its own, and that ceiling
+counts **that volume alone** - jobs on other volumes are untouched by it.
+
+**Why the old rule was wrong** (recorded here because the original rule's own rationale was lost when this
+repo was imported at `71347e8` - nothing in the history said why the per-volume budget was removed, only
+that it must not come back):
+
+- measured on one share, one season, four levels, the same eight episodes, worker limit 1 / 2 / 4 / 8:
+  per file **22,2 / 48,9 / 94,1 / 421,3 s**, level wall **3,9 / 3,6 / 3,6 / 7,3 min**, aggregate
+  **122 / 135 / 133 / 66 files/h**. The volume delivered the same work per hour at 1, 2 and 4, and **half**
+  of it at 8, where a file that takes 22 s alone took 421 s. Eight walks on one volume is not parallelism.
+- a *global* cap would have fixed that and broken the case the old rule protected, which is why the ceiling
+  is per volume: a slow volume's number never touches another volume's jobs.
+
+**What was built** (`SubSyncService.cs`):
+
+- `WavePolicy.HeavyInUseByVolume` - media reads already running per volume, computed in `PlanStart` from the
+  running jobs, their `volumeOf` and `isHeavyIo`. No new accounting and no second pool: the ceiling is a pure
+  function of data the wave selector already holds.
+- `WavePolicy.WalkCapOf` - the ceiling for a candidate's volume. Null or `int.MaxValue` means none, which is
+  what every unmeasured and every fast volume gets.
+- `SelectWave` asks `HasRoomOnItsVolume` in **both** passes (spread and fill) and counts a claim with
+  `ClaimHeavy`, so raising the worker count cannot walk past a volume's ceiling.
+- `WalkCapForProfile(double? msPerCall)`: nothing measured -> no ceiling; `>= 5` ms per read -> 2;
+  `>= 100` ms per read -> 1. 5 ms is a wide margin above the class default a read policy starts from
+  (0,05 ms) and far below this share (13-46 ms at rest); 100 ms is the bottom of what the share shows while
+  thrashing (1419-1613 ms per read observed). The thresholds are data-derived, not tuned by feel, and the
+  mapping is unit-checked at each of those numbers.
+- `WalkCapOfPath(path)` reads `VolumeProfiles.For(path).MsPerCall()` - R1's per-volume profile, which is what
+  the cherry-pick of `9e53170` is here for. Its read-merging premise stays refuted (E5); its measurements now
+  have a purpose.
+
+**Invariant rewritten, not gamed.** The three "never throttled" checks and the reflection check
+(`WavePolicy has no per-volume budget`) are gone; behavioural checks replace them, including the two that
+matter most: "four heavy tasks on an unmeasured volume fill the wave" (unchanged behaviour for everyone not
+storage-bound) and "a slow volume's ceiling does not throttle a fast volume's jobs" (the property that makes
+the ceiling safe). Renaming a property to slip past the old reflection check was not an option.
+
+**Before/after:** suite 542 PASS / 0 FAIL before (`ab7c296`, cherry-pick only) -> **554 PASS / 0 FAIL** after,
++12 checks. Policy-level before/after on the same queue of five heavy jobs: an unmeasured volume still fills
+4 of 4 (as it always did); a volume measuring 20 ms per read now takes **2**, and one measuring over 100 ms
+takes **1**.
+
+**Verification status.** Done: the policy checks above, deterministic and I/O-free, plus the profile->
+ceiling mapping fed real latencies. **Not done: the end-to-end mixed-volume run.** The plan was a synthetic
+slow volume via `slowread.so` plus a fast one, but the shim only slows processes we launch ourselves - it
+cannot be injected into the running Jellyfin process, and throttling a device needs privileges this host does
+not have. What replaces it for now is the in-process check that a volume whose profile has measured 20 ms per
+read maps to a ceiling of 2 while another volume's jobs keep the full worker count. The real mixed case - this
+user's own server, local `/Media` against `/media/synology` - is the test that settles it, and it needs the
+new build running there (a dev build, not a release).
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
