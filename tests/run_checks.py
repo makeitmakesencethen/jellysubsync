@@ -1554,6 +1554,44 @@ var eightWave = SubSyncService.SelectWave(twentyEpisodes, "ultimate", "series", 
 });
 Check("eight workers means eight jobs in flight", eightWave.Count == 8, "got " + eightWave.Count);
 
+// ---------------- S27: the engine says it is still running ----------------
+// Driven against the real heartbeat and the real plugin log, not a mock: S27 is about the line landing
+// in the file the plugin writes while an engine runs, and stopping with it. Before this change the log
+// carried a start line and an exit line and nothing in between, so a slow run and a wedged one read
+// identically - see the 91-minute run of 2026-09-14.
+var heartbeatProbe = "s27-heartbeat-probe";
+var heartbeatLog = Path.Combine(Path.GetTempPath(), "subsync-logs", "subsync.log");
+string[] HeartbeatLines() => File.Exists(heartbeatLog)
+    ? File.ReadAllLines(heartbeatLog).Where(l => l.Contains(heartbeatProbe)).ToArray()
+    : Array.Empty<string>();
+
+using (var heartbeat = new EngineHeartbeat(
+    new EngineWatch(heartbeatProbe, "Example Film (2019).mkv", "a:0"), TimeSpan.FromMilliseconds(250)))
+{
+    await Task.Delay(800);
+}
+
+var heartbeatLines = HeartbeatLines();
+Check("a running engine says so in the plugin's own log (S27)", heartbeatLines.Length >= 2,
+    heartbeatLines.Length + " line(s)");
+Check("the heartbeat line names the file, the elapsed time and the reference",
+    heartbeatLines.Length > 0
+    && heartbeatLines[^1].Contains("Example Film (2019).mkv")
+    && heartbeatLines[^1].Contains("engine running")
+    && heartbeatLines[^1].Contains("min elapsed")
+    && heartbeatLines[^1].Contains("reference=a:0"),
+    heartbeatLines.Length > 0 ? heartbeatLines[^1] : "none");
+var heartbeatCount = heartbeatLines.Length;
+await Task.Delay(500);
+Check("the heartbeat stops when the process it describes is gone",
+    HeartbeatLines().Length == heartbeatCount,
+    HeartbeatLines().Length + " vs " + heartbeatCount);
+Console.WriteLine("---- S27 sample: what the plugin log carries while an engine runs ----");
+foreach (var line in heartbeatLines.TakeLast(3))
+{
+    Console.WriteLine("   " + line);
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -2279,6 +2317,20 @@ def run_page_checks():
            'LooksLikeSignsTrack(reuseCues' in service
            and 'falling back to the audio for this job' in service
            and 'ReferenceStore.Discard' in service and 'public static void Discard' in store)
+    # S27: visibility for a long engine run - and nothing else. The heartbeat must write to the
+    # plugin's own log (not only Jellyfin's), be driven by the process's own lifetime, and add no
+    # deadline or kill: a feature film with an audio reference legitimately takes an hour.
+    heartbeat_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                         'EngineHeartbeat.cs'), encoding='utf-8').read()
+    report('a long engine run says it is still running, in the plugin log (S27)',
+           'public static string Describe(' in heartbeat_source
+           and 'PluginLog.Info(Describe(' in heartbeat_source
+           and 'TimeSpan.FromMinutes(5)' in heartbeat_source
+           and 'new EngineHeartbeat(watch)' in service
+           and 'Path.GetFileName(videoPath), referenceStream' in service
+           and 'CancelAfter' not in heartbeat_source
+           and 'Kill' not in heartbeat_source)
+
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
 

@@ -3856,19 +3856,20 @@ public class SubSyncService : IDisposable
                 line =>
                 {
                     ParseFfSubSyncStderr(line, job);
-                    lock (engineErrors)
-                    {
-                        if (!string.IsNullOrWhiteSpace(line))
+                        lock (engineErrors)
                         {
-                            engineErrors.Add(line.Trim());
-                            if (engineErrors.Count > 6)
+                            if (!string.IsNullOrWhiteSpace(line))
                             {
-                                engineErrors.RemoveAt(0);
+                                engineErrors.Add(line.Trim());
+                                if (engineErrors.Count > 6)
+                                {
+                                    engineErrors.RemoveAt(0);
+                                }
                             }
                         }
-                    }
-                },
-                cancellationToken).ConfigureAwait(false);
+                    },
+                cancellationToken,
+                new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
             engineWatch.Stop();
             PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
 
@@ -3911,7 +3912,8 @@ public class SubSyncService : IDisposable
                             }
                         }
                     },
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
                 PluginLog.Info($"[{job.Id}] ffsubsync retry exit={exitCode}");
             }
 
@@ -4042,7 +4044,8 @@ public class SubSyncService : IDisposable
                 var audioArgs = BuildFfSubSyncArgs(
                     config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null);
                 var audioExit = await RunProcessWithStderrCallbackAsync(
-                    ffsubsyncExe, audioArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
+                    ffsubsyncExe, audioArgs, tempDir, null, cancellationToken,
+                    new EngineWatch(job.Id, Path.GetFileName(videoPath), "audio")).ConfigureAwait(false);
 
                 if (audioExit == 0 && File.Exists(tempOutput))
                 {
@@ -4131,7 +4134,8 @@ public class SubSyncService : IDisposable
                             }
                         }
                     },
-                    cancellationToken).ConfigureAwait(false);
+                    cancellationToken,
+                    new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
 
                 var wideChange = wideExit == 0 && File.Exists(wideOutput)
                     ? MeasureSyncChange(engineInput, wideOutput)
@@ -4158,7 +4162,8 @@ public class SubSyncService : IDisposable
                     verifyArgs.Remove("--gss");
 
                     var verifyExit = await RunProcessWithStderrCallbackAsync(
-                        ffsubsyncExe, verifyArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
+                        ffsubsyncExe, verifyArgs, tempDir, null, cancellationToken,
+                        new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
                     var residual = verifyExit == 0 && File.Exists(verifyOutput)
                         ? MeasureSyncChange(wideOutput, verifyOutput)
                         : null;
@@ -5847,9 +5852,11 @@ public class SubSyncService : IDisposable
         return (null, true, originalInput);
     }
 
+    // watch (optional): when set, a heartbeat line is written to the plugin's own log every few minutes
+    // for as long as the process runs (S27). Visibility only - no deadline and no kill is added by it.
     private async Task<int> RunProcessWithStderrCallbackAsync(
         string executable, IReadOnlyList<string> arguments, string? workingDir,
-        Action<string>? onStderrLine, CancellationToken cancellationToken)
+        Action<string>? onStderrLine, CancellationToken cancellationToken, EngineWatch? watch = null)
     {
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
@@ -5878,6 +5885,10 @@ public class SubSyncService : IDisposable
 
         process.Start();
         _liveProcesses[process.Id] = process;
+
+        // S27: while this process runs, say so in the plugin's own log. Started once the process is
+        // live and disposed when it exits, so no line can ever describe a process that is already gone.
+        using var heartbeat = watch is null ? null : new EngineHeartbeat(watch);
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
