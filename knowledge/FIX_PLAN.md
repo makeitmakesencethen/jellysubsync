@@ -500,6 +500,39 @@ needed from it.
   cold start, oscillation) for little over the threshold, which already reads the same volume's measured
   latency, i.e. it *is* adaptive to degradation. Not recommended for the first cut.
 
+**Blocker found while scoping: the repo has a deliberate invariant *against* a per-volume cap.**
+`tests/run_checks.py` asserts, in three places plus a reflection check, that a volume may express a
+*preference* but never a limit:
+
+- "Heavy work is no longer throttled per volume: with four workers, four heavy first-time reads on one
+  shared disk all enter the same wave" - `Check("heavy work on one disk is not throttled", heavyWave.Count == 3)`.
+- "a wave must still fill up to the worker count, with no storage throttling" -
+  `Check("four heavy tasks on one volume fill the wave", full.Count == 4)`, and
+  `Check("worker count is the only bound (2 requested -> 2 in flight)", twoWorkers.Count == 2)`.
+- "There is no per-volume budget left on the policy type: volume information may only express a preference
+  (VolumeOf), never a cap on how many jobs a volume contributes" - enforced by reflection,
+  `Check("WavePolicy has no per-volume budget", !typeof(WavePolicy).GetProperties().Any(p => p.Name.Contains("PerVolume") || p.Name.Contains("Budget")))`.
+
+The reason the budget was removed is **not in this repo's history** - `git log -S` resolves only to
+`71347e8`, the initial import that already carries the new wording - so the original measurement behind it
+cannot be cited. What the checks state is the intent: *the worker count is the only bound, never storage*.
+That intent is exactly what this night's measurement contradicts on a storage-bound volume: at limit 8 the
+share delivered 65,6 files/h against 122-135 at limits 1-4, with per-file time 19x worse (421 s vs 22 s).
+The rule was evidently set when a bound was assumed harmless, and the check "four heavy tasks on one volume
+fill the wave" describes the behaviour we have now measured as harmful on the NAS and correct on an SSD.
+
+So this is not only a code cost: **it reverses a deliberate invariant and needs an explicit decision.**
+The design happens to answer the original objection (a per-volume cap cannot starve workers the way a
+global one does, because other volumes keep working), and the tiered cap keeps the invariant for fast and
+unknown volumes, which is what "no volume information still runs at full width" requires. But three checks
+have to be rewritten and the reflection check replaced with one asserting the new rule - renaming a
+property to slip past it would be gaming the check, not honouring it.
+
+**Revised scope estimate, with that in mind:** the mechanism stays **~100-180 lines** (up from 80-150:
+the wave-policy change plus the invariant rewrite) plus the single-commit cherry-pick of `9e53170`, plus
+**10-15 checks touched** (3-4 rewritten, 1 replaced). Still roughly 2-3x the global cap, not an order of
+magnitude - the decision, not the line count, is the real cost.
+
 **Scope estimate** (before building):
 - identity + "will walk" predicate + the running-job data: **already there, no work**.
 - `WavePolicy`: per-volume load dict + per-volume cap dict, `SelectWave` skips a heavy candidate whose
