@@ -1525,9 +1525,9 @@ public class SubSyncService : IDisposable
 
         /// <summary>
         /// Gets or sets a predicate saying whether a job needs the file's speech analysis
-        /// built (embedded extraction or an uncached audio pass). Used only to decide whether
-        /// a second job may join the wave for the same file — storage scheduling itself is
-        /// left to the OS, which sees the real device queue.
+        /// built (embedded extraction or an uncached audio pass). Used to decide whether a second job
+        /// may join the wave for the same file, and - with <see cref="WalkCapOf"/> - to count how many
+        /// such jobs a storage-bound volume is already carrying.
         /// </summary>
         public Func<SyncJob, bool>? IsHeavyIo { get; set; }
 
@@ -1550,6 +1550,20 @@ public class SubSyncService : IDisposable
         /// starting a second read of the same file.
         /// </summary>
         public IReadOnlyCollection<Guid>? InUseItemIds { get; set; }
+
+        /// <summary>
+        /// Gets or sets how many media-reading jobs are already running per volume, so a volume that has
+        /// measured itself slow can be held below its own ceiling. Null means nothing is running.
+        /// </summary>
+        public IReadOnlyDictionary<string, int>? HeavyInUseByVolume { get; set; }
+
+        /// <summary>
+        /// Gets or sets the ceiling on media-reading jobs for a job's volume, as that volume measured
+        /// itself. Null or <see cref="int.MaxValue"/> means no ceiling: a volume nothing has measured, or
+        /// one that measures fast, runs exactly as it did before this existed. Only a volume whose own
+        /// reads have shown it storage-bound is held below the worker count.
+        /// </summary>
+        public Func<SyncJob, int>? WalkCapOf { get; set; }
     }
 
     /// <summary>
@@ -2208,6 +2222,7 @@ public class SubSyncService : IDisposable
         var usedVolumes = new HashSet<string>(
             policy.InUseVolumes ?? Array.Empty<string>(),
             StringComparer.Ordinal);
+        var heavyInWave = new Dictionary<string, int>(StringComparer.Ordinal);
 
         foreach (var candidate in candidates)
         {
@@ -2227,8 +2242,14 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
+            if (!HasRoomOnItsVolume(candidate, policy, heavyInWave))
+            {
+                continue;
+            }
+
             usedVolumes.Add(volume);
             taken.Add(candidate.Id);
+            ClaimHeavy(candidate, policy, heavyInWave);
             wave.Add(candidate);
         }
 
@@ -2250,6 +2271,12 @@ public class SubSyncService : IDisposable
                 continue;
             }
 
+            if (!HasRoomOnItsVolume(candidate, policy, heavyInWave))
+            {
+                continue;
+            }
+
+            ClaimHeavy(candidate, policy, heavyInWave);
             wave.Add(candidate);
         }
 
@@ -2441,6 +2468,7 @@ public class SubSyncService : IDisposable
     /// Whether a job may start at all, asked about every candidate. The plugin passes "this job's
     /// subtitle is already extracted"; null means anything may start.
     /// </param>
+    /// <param name="walkCapOf">Ceiling on media-reading jobs for a job's volume, or null for none.</param>
     /// <returns>The jobs to start, in queue order (empty when every slot is busy).</returns>
     public static List<SyncJob> PlanStart(
         IEnumerable<SyncJob> queuedInOrder,
@@ -2451,7 +2479,8 @@ public class SubSyncService : IDisposable
         Func<SyncJob, string> volumeOf,
         Func<SyncJob, bool> isHeavyIo,
         Func<SyncJob, bool> canShareMediaFile,
-        Func<SyncJob, bool>? mayStart = null)
+        Func<SyncJob, bool>? mayStart = null,
+        Func<SyncJob, int>? walkCapOf = null)
     {
         var slots = limit - running.Count;
         if (slots <= 0)
@@ -2461,6 +2490,18 @@ public class SubSyncService : IDisposable
 
         var runningVolumes = running.Select(volumeOf).ToList();
         var runningItems = running.Select(j => j.ItemId).ToList();
+        var heavyByVolume = new Dictionary<string, int>(StringComparer.Ordinal);
+        foreach (var job in running)
+        {
+            if (!isHeavyIo(job))
+            {
+                continue;
+            }
+
+            var key = volumeOf(job);
+            heavyByVolume[key] = (heavyByVolume.TryGetValue(key, out var n) ? n : 0) + 1;
+        }
+
 
         return SelectWave(
             queuedInOrder,
@@ -2474,8 +2515,60 @@ public class SubSyncService : IDisposable
                 InUseItemIds = runningItems,
                 IsHeavyIo = isHeavyIo,
                 CanShareMediaFile = canShareMediaFile,
-                MayStart = mayStart
+                MayStart = mayStart,
+                HeavyInUseByVolume = heavyByVolume,
+                WalkCapOf = walkCapOf
             });
+    }
+
+    /// <summary>
+    /// Says whether a media-reading candidate may join the wave without exceeding its volume's ceiling.
+    /// A volume nothing has measured has no ceiling, which is the case for every setup this plugin runs on
+    /// today; only a volume whose own reads have shown it storage-bound is held below the worker count, and
+    /// that ceiling counts that volume alone, so jobs on other volumes are untouched by it.
+    /// </summary>
+    /// <param name="candidate">Job under consideration.</param>
+    /// <param name="policy">Scheduling policy, whose <see cref="WavePolicy.WalkCapOf"/> sets the ceiling.</param>
+    /// <param name="heavyInWave">Media reads this wave has already claimed, per volume.</param>
+    /// <returns>True when the volume has room for this read.</returns>
+    private static bool HasRoomOnItsVolume(
+        SyncJob candidate, WavePolicy policy, Dictionary<string, int> heavyInWave)
+    {
+        if (policy.IsHeavyIo?.Invoke(candidate) != true)
+        {
+            return true; // not a media read: the worker count remains its only bound
+        }
+
+        var cap = policy.WalkCapOf?.Invoke(candidate) ?? int.MaxValue;
+        if (cap >= int.MaxValue)
+        {
+            return true;
+        }
+
+        if (cap <= 0)
+        {
+            return false;
+        }
+
+        var volume = policy.VolumeOf?.Invoke(candidate) ?? "unknown";
+        var running = policy.HeavyInUseByVolume is not null
+            && policy.HeavyInUseByVolume.TryGetValue(volume, out var inUse)
+                ? inUse
+                : 0;
+        heavyInWave.TryGetValue(volume, out var inWave);
+        return running + inWave < cap;
+    }
+
+    /// <summary>Counts a candidate that joined the wave against its volume's ceiling.</summary>
+    private static void ClaimHeavy(SyncJob candidate, WavePolicy policy, Dictionary<string, int> heavyInWave)
+    {
+        if (policy.IsHeavyIo?.Invoke(candidate) != true)
+        {
+            return;
+        }
+
+        var volume = policy.VolumeOf?.Invoke(candidate) ?? "unknown";
+        heavyInWave[volume] = (heavyInWave.TryGetValue(volume, out var n) ? n : 0) + 1;
     }
 
     /// <summary>
@@ -2532,6 +2625,45 @@ public class SubSyncService : IDisposable
     private static bool IsParallelMode(string mode) => SyncJobMode.IsParallel(mode);
 
     private static bool IsSpeechCachingMode(string mode) => SyncJobMode.UsesSpeechCache(mode);
+
+    /// <summary>
+    /// Reads per call above which a volume is treated as storage-bound rather than fast. A wide margin
+    /// above the class default a read policy starts from (0,05 ms per call) and far below fabji's share,
+    /// which measures 13-46 ms per call at rest.
+    /// </summary>
+    public const double SlowReadMsPerCall = 5.0;
+
+    /// <summary>
+    /// Reads per call above which even two concurrent walks are too many for a volume - the bottom of what
+    /// that share shows when it is thrashing (1419-1613 ms per call observed while eight walks ran).
+    /// </summary>
+    public const double ThrashingReadMsPerCall = 100.0;
+
+    /// <summary>
+    /// The ceiling on concurrent media-reading jobs for the volume a path lives on, from what that volume's
+    /// own reads have measured. Nothing measured, or a fast volume, means no ceiling at all - which is the
+    /// behaviour every setup that is not storage-bound keeps.
+    /// </summary>
+    public static int WalkCapOfPath(string? path)
+        => string.IsNullOrWhiteSpace(path)
+            ? int.MaxValue
+            : WalkCapForProfile(Services.VolumeProfiles.For(path).MsPerCall());
+
+    /// <summary>Maps a measured cost per read onto that volume's walk ceiling.</summary>
+    public static int WalkCapForProfile(double? msPerCall)
+    {
+        if (msPerCall is null)
+        {
+            return int.MaxValue;
+        }
+
+        if (msPerCall.Value >= ThrashingReadMsPerCall)
+        {
+            return 1;
+        }
+
+        return msPerCall.Value >= SlowReadMsPerCall ? 2 : int.MaxValue;
+    }
 
     /// <summary>
     /// Upper bound for <see cref="Configuration.PluginConfiguration.ParallelWorkers"/>.
@@ -2699,7 +2831,9 @@ public class SubSyncService : IDisposable
                         // MayStart: the same, plus the escape hatch for a lane that is gone.
                         job => ExtractionReady(job)
                             || (!LaneAlive
-                                && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)));
+                                && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)),
+                        walkCapOf: job => WalkCapOfPath(
+                            _jobContexts.TryGetValue(job.Id, out var capCtx) ? capCtx.Video.Path : null));
                 }
             }
 

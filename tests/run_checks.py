@@ -361,7 +361,28 @@ Check("a sharing policy also beats the spreading pass",
     sameFileWave.Count(j => j.ItemId == volA1) == 2, "volA1 count " + sameFileWave.Count(j => j.ItemId == volA1));
 Check("the other disk still joins the wave", sameFileWave.Any(j => j.ItemId == volB1));
 
-// ---------------- Waves are bounded by the worker count alone ----------------
+// ---------------- Walk ceilings: bounded by the worker count, unless a volume measures slow ----------------
+//
+// This block used to assert the opposite - "volume information may only express a preference (VolumeOf),
+// never a cap on how many jobs a volume contributes", enforced by a reflection check that no such property
+// existed. That invariant was reversed deliberately on 2026-09-14, because the rule it encoded was measured
+// wrong on a storage-bound volume, and the cap it forbade is the one thing that protects such a volume:
+//
+//   one share, one season, four levels, the same eight episodes, worker limit 1 / 2 / 4 / 8:
+//     per file  22,2 / 48,9 / 94,1 / 421,3 s     level wall  3,9 / 3,6 / 3,6 / 7,3 min
+//     aggregate  122 / 135 / 133 / 66 files/h
+//   The volume delivered the same work per hour at 1, 2 and 4, and HALF of it at 8, where a file that
+//   takes 22 s alone took 421 s. Eight walks on one volume is not parallelism; it is a queue whose first
+//   file takes six minutes to answer.
+//
+// The rule that replaces it, and that these checks assert:
+//
+//   a volume that nothing has measured, or that measures fast, has NO ceiling and behaves exactly as it
+//   did before this existed; a volume whose own reads have shown it storage-bound carries a ceiling of its
+//   own, and that ceiling counts that volume alone - jobs on other volumes are untouched by it.
+//
+// The second half is what keeps the old rule's concern answered: a slow volume's ceiling cannot slow a
+// batch down, because it never touches another volume's jobs.
 var wideQueue = new List<SyncJob>
 {
     new SyncJob { Id = Guid.NewGuid().ToString("N"), BatchId = "b", BatchIndex = 0, ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued },
@@ -371,30 +392,139 @@ var wideQueue = new List<SyncJob>
     new SyncJob { Id = Guid.NewGuid().ToString("N"), BatchId = "b", BatchIndex = 4, ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued }
 };
 
-// Every one of these is a heavy first-time read and they all live on the same volume:
-// a wave must still fill up to the worker count, with no storage throttling.
-var full = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+// Unmeasured: exactly the old behaviour, the wave fills to the worker count.
+var uncapped = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
-    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
 });
-Check("four heavy tasks on one volume fill the wave", full.Count == 4, "got " + full.Count);
+Check("four heavy tasks on an unmeasured volume fill the wave", uncapped.Count == 4, "got " + uncapped.Count);
 Check("the wave takes the first queued tasks in order",
-    full.Select(j => j.BatchIndex).SequenceEqual(new[] { 0, 1, 2, 3 }),
-    "got " + string.Join(",", full.Select(j => j.BatchIndex)));
+    uncapped.Select(j => j.BatchIndex).SequenceEqual(new[] { 0, 1, 2, 3 }),
+    "got " + string.Join(",", uncapped.Select(j => j.BatchIndex)));
+
+// A volume the profile measures as fast says so explicitly, and no ceiling applies.
+var fastVolume = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nvme/data",
+    WalkCapOf = _ => SubSyncService.WalkCapForProfile(0.05),
+});
+Check("a volume that measures fast is not capped", fastVolume.Count == 4, "got " + fastVolume.Count);
 
 var twoWorkers = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
-    Limit = 2, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
+    Limit = 2, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
 });
-Check("worker count is the only bound (2 requested -> 2 in flight)", twoWorkers.Count == 2, "got " + twoWorkers.Count);
+Check("worker count is the only bound for uncapped work (2 requested -> 2 in flight)",
+    twoWorkers.Count == 2, "got " + twoWorkers.Count);
 
-// There is no per-volume budget left on the policy type: volume information may only
-// express a preference (VolumeOf), never a cap on how many jobs a volume contributes.
-Check("WavePolicy has no per-volume budget",
-    !typeof(SubSyncService.WavePolicy).GetProperties().Any(p =>
-        p.Name.Contains("PerVolume", StringComparison.OrdinalIgnoreCase)
-        || p.Name.Contains("Budget", StringComparison.OrdinalIgnoreCase)),
-    string.Join(",", typeof(SubSyncService.WavePolicy).GetProperties().Select(p => p.Name)));
+// Measured storage-bound: it carries a ceiling of 2, or 1 while it is thrashing.
+var cappedTwo = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
+    WalkCapOf = _ => 2,
+});
+Check("a storage-bound volume is held to its own ceiling (2 of 5 queued)",
+    cappedTwo.Count == 2, "got " + cappedTwo.Count);
+
+var cappedOne = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
+    WalkCapOf = _ => 1,
+});
+Check("a thrashing volume is held to one walk at a time", cappedOne.Count == 1, "got " + cappedOne.Count);
+
+// The ceiling counts ONE volume. This is the property the old invariant protected, and the one that makes
+// the ceiling safe: a slow volume's number never touches a fast volume's jobs, and vice versa.
+var mixedVolumes = new Dictionary<Guid, string>();
+var mixedQueue = new List<SyncJob>();
+foreach (var (vol, count) in new[] { ("//nas/share", 3), ("//nvme/data", 3) })
+{
+    for (var k = 0; k < count; k++)
+    {
+        var job = new SyncJob
+        {
+            Id = Guid.NewGuid().ToString("N"), BatchId = "b", BatchIndex = mixedQueue.Count,
+            ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued
+        };
+        mixedVolumes[job.ItemId] = vol;
+        mixedQueue.Add(job);
+    }
+}
+
+var mixedWave = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
+    VolumeOf = j => mixedVolumes[j.ItemId],
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 2 : int.MaxValue,
+});
+var slowInWave = mixedWave.Count(j => mixedVolumes[j.ItemId] == "//nas/share");
+var fastInWave = mixedWave.Count(j => mixedVolumes[j.ItemId] == "//nvme/data");
+Check("a slow volume's ceiling does not throttle a fast volume's jobs",
+    slowInWave == 2 && fastInWave == 2,
+    $"slow {slowInWave} (ceiling 2), fast {fastInWave} of 4 slots");
+
+var mixedTight = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
+    VolumeOf = j => mixedVolumes[j.ItemId],
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 1 : int.MaxValue,
+});
+Check("a ceiling of 1 costs the slow volume one slot, not the fast volume's three",
+    mixedTight.Count(j => mixedVolumes[j.ItemId] == "//nas/share") == 1
+    && mixedTight.Count(j => mixedVolumes[j.ItemId] == "//nvme/data") == 3,
+    string.Join(",", mixedTight.Select(j => mixedVolumes[j.ItemId])));
+
+// Walks already running count against the ceiling, so raising the worker count cannot walk past it.
+var busySlow = new Dictionary<string, int> { ["//nas/share"] = 2 };
+var busyWave = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
+    VolumeOf = j => mixedVolumes[j.ItemId],
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 2 : int.MaxValue,
+    HeavyInUseByVolume = busySlow,
+});
+Check("a volume already at its ceiling starts no more walks on it",
+    busyWave.Count(j => mixedVolumes[j.ItemId] == "//nas/share") == 0
+    && busyWave.Count(j => mixedVolumes[j.ItemId] == "//nvme/data") == 3,
+    string.Join(",", busyWave.Select(j => mixedVolumes[j.ItemId])));
+
+// Only media reads are bounded: extraction-only work keeps the full worker count.
+var lightWave = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+{
+    Limit = 4, IsHeavyIo = _ => false, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
+    WalkCapOf = _ => 1,
+});
+Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + lightWave.Count);
+
+// The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
+Check("nothing measured means no ceiling", SubSyncService.WalkCapForProfile(null) == int.MaxValue,
+    "got " + SubSyncService.WalkCapForProfile(null));
+Check("the class default a read policy starts from is uncapped",
+    SubSyncService.WalkCapForProfile(0.05) == int.MaxValue,
+    "got " + SubSyncService.WalkCapForProfile(0.05));
+Check("fabji's share at rest (13-46 ms per read) is capped at 2",
+    SubSyncService.WalkCapForProfile(13) == 2 && SubSyncService.WalkCapForProfile(46) == 2,
+    $"13 ms -> {SubSyncService.WalkCapForProfile(13)}, 46 ms -> {SubSyncService.WalkCapForProfile(46)}");
+Check("the same share thrashing (1419-1613 ms per read) is held to 1",
+    SubSyncService.WalkCapForProfile(1419) == 1 && SubSyncService.WalkCapForProfile(1613) == 1,
+    $"1419 ms -> {SubSyncService.WalkCapForProfile(1419)}");
+Check("a path with no volume reported is uncapped",
+    SubSyncService.WalkCapOfPath(null) == int.MaxValue && SubSyncService.WalkCapOfPath("") == int.MaxValue,
+    "got " + SubSyncService.WalkCapOfPath(null));
+
+// End to end: the profile's own arithmetic, fed the share's latencies, produces the ceiling.
+{
+    var capClock = new DateTimeOffset(2026, 9, 14, 12, 0, 0, TimeSpan.Zero);
+    var nasProfile = new VolumeProfile("//nas/share", () => capClock);
+    for (var i = 0; i < 20; i++)
+    {
+        nasProfile.Observe(2048, 20 + (i % 3));
+    }
+
+    Check("a profile fed this share's latencies maps to a ceiling of 2",
+        SubSyncService.WalkCapForProfile(nasProfile.MsPerCall()) == 2,
+        $"{nasProfile.MsPerCall():0.00} ms per read");
+}
 
 Console.WriteLine();
 // ---------------- The per-volume storage profile ----------------
