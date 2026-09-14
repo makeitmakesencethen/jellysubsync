@@ -706,22 +706,49 @@ same situation. Four checks pin it: the two cap-of-2 cases produce different rea
 says nothing has measured the volume, and the measured reasons quote their number and unit. Suite: 563 checks
 green. Commit `9671209`.
 
-### S33 - a fast volume's ceiling may never lift, because nothing feeds the profile (medium, correctness) - see `WALK_CEILING_GOAL_PROMPT.md`
+### S33 - a fast volume's ceiling could never lift, because nothing fed the profile (done in code and checks)
 
-`VolumeProfiles` is fed only by reads made through `ReadPolicy` (`ReadPolicy.cs:466 _volume?.Observe`), and
-those come from the extraction path. Two consequences:
+`VolumeProfiles` was fed only by reads made through `ReadPolicy`, and reads only happen when the extraction
+path reads. On a run whose extractions were all served from the subtitle cache there are no reads at all, so a
+volume could keep the conservative cap of 2 for ever - on fast storage as well. The reads that actually cost
+the time were invisible too: ffsubsync runs as a child process.
 
-- when a run's extraction is served from the **subtitle cache** (`extract: method=cache ... no read: this file's
-  subtitle was extracted on an earlier run`), no reads happen, so the volume keeps no samples and the
-  conservative cap of 2 sticks - on a *fast* volume too, which is a throughput regression the ceiling was never
-  meant to introduce;
-- the **walk's own reads are invisible**: ffsubsync runs as a child process, so the tens of thousands of reads
-  that actually cost the time are never measured by the plugin's read path.
+Fixed by giving the profile a second source of truth, **the walk itself**. The plugin knows the file's length
+and how long the engine took over it, so a volume can be measured with nothing read to measure it:
 
-The 2.0.31 run's hold line said "has not been read yet" once a minute for the whole run, which is consistent
-with either case (see S32). Needs the measurement surfaced first (S32), then a decision: feed the profile from
-the walk (even approximately, e.g. duration and bytes read) or treat "no samples after N walks" as fast rather
-than as unmeasured.
+- `VolumeProfile.ObserveWalk(bytes, ms)` records the walk, in a list of its own. Kept apart from the read
+  samples on purpose: a read sample describes a read call (32 KB in 20 ms is a latency measurement, not a
+  statement about transfer rate), and letting a walk's aggregate pose as one read's cost would drive
+  `MsPerCall` from milliseconds to minutes. `WalkBytesPerMs()` reports it, byte-weighted and with the slowest
+  fifth dropped, exactly like the read-side throughput.
+- `WalkCapForProfile(msPerCall, walkBytesPerMs)` takes the **more conservative** of the two signals - either
+  one saying "storage-bound" is enough to hold the volume - and names in its reason which measurement decided.
+- Thresholds are data-derived: the walk side uses 20 MB/s (local disk walked a 2,4 GB file in 17 s = 137 MB/s)
+  and 1 MB/s (nothing measured has come near it, so it is a floor), against the read side's existing 5 and
+  100 ms per read. The share's walks measure 2,6-3,5 MB/s, comfortably inside the 2-20 MB/s band that caps at 2.
+- The feed happens where the walk is over (`ffsubsync exit=… after … ms`), only when the run used the audio as
+  its reference - a subtitle-ruled run never reads the media, so its duration says nothing about the volume.
+  It logs what it measured: `this walk moved 1876,4 MB of <path> in 402,0 s = 4,7 MB/s - the ceiling for that
+  volume is 2 (this volume's last walk moved 4,7 MB/s, which is storage-bound)`.
+- An unmeasured volume keeps the conservative cap of 2: the hole 2.0.30 shipped is not reopened, it is only
+  closed on the other side, so a fast volume leaves it as soon as its own walk has finished.
+
+Verified in the suite (577 checks green, commit `d8f42a7`): a walk-only volume measured fast keeps no
+ceiling; the same volume at the share's rate is held at 2; one whose walk barely moves is held at 1; reads fast
+with a slow walk and reads slow with a fast walk both hold at 2; with neither signal the volume stays at 2; and
+end to end through `PlanStart` on a device of its own (`/dev/shm`), eight heavy jobs on an unmeasured volume
+start **2**, and after the walk the same eight start **all eight** ("this volume's last walk moved 141,2 MB/s,
+which is fast").
+
+**Pitfall found while writing those checks:** `VolumeProfiles` keys a profile by *device*, not by path, so
+every temp path on one filesystem shares a single profile. The first version of these checks contaminated each
+other through it and failed for the wrong reason. Checks that need a volume of their own must go through the
+mapping directly, or use `/dev/shm`.
+
+**Field run still owed** (the goal's criterion): (a) the new line must name the throughput; (b) on the share,
+max concurrent audio walks must stay <= 2; (c) on a **local** volume, more than 2 concurrent walks once that
+volume has been walked - the case that has never been measured. Clear the speech cache before a season test,
+or the walks are skipped and the run proves nothing.
 
 ### S34 - the only way to force re-analysis is an API call (low)
 

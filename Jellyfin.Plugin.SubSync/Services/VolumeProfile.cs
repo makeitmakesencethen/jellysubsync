@@ -56,6 +56,7 @@ public sealed class VolumeProfile
 
     private readonly object _gate = new();
     private readonly List<Sample> _samples = new();
+    private readonly List<Sample> _walks = new();
     private readonly Func<DateTimeOffset> _clock;
 
     /// <summary>Initializes a new instance of the <see cref="VolumeProfile"/> class.</summary>
@@ -124,6 +125,76 @@ public sealed class VolumeProfile
         }
 
         return WeightedMedian(weighted);
+    }
+
+    /// <summary>
+    /// Records what one *walk* of a file on this volume cost and carried: the plugin knows the file's length
+    /// and how long the engine took over it, so a volume can be measured without taking any read to measure it.
+    /// </summary>
+    /// <remarks>
+    /// Kept apart from the read samples on purpose. A read sample describes a read call - 32 KB in 20 ms is a
+    /// latency measurement, not a statement about the storage's transfer rate - while a walk describes the
+    /// whole file moving through the engine. Mixing them would let a walk's aggregate pose as one read's cost
+    /// and drive <see cref="MsPerCall"/> to minutes.
+    /// </remarks>
+    /// <param name="bytes">Bytes the walk had to move, normally the media file's length.</param>
+    /// <param name="ms">Milliseconds the walk took.</param>
+    public void ObserveWalk(long bytes, double ms)
+    {
+        if (bytes <= 0 || ms <= 0)
+        {
+            return;
+        }
+
+        lock (_gate)
+        {
+            _walks.Add(new Sample(bytes, ms, _clock()));
+            if (_walks.Count > MaxSamples)
+            {
+                _walks.RemoveRange(0, _walks.Count - MaxSamples);
+            }
+        }
+    }
+
+    /// <summary>Gets how many walks this volume's profile has been fed.</summary>
+    public int WalkCount
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _walks.Count;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Gets the throughput this volume showed *while walking*, or null while no walk has finished on it. This
+    /// is the signal that still exists when every extraction in a run was served from the subtitle cache and
+    /// nothing was read through <see cref="ReadPolicy"/>.
+    /// </summary>
+    /// <returns>Bytes per millisecond, or null.</returns>
+    public double? WalkBytesPerMs()
+    {
+        List<Sample> samples;
+        DateTimeOffset now;
+        lock (_gate)
+        {
+            if (_walks.Count == 0)
+            {
+                return null;
+            }
+
+            samples = _walks.ToList();
+            now = _clock();
+        }
+
+        var ordered = samples.OrderBy(s => s.Bytes / s.Ms).ToList();
+        var keep = Math.Max(1, (int)Math.Ceiling(ordered.Count * (1 - SlowestFifth)));
+        var kept = ordered.Skip(ordered.Count - keep).ToList();
+        var bytes = kept.Sum(s => (double)s.Bytes * Weight(s, now));
+        var ms = kept.Sum(s => s.Ms * Weight(s, now));
+        return ms <= 0 ? null : bytes / ms;
     }
 
     /// <summary>

@@ -2674,51 +2674,138 @@ public class SubSyncService : IDisposable
     public const int UnmeasuredWalkCap = 2;
 
     /// <summary>
-    /// The ceiling on concurrent media-reading jobs for the volume a path lives on, from what that volume's
-    /// own reads have measured. A fast volume means no ceiling at all, which is the behaviour every setup
-    /// that is not storage-bound keeps once the volume has answered a read. A path whose volume cannot be
-    /// worked out is treated like an unmeasured one: not known to be fast is not the same as fast, and the
-    /// alternative is what let eight walks onto one share on 2026-09-14.
+    /// Gets a media file's length in bytes, or 0 when it cannot be read - never throws, because this is called
+    /// on the path of a job that has just succeeded and must not be turned into a failure by a stat.
     /// </summary>
+    /// <param name="path">Path to the media file.</param>
+    /// <returns>Bytes, or 0.</returns>
+    internal static long MediaLengthOf(string? path)
+    {
+        try
+        {
+            return string.IsNullOrWhiteSpace(path) ? 0 : new FileInfo(path).Length;
+        }
+        catch (Exception)
+        {
+            return 0;
+        }
+    }
+
+    /// <summary>
+    /// The ceiling on concurrent media-reading jobs for the volume a path lives on, from everything that
+    /// volume has measured - its reads and its own walks. A fast volume means no ceiling at all, which is the
+    /// behaviour every setup that is not storage-bound keeps once the volume has measured itself. A path whose
+    /// volume cannot be worked out is treated like an unmeasured one: not known to be fast is not the same as
+    /// fast, and the alternative is what let eight walks onto one share on 2026-09-14.
+    /// </summary>
+    /// <param name="path">Path to a job's media file.</param>
+    /// <returns>The ceiling and the measurement behind it.</returns>
     public static (int Cap, string Why) WalkCapOfPath(string? path)
         => string.IsNullOrWhiteSpace(path)
             ? (UnmeasuredWalkCap,
                "this job's volume could not be worked out, so it is treated as slow until it measures fast")
-            : WalkCapForProfile(Services.VolumeProfiles.For(path).MsPerCall());
+            : WalkCapForProfile(
+                Services.VolumeProfiles.For(path).MsPerCall(),
+                Services.VolumeProfiles.For(path).WalkBytesPerMs());
 
     /// <summary>
-    /// Maps a measured cost per read onto that volume's walk ceiling.
+    /// Throughput above which a volume's own walk says its storage is not the constraint, in MB/s. Measured:
+    /// a 2,4 GB file walked off local disk in 17 s (137 MB/s) against the same file off the share in 903 s
+    /// (2,6 MB/s), and eight episodes of one season off the share at 3,1-3,5 MB/s.
+    /// </summary>
+    public const double FastWalkMbPerSec = 20.0;
+
+    /// <summary>
+    /// Throughput below which a volume's own walk says its storage is thrashing, in MB/s: nothing measured
+    /// has come near this, so it is a floor rather than a threshold observed in the field.
+    /// </summary>
+    public const double ThrashingWalkMbPerSec = 1.0;
+
+    /// <summary>
+    /// Gets the ceiling for a volume from a measured cost per read.
+    /// </summary>
+    /// <param name="msPerCall">Milliseconds per read, or null when nothing has read from this volume.</param>
+    /// <returns>The ceiling and the measurement behind it.</returns>
+    public static (int Cap, string Why) WalkCapForProfile(double? msPerCall)
+        => WalkCapForProfile(msPerCall, null);
+
+    /// <summary>
+    /// Gets the ceiling for a volume from every signal it has, taking the more conservative of them: a read
+    /// sample describes the latency it was read at, a walk describes the throughput the media actually moved
+    /// at, and either one saying "storage-bound" is enough to hold the volume.
+    /// </summary>
+    /// <remarks>
+    /// Two signals exist because one of them can be missing for a whole run. Reads only happen when the
+    /// extraction path reads, and on a warm subtitle cache it does not read at all - so a fast volume could
+    /// show no samples for ever and sit at the conservative cap. The walk always happens, so it always measures.
     ///
-    /// A volume nothing has read yet is held at <see cref="UnmeasuredWalkCap"/> rather than treated as fast.
+    /// A volume nothing has measured is held at <see cref="UnmeasuredWalkCap"/> rather than treated as fast.
     /// Measured on 2026-09-14: with "no measurement means no ceiling", a whole season's eight walks were
     /// admitted in one wave before the first extraction pass had reported anything, so the ceiling was never
     /// asked again and all eight walked the share at once (max concurrent 8, 5,5-7,0 min each). The store is
-    /// filled *during* the pass that reads the file, and the wave that matters is planned *before* it - so
-    /// the unmeasured case has to be the conservative one. It costs a fast volume at most its first wave at
-    /// two, and lifts as soon as that volume's own reads measure it fast (the extraction pass runs before
-    /// the walk it feeds, and reads are what feed this).
-    /// </summary>
-    /// <param name="msPerCall">Measured cost per read, or null when the volume has not been read yet.</param>
-    /// <returns>The ceiling for that volume.</returns>
-    public static (int Cap, string Why) WalkCapForProfile(double? msPerCall)
+    /// filled *during* the pass that reads the file and the wave that matters is planned *before* it, so the
+    /// unmeasured case has to be the conservative one. It costs a fast volume at most its first wave at two,
+    /// and lifts as soon as that volume's walk or its reads measure it fast.
+    /// </remarks>
+    /// <param name="msPerCall">Milliseconds per read, or null when nothing has read from this volume.</param>
+    /// <param name="walkBytesPerMs">Bytes per millisecond a walk showed, or null when no walk has finished.</param>
+    /// <returns>The ceiling and the measurement behind it.</returns>
+    public static (int Cap, string Why) WalkCapForProfile(double? msPerCall, double? walkBytesPerMs)
     {
-        if (msPerCall is null)
+        (int Cap, string Why)? byReads = msPerCall is null ? null : CapFromReadCost(msPerCall.Value);
+        (int Cap, string Why)? byWalk = walkBytesPerMs is null ? null : CapFromWalkThroughput(walkBytesPerMs.Value);
+
+        if (byReads is null && byWalk is null)
         {
             return (UnmeasuredWalkCap,
                 "nothing has measured this volume yet, so it is treated as slow until something does");
         }
 
-        if (msPerCall.Value >= ThrashingReadMsPerCall)
+        if (byReads is null)
         {
-            return (1, $"this volume measured {msPerCall.Value:0.0} ms per read, which is thrashing");
+            return byWalk!.Value;
         }
 
-        if (msPerCall.Value >= SlowReadMsPerCall)
+        if (byWalk is null)
         {
-            return (2, $"this volume measured {msPerCall.Value:0.0} ms per read, which is storage-bound");
+            return byReads.Value;
         }
 
-        return (int.MaxValue, $"this volume measured {msPerCall.Value:0.00} ms per read, which is fast");
+        // Both measured. The more conservative wins - a volume whose reads were fast but whose walks are slow
+        // is storage-bound for the walks, which is what this ceiling exists to limit.
+        return byReads.Value.Cap <= byWalk.Value.Cap ? byReads.Value : byWalk.Value;
+    }
+
+    private static (int Cap, string Why) CapFromReadCost(double msPerCall)
+    {
+        if (msPerCall >= ThrashingReadMsPerCall)
+        {
+            return (1, $"this volume measured {msPerCall:0.0} ms per read, which is thrashing");
+        }
+
+        if (msPerCall >= SlowReadMsPerCall)
+        {
+            return (2, $"this volume measured {msPerCall:0.0} ms per read, which is storage-bound");
+        }
+
+        return (int.MaxValue, $"this volume measured {msPerCall:0.00} ms per read, which is fast");
+    }
+
+    private static (int Cap, string Why) CapFromWalkThroughput(double bytesPerMs)
+    {
+        var mbPerSec = bytesPerMs / 1000.0;
+
+        if (mbPerSec < ThrashingWalkMbPerSec)
+        {
+            return (1, $"this volume's last walk moved {mbPerSec:0.0} MB/s, which is thrashing");
+        }
+
+        if (mbPerSec < FastWalkMbPerSec)
+        {
+            return (2, $"this volume's last walk moved {mbPerSec:0.0} MB/s, which is storage-bound");
+        }
+
+        return (int.MaxValue, $"this volume's last walk moved {mbPerSec:0.0} MB/s, which is fast");
     }
 
     /// <summary>
@@ -4286,6 +4373,25 @@ public class SubSyncService : IDisposable
                 new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
             engineWatch.Stop();
             PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
+
+            // A walk of the media measures its volume without taking any read to measure it, which is the only
+            // signal that exists on a run whose extractions were all served from the subtitle cache.
+            if (!usedSubtitleReference)
+            {
+                var walked = MediaLengthOf(videoPath);
+                if (walked > 0)
+                {
+                    var walkedVolume = Services.VolumeProfiles.For(videoPath);
+                    walkedVolume.ObserveWalk(walked, engineWatch.ElapsedMilliseconds);
+                    var walkedCap = WalkCapForProfile(walkedVolume.MsPerCall(), walkedVolume.WalkBytesPerMs());
+                    PluginLog.Info(
+                        $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
+                        + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = "
+                        + $"{(walkedVolume.WalkBytesPerMs() ?? 0) / 1000.0:0.0} MB/s - "
+                        + $"the ceiling for that volume is "
+                        + $"{(walkedCap.Cap >= int.MaxValue ? "none" : walkedCap.Cap.ToString())} ({walkedCap.Why})");
+                }
+            }
 
             if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
             {

@@ -521,6 +521,95 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         $"{s32Thrashing.Cap}: {s32Thrashing.Why} | {s32Fast.Cap}: {s32Fast.Why}");
 }
 
+// S33: the walk is the second signal, and the only one that exists when every extraction in a run was served
+// from the subtitle cache and nothing was read through the policy at all. A volume measured this way must not
+// sit at the conservative ceiling for ever. The throughputs are the ones measured on 2026-09-14: the share
+// walks a 2,4 GB file in 903 s (2,6 MB/s), local disk the same file in 17 s (137 MB/s).
+//
+// Note for anyone adding to this block: VolumeProfiles keys a profile by *device*, not by path, so every
+// temp path under the same filesystem shares one profile. Checks that need a volume of their own must be
+// written against the mapping directly, or against /dev/shm, which nothing else in this suite reads.
+{
+    Check("a volume only a walk has measured, fast, keeps no ceiling",
+        SubSyncService.WalkCapForProfile(null, 137_000).Cap == int.MaxValue,
+        "got " + SubSyncService.WalkCapForProfile(null, 137_000).Cap);
+    Check("a volume only a walk has measured at the share's rate is held at 2",
+        SubSyncService.WalkCapForProfile(null, 2_600).Cap == 2,
+        "got " + SubSyncService.WalkCapForProfile(null, 2_600).Cap);
+    Check("a volume whose walk barely moves is held at 1",
+        SubSyncService.WalkCapForProfile(null, 250).Cap == 1,
+        "got " + SubSyncService.WalkCapForProfile(null, 250).Cap);
+    Check("the ceiling's reason names the walk as what measured it",
+        SubSyncService.WalkCapForProfile(null, 2_600).Why.Contains("MB/s")
+        && SubSyncService.WalkCapForProfile(null, 2_600).Why.Contains("2")
+        && !SubSyncService.WalkCapForProfile(null, 2_600).Why.Contains("nothing has measured"),
+        SubSyncService.WalkCapForProfile(null, 2_600).Why);
+
+    // Both signals present: the more conservative of them decides, whichever side it comes from.
+    Check("reads fast and a walk slow hold the volume at 2",
+        SubSyncService.WalkCapForProfile(0.05, 2_600).Cap == 2,
+        $"{SubSyncService.WalkCapForProfile(0.05, 2_600).Cap} - {SubSyncService.WalkCapForProfile(0.05, 2_600).Why}");
+    Check("reads slow and a walk fast hold the volume at 2",
+        SubSyncService.WalkCapForProfile(25.0, 137_000).Cap == 2,
+        $"{SubSyncService.WalkCapForProfile(25.0, 137_000).Cap} - {SubSyncService.WalkCapForProfile(25.0, 137_000).Why}");
+    Check("both signals fast leave the volume with no ceiling",
+        SubSyncService.WalkCapForProfile(0.05, 137_000).Cap == int.MaxValue,
+        "got " + SubSyncService.WalkCapForProfile(0.05, 137_000).Cap);
+    Check("with neither signal a volume stays conservative",
+        SubSyncService.WalkCapForProfile(null, null).Cap == SubSyncService.UnmeasuredWalkCap,
+        "got " + SubSyncService.WalkCapForProfile(null, null).Cap);
+}
+
+// ... and end to end through the real path-to-volume wiring and the real planner, on a filesystem nothing
+// else in this suite has read: a volume nothing has measured starts 2 of eight, and a walk that measures it
+// fast lets all eight start. `subsync-walk-` is on /dev/shm, a device of its own.
+{
+    var s33Path = "/dev/shm/subsync-walk-" + Guid.NewGuid().ToString("N");
+    var s33Volume = VolumeProfiles.KeyFor(s33Path);
+    var s33Queue = new List<SyncJob>();
+    for (var k = 0; k < 8; k++)
+    {
+        s33Queue.Add(new SyncJob
+        {
+            Id = Guid.NewGuid().ToString("N"), BatchId = "walkplan", BatchIndex = k,
+            ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued
+        });
+    }
+
+    Check("nothing has measured this volume yet",
+        VolumeProfiles.For(s33Path).MsPerCall() is null && VolumeProfiles.For(s33Path).WalkCount == 0,
+        $"reads {VolumeProfiles.For(s33Path).MsPerCall()}, walks {VolumeProfiles.For(s33Path).WalkCount}");
+    Check("its ceiling is the conservative one",
+        SubSyncService.WalkCapOfPath(s33Path).Cap == SubSyncService.UnmeasuredWalkCap,
+        "got " + SubSyncService.WalkCapOfPath(s33Path).Cap);
+
+    var s33Cold = SubSyncService.PlanStart(
+        s33Queue, new List<SyncJob>(), "ultimate", "walkplan", 8,
+        _ => s33Volume, _ => true, _ => false,
+        walkCapOf: _ => SubSyncService.WalkCapOfPath(s33Path));
+    Check("eight heavy jobs on a volume nothing has measured do not all start",
+        s33Cold.Count == SubSyncService.UnmeasuredWalkCap, "planned " + s33Cold.Count);
+
+    // The walk the plugin would record: 2,4 GB of media, 17 s of engine time, on local disk.
+    VolumeProfiles.For(s33Path).ObserveWalk(2_400_000_000, 17_000);
+    Check("the walk measures the volume without a single read",
+        VolumeProfiles.For(s33Path).WalkCount == 1
+        && VolumeProfiles.For(s33Path).WalkBytesPerMs() is not null
+        && VolumeProfiles.For(s33Path).MsPerCall() is null,
+        $"walks {VolumeProfiles.For(s33Path).WalkCount}, {VolumeProfiles.For(s33Path).WalkBytesPerMs()} bytes/ms, "
+        + $"reads {VolumeProfiles.For(s33Path).MsPerCall()}");
+    Check("and its ceiling is gone",
+        SubSyncService.WalkCapOfPath(s33Path).Cap == int.MaxValue,
+        $"{SubSyncService.WalkCapOfPath(s33Path).Cap} - {SubSyncService.WalkCapOfPath(s33Path).Why}");
+
+    var s33Warm = SubSyncService.PlanStart(
+        s33Queue, new List<SyncJob>(), "ultimate", "walkplan", 8,
+        _ => s33Volume, _ => true, _ => false,
+        walkCapOf: _ => SubSyncService.WalkCapOfPath(s33Path));
+    Check("the same eight start once a walk has measured that volume fast",
+        s33Warm.Count == 8, "planned " + s33Warm.Count + " - " + SubSyncService.WalkCapOfPath(s33Path).Why);
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
     SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,
