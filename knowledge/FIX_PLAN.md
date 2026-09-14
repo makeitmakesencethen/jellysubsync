@@ -1037,6 +1037,45 @@ still means 100 ms rather than 25. A source-level check pins the call to the job
 starting, while the share stays at 2. The 2.0.35 run could not evaluate S39's ratio criteria at all - no walk was
 ever *used*, so no ratio was ever computed - which is the other reason that run has to be repeated.
 
+### S41 - one cold read can decide a volume's class, and a loaded share reads cold (high, open, from the field)
+
+The first field run of the probe (2.0.37, 2026-09-14) is a success and a defect at once. The successes first,
+because they are what the last four runs were missing:
+
+    18:05:35  volume /dev/nvme0n1p2 had nothing measured about it, so it was read once: 16 KB took 0,83 ms -
+              the ceiling for that volume is none (this volume measured 0,83 ms per read, which is fast)
+    18:06:42  dispatch: starting 2, running 6, limit 8, queued 44, batch f3f9aefe
+
+Eight concurrent jobs - the fast volume filling the pool the moment it had a measurement of its own, and nine of
+its walks used with `ceiling none (this volume measured 0,83 ms per read, which is fast)`, at 92,7 / 90,8 / 69,1 /
+61,9 / 61,8 / 58,2 MB/s. S38's fix does what it was written to do.
+
+**The defect is the same probe on the slow volume:**
+
+    18:04:21  volume 192.168.0.110:/volume1/JELLYFIN had nothing measured about it, so it was read once: 16 KB
+              took 231,34 ms - the ceiling for that volume is 1 (this volume measured 231,3 ms per read, which is
+              thrashing)
+
+and it held there for the whole run - fifteen hold lines from 18:04:10 to 18:18:29, all reading
+`this volume measured 231,3 ms per read, which is thrashing`. So the share ran **one** walk at a time where its
+own measurements say two is its best.
+
+Why: the probe is a *single* cold read, taken a third of the way into a file, at a moment when that volume may
+already be loaded - 231 ms against a steady state of 13-46 ms measured at rest. It lands in the profile as one
+sample, and because no *other* volume had eight samples yet (the local disk had only its own probe at that point,
+and its eight walks came minutes later) there was no reference to compare against, so the documented absolute
+fallback decided: 231 ms is over 100 ms, which is the thrash tier, which is one walk. The ratio machinery S39
+added never got to speak.
+
+**Direction of the fix**: take the probe as a small number of reads and record the median rather than one cold
+sample; and make the probe line print what it is standing on (how many samples the median came from), so a verdict
+that rests on one read is visible as such in the field instead of looking like a measurement of the volume. The
+fallback tier probably also wants to require a minimum sample count before it will call a volume thrashing - a
+single read is not a steady state.
+
+**Verified the same run**: the fast volume's nine used walks, the eight concurrent jobs, and S37's contention rule
+holding (three local walks were refused as contended rather than counted).
+
 ### S40 - the enqueue itself is the slow part of a batch's start (high, open, from the field)
 
 Measured on 2026-09-14 while a 55-task batch was being queued, one line per item that took longer than it should:
