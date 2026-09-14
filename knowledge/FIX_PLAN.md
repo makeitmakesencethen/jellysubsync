@@ -1011,6 +1011,49 @@ read would land well under a millisecond on `/dev/nvme0n1p2` and at tens of mill
 one read per volume per process, and it replaces a guess with a measurement. Not done here: one item, one commit,
 and S37 is the item the field run asked for.
 
+### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high, open)
+
+Raised while asking whether these fixes work on any machine rather than only on the one they were measured on.
+They do not, and the code says so in its own comments:
+
+    SubSyncService.cs:2769  public const double SlowReadMsPerCall = 5.0;
+      /// Reads per call above which a volume is treated as storage-bound rather than fast. A wide margin
+      /// above the class default a read policy starts from (0,05 ms per call) and far below fabji's share,
+      /// which measures 13-46 ms per call at rest.
+    SubSyncService.cs:2775  public const double ThrashingReadMsPerCall = 100.0;
+      /// ... the bottom of what that share shows when it is thrashing (1419-1613 ms per call observed
+      /// while eight walks ran).
+    SubSyncService.cs:2833  public const double FastWalkMbPerSec = 50.0;
+      /// 50, set between the two populations the field has shown, with margin on both sides ... 2,2x above
+      /// every walk this share has produced and 1,7x below every local walk (S35).
+    SubSyncService.cs:2839  public const double ThrashingWalkMbPerSec = 1.0;
+    ReadPolicy.cs:346-347   DefaultMsPerCall = 0.05; DefaultBytesPerMs = 1500;   (a starting prior, also absolute)
+
+**Why this is a defect rather than a compromise:** the failure is silent and it lands on *better* hardware than
+the machine the constants came from. A NAS or share that genuinely delivers more than 50 MB/s - 10 GbE, or a
+NAS backed by NVMe - is classified "fast" and gets **no ceiling at all**, so eight full-file walks go onto one
+volume: exactly the thrash the ceiling exists to prevent, on the setups most able to afford a big batch and
+therefore most likely to hit it. The inverse case (a slow local disk under the read threshold, capped at 2) is
+only a performance loss, not a correctness one, which is why this is high but not urgent-and-explosive.
+
+What *is* machine-independent, and worth keeping separate from the numbers: the mechanism (per-volume accounting
+rather than one global limit), the contention rule (S37 - a walk taken while another volume was being read is not
+evidence about this volume, which is true on every machine), the fail-closed direction (unmeasured is held, never
+treated as fast) and the visibility work (S30-S34).
+
+**Direction of the fix:** make every threshold *relative to the machine's own measurements* instead of to
+constants from someone else's. The best volume this process has measured sets the reference, and the others are
+classified by ratio - a volume whose reads are more than ~20x the fastest volume's latency, or whose uncontended
+walks are below ~1/5 of the fastest volume's, is storage-bound - with the absolute constants kept only as the
+fallback for a process that has measured nothing yet. Never uncap a volume with no uncontended measurement of its
+own (that keeps 2.0.30's hole closed), and S38's single small timed read gives a volume its first measurement
+without waiting for a walk. On fabji's machine the ratios reproduce today's behaviour (his share is 260-900x his
+local disk's read latency, and its walks are 1/25th of the NVMe's), which is the test that the generalisation did
+not break the case it was written for.
+
+Not fixed here: it is its own item, and it touches the extraction pricing as well (`ReadPolicy` shares these
+constants), so it is one coherent change rather than a bundle with anything else.
+
 ## 2026-09-14 - the register triage
 
 **Before:** 78 open rows and 4 open sections, of which only 23 rows carried a severity and about 55 carried
