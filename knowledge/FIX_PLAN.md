@@ -460,6 +460,65 @@ walking the same file.
 Defaults, given the measured curve (122 / 135 / 133 / 66 files/h at limits 1 / 2 / 4 / 8): the current
 default of 4 is already the best aggregate measured, so a cap must be opt-in, not a new default.
 
+### Per-volume walk concurrency, automatic (scoped 2026-09-14, not built)
+
+Goal: reject the global setting; cap concurrent audio-ruler walks *per volume*, decided automatically, no
+new settings entry, so one batch can span a fast SSD and a slow NAS without either throttling the other.
+
+**What already exists in beta** (found while scoping - this is why the estimate is small):
+
+- `MediaVolume.Of(path)` already keys a volume by the device behind the longest matching mount point
+  (`Services/MediaVolume.cs`), and `PlanStart` already receives it:
+  `Func<SyncJob, string> volumeOf` fed by `job => MediaVolume.Of(ctx.Video.Path)` (`:2686`).
+- `PlanStart`/`WavePolicy` already carry `InUseVolumes` and an `IsHeavyIo` predicate (`:2445`, `:2472`,
+  `:2505`), and `SelectWave` already builds a `usedVolumes` set (`:2208`).
+- "Will this job read the media?" is already a predicate: `JobNeedsHeavyIo` (`:1598`) returns true for
+  embedded extraction or for an uncached audio pass (`UsesSpeechCache(mode) && !SpeechIsCached(job)`).
+- So the walk cap is expressible as a **pure function of data the selector already holds**: the running
+  jobs, their volumes, and their heavy-ness. No new accounting, no semaphore, no second pool.
+
+**What R1 adds that is still wanted**: the *measurements*. R1's `VolumeProfile` (single commit `9e53170`,
+`Services/VolumeProfile.cs`, 370 lines, held on `eval/per-volume-profile`) keeps per-volume read latency
+(age-weighted median) and throughput (byte-weighted mean, slowest fifth trimmed, 10-minute half-life),
+fed by reads the passes were already making, exposed as `VolumeProfiles.For(path)`, `KeyFor(path)`,
+`MsPerCall()`, `BytesPerMs()`. Its volume *identity* duplicates `MediaVolume`, so only the numbers are
+needed from it.
+
+**Fixed 1-2 vs live/adaptive - reasoned, with the measurements we have:**
+
+- Per-volume caps solve the *cross-volume* half by construction: a slow volume's cap cannot throttle jobs
+  on a fast volume, and nothing forces the two to share a number. That is goal 4 and it holds for a fixed
+  number too.
+- A fixed 1-2 does *not* leave a fast volume alone *within itself*: where the volume is not shared,
+  concurrency raises throughput (shim bandwidth model: 43 -> 131 files/h from 1 -> 8 walks), so capping an
+  SSD at 1-2 costs its own batch throughput even though each file stays fast.
+- The tiered version therefore wins on both sides, and it is cheap because the separating signal already
+  exists and is huge: class default 0,05 ms/read, the user's share 13-46 ms at rest and 1419-1613 ms under
+  load. A threshold on `MsPerCall()` (e.g. >5 ms/read => storage-bound => cap 1-2; else uncapped) gets the
+  automatic behaviour without a control loop.
+- A live hill-climb on per-file walk time is a bigger build (per-volume walk-duration history, hysteresis,
+  cold start, oscillation) for little over the threshold, which already reads the same volume's measured
+  latency, i.e. it *is* adaptive to degradation. Not recommended for the first cut.
+
+**Scope estimate** (before building):
+- identity + "will walk" predicate + the running-job data: **already there, no work**.
+- `WavePolicy`: per-volume load dict + per-volume cap dict, `SelectWave` skips a heavy candidate whose
+  volume is at its cap: **~30-50 lines**.
+- cap lookup from `VolumeProfile.MsPerCall()` with a threshold and a small clamp: **~15-25 lines**, plus
+  the single-commit cherry-pick of `9e53170` (conflicts expected only where beta moved on: `ReadPolicy.cs`,
+  `tests/run_checks.py`).
+- checks: mixed volumes (fast uncapped / slow capped) asserting the fast volume is not throttled, and a
+  slow volume never exceeding its cap at any limit: **~8-12 checks**, deterministic, no I/O.
+- Total: **~80-150 lines + one cherry-pick => roughly 2-3x the global cap (~30-60 lines), not a different
+  order of magnitude.** The one design detail to settle during the build: `JobNeedsHeavyIo` is broader than
+  "will walk" (it also counts embedded extraction, which is cheap index reading) - the cap wants the
+  narrower "will this job invoke the engine with the audio ruler", and over-counting is the safe side.
+
+**Verification plan** (after building, matching the goal): two genuinely different devices on the test
+server - a tmpfs volume as the fast one and the disk under the shim's prefix as the slow one - so the
+identity really differs; one mixed batch to show the fast volume's jobs are not throttled by the slow
+volume's cap and vice versa; the four-level curve re-confirmed for the slow volume alone; suite green.
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
