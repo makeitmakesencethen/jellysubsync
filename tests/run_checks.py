@@ -392,16 +392,19 @@ var wideQueue = new List<SyncJob>
     new SyncJob { Id = Guid.NewGuid().ToString("N"), BatchId = "b", BatchIndex = 4, ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued }
 };
 
-// Unmeasured: exactly the old behaviour, the wave fills to the worker count.
-var uncapped = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
+// Unmeasured: held conservatively. This is the case that failed in the field on 2026-09-14 - a whole
+// season's eight walks were admitted in one wave before the first extraction pass had read anything, so
+// "no measurement means no ceiling" left all eight walking one share at once (max concurrent 8).
+var unmeasured = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
+    WalkCapOf = _ => SubSyncService.WalkCapForProfile(null),
 });
-Check("four heavy tasks on an unmeasured volume fill the wave", uncapped.Count == 4, "got " + uncapped.Count);
+Check("a volume nothing has read yet is held at the conservative ceiling", unmeasured.Count == 2,
+    "got " + unmeasured.Count + " (expected " + SubSyncService.UnmeasuredWalkCap + ")");
 Check("the wave takes the first queued tasks in order",
-    uncapped.Select(j => j.BatchIndex).SequenceEqual(new[] { 0, 1, 2, 3 }),
-    "got " + string.Join(",", uncapped.Select(j => j.BatchIndex)));
-
+    unmeasured.Select(j => j.BatchIndex).SequenceEqual(new[] { 0, 1 }),
+    "got " + string.Join(",", unmeasured.Select(j => j.BatchIndex)));
 // A volume the profile measures as fast says so explicitly, and no ceiling applies.
 var fastVolume = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
@@ -497,19 +500,21 @@ var lightWave = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyn
 Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + lightWave.Count);
 
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
-Check("nothing measured means no ceiling", SubSyncService.WalkCapForProfile(null) == int.MaxValue,
+Check("nothing measured means the conservative ceiling, never none",
+    SubSyncService.WalkCapForProfile(null) == SubSyncService.UnmeasuredWalkCap,
     "got " + SubSyncService.WalkCapForProfile(null));
-Check("the class default a read policy starts from is uncapped",
-    SubSyncService.WalkCapForProfile(0.05) == int.MaxValue,
-    "got " + SubSyncService.WalkCapForProfile(0.05));
+Check("a volume that measures fast is uncapped from that first measured pass onwards",
+    SubSyncService.WalkCapForProfile(0.05) == int.MaxValue && SubSyncService.WalkCapForProfile(1.0) == int.MaxValue,
+    $"0,05 ms -> {SubSyncService.WalkCapForProfile(0.05)}, 1 ms -> {SubSyncService.WalkCapForProfile(1.0)}");
 Check("fabji's share at rest (13-46 ms per read) is capped at 2",
     SubSyncService.WalkCapForProfile(13) == 2 && SubSyncService.WalkCapForProfile(46) == 2,
     $"13 ms -> {SubSyncService.WalkCapForProfile(13)}, 46 ms -> {SubSyncService.WalkCapForProfile(46)}");
 Check("the same share thrashing (1419-1613 ms per read) is held to 1",
     SubSyncService.WalkCapForProfile(1419) == 1 && SubSyncService.WalkCapForProfile(1613) == 1,
     $"1419 ms -> {SubSyncService.WalkCapForProfile(1419)}");
-Check("a path with no volume reported is uncapped",
-    SubSyncService.WalkCapOfPath(null) == int.MaxValue && SubSyncService.WalkCapOfPath("") == int.MaxValue,
+Check("a path whose volume cannot be worked out is held at the conservative ceiling",
+    SubSyncService.WalkCapOfPath(null) == SubSyncService.UnmeasuredWalkCap
+    && SubSyncService.WalkCapOfPath("") == SubSyncService.UnmeasuredWalkCap,
     "got " + SubSyncService.WalkCapOfPath(null));
 
 // End to end: the profile's own arithmetic, fed the share's latencies, produces the ceiling.
@@ -548,7 +553,17 @@ Check("a path with no volume reported is uncapped",
 
     Check("a volume measured at 20 ms per read carries a ceiling of 2",
         SubSyncService.WalkCapOfPath(slowPath) == 2, "got " + SubSyncService.WalkCapOfPath(slowPath));
-    Check("a volume that measures fast keeps no ceiling",
+    Check("a real volume that nothing has read yet is held conservatively",
+        SubSyncService.WalkCapOfPath(fastPath) == SubSyncService.UnmeasuredWalkCap,
+        "got " + SubSyncService.WalkCapOfPath(fastPath));
+
+    // ... and the ceiling lifts as soon as that volume's own reads say it is fast.
+    for (var i = 0; i < 20; i++)
+    {
+        VolumeProfiles.For(fastPath).Observe(1 << 20, 0.05);
+    }
+
+    Check("a volume whose own reads measured it fast keeps no ceiling",
         SubSyncService.WalkCapOfPath(fastPath) == int.MaxValue,
         "got " + SubSyncService.WalkCapOfPath(fastPath));
 
@@ -567,6 +582,28 @@ Check("a path with no volume reported is uncapped",
             probeQueue.Add(job);
         }
     }
+
+    // The ordering that failed in the field: nothing measured yet, eight heavy jobs, one wave.
+    var coldQueue = new List<SyncJob>();
+    for (var k = 0; k < 8; k++)
+    {
+        coldQueue.Add(new SyncJob
+        {
+            Id = Guid.NewGuid().ToString("N"), BatchId = "cold", BatchIndex = k,
+            ItemId = Guid.NewGuid(), Mode = "ultimate", Status = SyncJobStatus.Queued
+        });
+    }
+
+    // Standalone on purpose: this is the ordering, before any device or profile in this block exists.
+    const string coldVolume = "//nas/cold";
+    var coldCap = SubSyncService.WalkCapForProfile(null);
+    var coldPlanned = SubSyncService.PlanStart(
+        coldQueue, new List<SyncJob>(), "ultimate", "cold", 8,
+        _ => coldVolume, _ => true, _ => false,
+        walkCapOf: _ => coldCap);
+    Check("eight heavy jobs on a volume nothing has read yet do not all start",
+        coldPlanned.Count == SubSyncService.UnmeasuredWalkCap,
+        "planned " + coldPlanned.Count + " of 8 (ceiling " + SubSyncService.UnmeasuredWalkCap + ")");
 
     var planned = SubSyncService.PlanStart(
         probeQueue,

@@ -2556,7 +2556,37 @@ public class SubSyncService : IDisposable
                 ? inUse
                 : 0;
         heavyInWave.TryGetValue(volume, out var inWave);
-        return running + inWave < cap;
+        if (running + inWave >= cap)
+        {
+            LogCeilingHeld(volume, cap);
+            return false;
+        }
+
+        return true;
+    }
+
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _ceilingLogged =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Says, once a minute per volume, that a walk is waiting on that volume's ceiling. Without this line a
+    /// capped run and an uncapped one look identical in the log - which is exactly how the first release of
+    /// this ceiling hid that it was never applying.
+    /// </summary>
+    private static void LogCeilingHeld(string volume, int cap)
+    {
+        var now = DateTime.UtcNow;
+        if (_ceilingLogged.TryGetValue(volume, out var last) && now - last < TimeSpan.FromSeconds(60))
+        {
+            return;
+        }
+
+        _ceilingLogged[volume] = now;
+        Services.PluginLog.Info(
+            $"walk ceiling: holding {volume} at {cap} concurrent media " +
+            (cap == UnmeasuredWalkCap
+                ? "read(s) - this volume has not been read yet, so it is treated as slow until it measures fast"
+                : "read(s) - this volume's own reads measured it as storage-bound"));
     }
 
     /// <summary>Counts a candidate that joined the wave against its volume's ceiling.</summary>
@@ -2640,21 +2670,43 @@ public class SubSyncService : IDisposable
     public const double ThrashingReadMsPerCall = 100.0;
 
     /// <summary>
+    /// The ceiling a volume carries until something has measured it, so that a wave planned before the first
+    /// read cannot walk a storage-bound volume eight abreast. A volume that measures fast is uncapped from
+    /// its first measured pass onwards.
+    /// </summary>
+    public const int UnmeasuredWalkCap = 2;
+
+    /// <summary>
     /// The ceiling on concurrent media-reading jobs for the volume a path lives on, from what that volume's
-    /// own reads have measured. Nothing measured, or a fast volume, means no ceiling at all - which is the
-    /// behaviour every setup that is not storage-bound keeps.
+    /// own reads have measured. A fast volume means no ceiling at all, which is the behaviour every setup
+    /// that is not storage-bound keeps once the volume has answered a read. A path whose volume cannot be
+    /// worked out is treated like an unmeasured one: not known to be fast is not the same as fast, and the
+    /// alternative is what let eight walks onto one share on 2026-09-14.
     /// </summary>
     public static int WalkCapOfPath(string? path)
         => string.IsNullOrWhiteSpace(path)
-            ? int.MaxValue
+            ? UnmeasuredWalkCap
             : WalkCapForProfile(Services.VolumeProfiles.For(path).MsPerCall());
 
-    /// <summary>Maps a measured cost per read onto that volume's walk ceiling.</summary>
+    /// <summary>
+    /// Maps a measured cost per read onto that volume's walk ceiling.
+    ///
+    /// A volume nothing has read yet is held at <see cref="UnmeasuredWalkCap"/> rather than treated as fast.
+    /// Measured on 2026-09-14: with "no measurement means no ceiling", a whole season's eight walks were
+    /// admitted in one wave before the first extraction pass had reported anything, so the ceiling was never
+    /// asked again and all eight walked the share at once (max concurrent 8, 5,5-7,0 min each). The store is
+    /// filled *during* the pass that reads the file, and the wave that matters is planned *before* it - so
+    /// the unmeasured case has to be the conservative one. It costs a fast volume at most its first wave at
+    /// two, and lifts as soon as that volume's own reads measure it fast (the extraction pass runs before
+    /// the walk it feeds, and reads are what feed this).
+    /// </summary>
+    /// <param name="msPerCall">Measured cost per read, or null when the volume has not been read yet.</param>
+    /// <returns>The ceiling for that volume.</returns>
     public static int WalkCapForProfile(double? msPerCall)
     {
         if (msPerCall is null)
         {
-            return int.MaxValue;
+            return UnmeasuredWalkCap;
         }
 
         if (msPerCall.Value >= ThrashingReadMsPerCall)
