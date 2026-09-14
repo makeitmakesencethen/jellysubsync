@@ -4,6 +4,51 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.30 (beta)
+
+A slow share now bounds its own audio analysis, and the log answers what a long batch is doing while it runs.
+
+The audio analysis of a file - the one pass that reads the whole container - is now bounded **per volume**,
+automatically. A batch spanning a fast disk and a slow share no longer runs eight walks at once on the share:
+the share's own measured read latency decides, and there is nothing to configure.
+
+- **Measured before it was built.** One season, eight episodes, one share, worker limit 1 / 2 / 4 / 8: per file
+  22,2 / 48,9 / 94,1 / **421,3 s**, batch wall clock 3,9 / 3,6 / 3,6 / **7,3 min**, and 122 / 135 / 133 /
+  **66 files per hour**. Eight walks at once was not parallelism: it halved the throughput of the volume and
+  turned a file that takes 22 s alone into one that takes 421 s.
+- **The ceiling comes from the volume's own numbers.** `VolumeProfile` - already built for the read policy -
+  tracks each volume's latency and throughput from reads the passes were making anyway. At or above 5 ms per
+  read a volume counts as storage-bound and carries a ceiling of 2; at or above 100 ms per read (the share
+  thrashing - 1419-1613 ms per read was observed under eight walks) it carries 1. Below that, and for any
+  volume nothing has measured, there is **no ceiling at all** and behaviour is exactly as it was.
+- **The ceiling counts one volume.** A slow volume's number never touches another volume's jobs, which is what
+  makes it safe rather than a global throttle. The check drives the real dispatch entry with two genuinely
+  different devices and asserts the storage-bound volume takes 2 of its 3 jobs while the fast one takes all 3.
+- **An old invariant was reversed on purpose, and the reason is recorded** in `knowledge/FIX_PLAN.md`. The
+  regression checks used to enforce "the worker count is the only bound, never storage", by reflection as well
+  as by behaviour. That rule was measured wrong on a storage-bound volume, and the ceiling is per volume
+  precisely so it cannot cause the global slowdown the old rule existed to prevent. The checks were rewritten
+  as behaviour, not renamed around: 541 -> 557 checks, all green.
+
+Long engine runs are now visible while they run, and three previously silent outcomes leave a trace:
+
+- **A running engine says so every five minutes** - `engine running`, elapsed time and which ruler - so a film
+  that legitimately takes an hour no longer looks like a hang.
+- **A completion that wrote nothing is traceable in the plugin log**: both no-change paths now emit the same
+  completion line as every other job.
+- **A cancelled job has a line of its own**, alongside the unchanged batch-level cancel counts.
+- **A periodic progress line answers how much is left**: queued, running, files left, and the file a lane is
+  working on with the time it has spent on it.
+- **Batch history survives a plugin restart**, persisted with the plugin's other state.
+
+A selection larger than the API accepts is now split instead of refused:
+
+- The page splits a selection of more than 1000 tasks into consecutive batches the server accepts. Before, such
+  a selection was answered with `Batch is too large (max 1000 tasks)` after the whole run had been queued.
+
+Nothing about a sync's result changes: the extraction route, the reads it makes, the alignment and the file it
+writes are untouched, and no new setting was added - the ceiling is derived, never configured.
+
 ## 2.0.29 (beta)
 
 The extraction summary's own figures are now the figures the pass finished with.
