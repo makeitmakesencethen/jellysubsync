@@ -790,7 +790,7 @@ Fixed by setting the boundary between the two populations the field has now show
 **50 MB/s** (2,2x above every walk this share has produced, 1,7x below every local walk: NVMe measured
 84,4-91,4 MB/s over five episodes and 137 MB/s on a lone 2,4 GB file). The whole share range now maps to one
 ceiling, so it cannot flip within a batch - pinned by a check that walks every measured throughput through the
-mapping. Suite: 581 checks green. Commit `f6aa6f5`.
+mapping. Suite: 581 checks green. Commit `804f1f3`.
 
 **Lesson, and the reason this shipped wrong:** a measurement taken while the thing under test is already being
 throttled cannot set the boundary for that throttling. The 20 came from a run in which the ceiling had failed
