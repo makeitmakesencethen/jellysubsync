@@ -283,7 +283,9 @@ public class SubSyncService : IDisposable
     // (see ExtractionReady). A pass that has produced 1 of 30 languages lets that one job start
     // immediately instead of holding all thirty.
     private readonly SemaphoreSlim _extractWake = new(0);
-    private readonly ConcurrentDictionary<string, byte> _passInFlight = new(StringComparer.Ordinal);
+    // Value = when this pass started, so the progress line can say how long the lane has been on that
+    // file (S24). Nothing else reads the value; the keys are the in-flight set.
+    private readonly ConcurrentDictionary<string, DateTime> _passInFlight = new(StringComparer.Ordinal);
     private readonly ConcurrentDictionary<string, byte> _extractedReady = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -1125,6 +1127,72 @@ public class SubSyncService : IDisposable
         }
     }
 
+    // S24: the periodic progress line. The only depth figure the plugin had was the dispatch line, which
+    // appears only when a job starts and names only the batch that job belongs to - so "how much is left"
+    // could not be answered from the log without hand-parsing lane lines and dispatch timestamps (which is
+    // exactly what a 2 497-task run needed).
+    private const int ProgressLineSeconds = 60;
+    private DateTime _lastProgressLineUtc = DateTime.MinValue;
+
+    /// <summary>
+    /// Formats the periodic progress line. Pure, so a check can pin the wording.
+    /// </summary>
+    /// <param name="queued">Jobs still queued.</param>
+    /// <param name="running">Jobs running now.</param>
+    /// <param name="filesLeft">Distinct media files still queued.</param>
+    /// <param name="laneFile">The file the extraction lane is on, when it is on one.</param>
+    /// <param name="laneElapsed">How long it has been on that file.</param>
+    /// <returns>The log line.</returns>
+    public static string DescribeProgress(int queued, int running, int filesLeft, string? laneFile, TimeSpan? laneElapsed)
+        => $"queue: {queued} queued, {running} running, {filesLeft} file(s) left, "
+           + (laneFile is null
+               ? "lane idle"
+               : $"lane currently on: {laneFile}, {(laneElapsed ?? TimeSpan.Zero).TotalMinutes:0.#} min elapsed on it");
+
+    private static void LogPluginProgress(int queued, int running, int filesLeft, string? laneFile, TimeSpan? laneElapsed)
+        => PluginLog.Info(DescribeProgress(queued, running, filesLeft, laneFile, laneElapsed));
+
+    // Called once per pump tick (about every 750 ms) and throttled to once a minute. The pump keeps
+    // ticking while an engine run is silent, so a run reports even in the hour it spends inside one file.
+    private void MaybeLogProgress()
+    {
+        if (DateTime.UtcNow - _lastProgressLineUtc < TimeSpan.FromSeconds(ProgressLineSeconds))
+        {
+            return;
+        }
+
+        var queued = CountQueued();
+        var running = _jobs.Values.Count(j => j.Status == SyncJobStatus.Running);
+        if (queued == 0 && running == 0)
+        {
+            return;
+        }
+
+        _lastProgressLineUtc = DateTime.UtcNow;
+
+        int filesLeft;
+        lock (_queueLock)
+        {
+            filesLeft = _runOrder
+                .Where(j => j.Status == SyncJobStatus.Queued)
+                .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
+                .Where(p => !string.IsNullOrEmpty(p))
+                .Distinct(StringComparer.Ordinal)
+                .Count();
+        }
+
+        string? laneFile = null;
+        TimeSpan? laneElapsed = null;
+        var lane = _passInFlight.OrderBy(kvp => kvp.Value).FirstOrDefault();
+        if (lane.Key is not null)
+        {
+            laneFile = Path.GetFileName(lane.Key);
+            laneElapsed = DateTime.UtcNow - lane.Value;
+        }
+
+        LogPluginProgress(queued, running, filesLeft, laneFile, laneElapsed);
+    }
+
     /// <summary>
     /// Kills everything: queued jobs (any batch) are cancelled and every running job's
     /// ffsubsync/ffmpeg processes are terminated. Backs the UI's Kill action, which is
@@ -1642,7 +1710,7 @@ public class SubSyncService : IDisposable
             }
 
             var (videoPath, ordinals) = work.Value;
-            if (!_passInFlight.TryAdd(videoPath, 0))
+            if (!_passInFlight.TryAdd(videoPath, DateTime.UtcNow))
             {
                 continue;
             }
@@ -2414,6 +2482,7 @@ public class SubSyncService : IDisposable
             List<(string? VideoPath, bool StillNeeded)> finishedVideos;
 
             LogWorkerLimit();
+            MaybeLogProgress();
 
             lock (_queueLock)
             {

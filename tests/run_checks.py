@@ -1644,6 +1644,29 @@ foreach (var line in cancelledLines.TakeLast(2))
     Console.WriteLine("   " + line);
 }
 
+// ---------------- S24: one line that says how much is left ----------------
+// The only depth figure the plugin had was the dispatch line, emitted when a job starts and naming only
+// that job's batch: sizing the 2026-09-13/14 run meant hand-parsing lane lines and dispatch timestamps.
+var logProgress = typeof(SubSyncService).GetMethod(
+    "LogPluginProgress", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+Check("the progress line has one shared definition (S24)", logProgress is not null);
+logProgress!.Invoke(null, new object?[] { 338, 7, 338, "Solsidan - S03E04 - Del 4.mkv", TimeSpan.FromMinutes(56.6) });
+var progressLines = File.Exists(heartbeatLog)
+    ? File.ReadAllLines(heartbeatLog).Where(l => l.Contains("queue: 338 queued")).ToArray()
+    : Array.Empty<string>();
+Check("the progress line answers how much is left (S24)",
+    progressLines.Any(l => l.Contains("7 running") && l.Contains("338 file(s) left")
+                           && l.Contains("lane currently on: Solsidan") && l.Contains("min elapsed on it")),
+    progressLines.LastOrDefault() ?? "no line");
+Console.WriteLine("---- S24 sample: how much is left ----");
+foreach (var line in progressLines.TakeLast(2))
+{
+    Console.WriteLine("   " + line);
+}
+logProgress.Invoke(null, new object?[] { 4, 0, 2, null, null });
+Check("the progress line does not claim a lane when the lane is idle",
+    File.ReadAllLines(heartbeatLog).Any(l => l.Contains("queue: 4 queued") && l.Contains("lane idle")));
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -2397,6 +2420,16 @@ def run_page_checks():
            'private static void LogPluginCancellation(SyncJob job)' in service
            and service.count('LogPluginCancellation(') >= 5
            and 'job {job.Id} cancelled: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}' in service)
+
+    # S24: one line that answers "how much is left", emitted from the pump's own tick so it appears even
+    # while a run is silent inside one long engine call.
+    report('the log answers how much is left, without hand-parsing (S24)',
+           'public static string DescribeProgress(' in service
+           and 'queue: {queued} queued, {running} running, {filesLeft} file(s) left' in service
+           and 'lane currently on: {laneFile}' in service
+           and 'MaybeLogProgress();' in service
+           and 'ProgressLineSeconds = 60' in service
+           and 'ConcurrentDictionary<string, DateTime> _passInFlight' in service)
 
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
