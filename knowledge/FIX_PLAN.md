@@ -1011,7 +1011,7 @@ read would land well under a millisecond on `/dev/nvme0n1p2` and at tens of mill
 one read per volume per process, and it replaces a guess with a measurement. Not done here: one item, one commit,
 and S37 is the item the field run asked for.
 
-### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high, open)
+### S39 - the ceiling's thresholds are absolute numbers measured on one machine (high, open) - see `S39_RELATIVE_THRESHOLDS_GOAL_PROMPT.md`
 
 Raised while asking whether these fixes work on any machine rather than only on the one they were measured on.
 They do not, and the code says so in its own comments:
