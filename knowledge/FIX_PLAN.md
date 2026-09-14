@@ -966,6 +966,51 @@ locally, deliberately unpushed, held for fabji's go-ahead); the F8 row stays `op
 
 - `MaxSubtitleReferenceOffsetSeconds` bounds what a *subtitle* reference is trusted for. A shift past it means that track is not the same cut: the reference is discarded as a ruler and the subtitle is aligned against the audio instead (one audio analysis per file, cached), rather than the file being refused. Changed in 2.0.17; before that the ceiling ended the job.
 
+### S37 - a walk measured the moment as well as the volume, so a mixed batch throttled the fast one (high, fixed)
+
+Reported from the field on 2026-09-14, from a mixed batch (`Outsiders` on `/media/synology` plus `Tusen bröder`
+on `/Media`, 86 tasks): the series on the local NVMe ran at two walks at a time while the share's 75 walks ran
+alongside it, against 6 concurrent in the same process when it was alone.
+
+The volume's own numbers, same process, an hour apart:
+
+| when | in flight with it | per walk | ceiling |
+|---|---|---|---|
+| 15:50-15:52 | only its own jobs | 68,2-90,8 MB/s (9-15 s) | **none (fast)**, 6 concurrent |
+| 16:02-16:03 | the share's walks, 75 of them | **45,6-58,0 MB/s** (16-39 s) | **2**, and then none again, flipping |
+
+and the line that shows the ceiling being decided by the second row:
+
+    16:02:47.362  walk ceiling: holding /Media|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's
+                  last walk moved 45,6 MB/s, which is storage-bound
+
+After that the batch settled at `dispatch: starting 1, running 1` for twenty-five minutes. **A walk's throughput
+is the storage's speed and everything else that was running**: 45,6 MB/s is a true statement about that moment
+and a false one about that disk, and it straddled the 50 MB/s boundary, so the ceiling could not make up its mind.
+
+**Fixed** by refusing to judge a volume from a contended walk: `VolumesOtherThan(thisVolume, otherVolumes)`
+(counted over every running job's volume) decides, a walk with anything in flight elsewhere is logged with what
+it moved and **not** fed to the profile, and the feed still happens in exactly one place. Checks: nothing in
+flight is that volume's own measurement, another volume in flight is contention, a volume's own concurrent jobs
+are not, and every other volume counts. 603 checks green. Commit `8373662`.
+
+The share's half of that batch was correct throughout - 2 concurrent, 29-31 MB/s, stable for 75 walks - so this
+was one volume being misjudged, not the ceiling misbehaving.
+
+### S38 - a cold mixed batch still has no uncontended measurement of its fast volume (medium, open)
+
+S37 removed the false evidence; it does not create any. In a mixed batch started on a cold plugin process, every
+walk on the fast volume is contended by the slow volume's walks, so it never gets a measurement of its own and
+stays at the conservative 2 for the whole batch - the same gap S33 described from the other side (a volume whose
+extractions are all cache-served is never measured by a read either).
+
+The fix, when it is wanted: give a volume with no measurement one small timed read of its own, once per process -
+4 KB is enough to classify it, because the latency thresholds already in use (under 5 ms fast, 5-100 ms
+storage-bound, over 100 ms thrashing) separate local disk from the share cleanly: measured today, the same small
+read would land well under a millisecond on `/dev/nvme0n1p2` and at tens of milliseconds on the share. It costs
+one read per volume per process, and it replaces a guess with a measurement. Not done here: one item, one commit,
+and S37 is the item the field run asked for.
+
 ## 2026-09-14 - the register triage
 
 **Before:** 78 open rows and 4 open sections, of which only 23 rows carried a severity and about 55 carried
