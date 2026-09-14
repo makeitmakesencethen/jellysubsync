@@ -4,6 +4,37 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.31 (beta)
+
+The per-volume walk ceiling now applies to a volume nothing has read yet - which is exactly the case it is
+most needed in.
+
+2.0.30 shipped the ceiling with "no measurement means no ceiling". The measurement is filled in *during* the
+extraction pass that reads the file, but the wave of jobs is planned *before* it, so on a cold store the
+ceiling was never consulted with anything in it and it did nothing. Found on a real server, on a season sync
+that was meant to exercise it:
+
+- **eight audio walks started within twenty seconds on one share** - max concurrent **8**, median **6,8 min**
+  per walk (5,5-7,0) - while the extraction pass measured that volume at **7,7-39 ms per read**, far above the
+  5 ms that should have held it to two.
+- Two holes rather than one: `WalkCapForProfile(null)` returned no ceiling, and `WalkCapOfPath(null)` - a job
+  whose volume could not be resolved at plan time - returned none either. Either one admits a whole batch.
+
+Both now treat an unmeasured volume, and a volume that cannot be identified, as **not known to be fast**: each
+is held at 2 until that volume's own reads say otherwise. A volume that measures fast - a local disk answers in
+~0,05 ms - is uncapped from its first measured pass onwards, so the cost to a setup that is not storage-bound
+is at most its first heavy wave at two instead of N.
+
+- **The ceiling is no longer silent.** Holding a walk now logs, once a minute per volume:
+  `walk ceiling: holding <volume> at 2 concurrent media read(s) - this volume has not been read yet, so it is
+  treated as slow until it measures fast`. The absence of any such line is what made the first run ambiguous.
+- **Checks pin the ordering, not just the arithmetic**: eight heavy jobs against a cold store must plan
+  **2 of 8**, an unmeasured real volume must be held at 2, and a volume whose own reads measured it fast must
+  be uncapped. 559 checks green.
+
+Nothing else changed: the extraction route, the reads it makes, the alignment and the files it writes are
+untouched.
+
 ## 2.0.30 (beta)
 
 A slow share now bounds its own audio analysis, and the log answers what a long batch is doing while it runs.
