@@ -997,7 +997,7 @@ are not, and every other volume counts. 603 checks green. Commit `8373662`.
 The share's half of that batch was correct throughout - 2 concurrent, 29-31 MB/s, stable for 75 walks - so this
 was one volume being misjudged, not the ceiling misbehaving.
 
-### S38 - a cold mixed batch has no uncontended measurement of its fast volume (high, fixed in `f7954eb`, field run owed)
+### S38 - a cold mixed batch has no uncontended measurement of its fast volume (high, fixed and verified in the field)
 
 Confirmed in the field on 2026-09-14, on the 2.0.35 run, and it is why that run used two workers on a volume with
 six free slots:
@@ -1138,3 +1138,17 @@ probe line**. It now sits in `RunSyncJob` where every job passes, right after th
 the reason for the move is written into the code so the next reader does not repeat it. The run also confirmed the
 arithmetic: `dispatch: … running 2-4` with both volumes unmeasured is exactly two per volume, so the ceiling was
 the binding constraint on concurrency even though the batch's *start* was S40's problem.
+
+### S39 - a volume was judged by constants measured on one machine (high, implemented; the ratios have not yet decided a ceiling in the field)
+
+Implemented in `503f292`: the rule compares each volume against the best this machine has measured
+(`FastestReadMsPerCall()`, `FastestWalkBytesPerMs()` in `Jellyfin.Plugin.SubSync/Services/VolumeProfiles.cs:412`),
+with hysteresis so a cap cannot oscillate, and names both numbers in its reason. What is still owed is the field
+proof. On 2026-09-14 the ratio path never once decided a ceiling; the run fell through to the absolute fallback
+instead, which is itself the finding that produced S41:
+
+    walk ceiling: holding 192.168.0.110:/volume1/JELLYFIN at 1 concurrent media read(s) - this volume measured
+    231,3 ms per read, which is thrashing
+
+The absolute fallback's own words, not a ratio's. S39 closes when a mixed run shows a ceiling chosen between two
+measured numbers.
