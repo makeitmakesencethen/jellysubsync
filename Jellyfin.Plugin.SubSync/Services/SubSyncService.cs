@@ -2866,9 +2866,14 @@ public class SubSyncService : IDisposable
     /// needed: every walk on its fast volume was contended by the slow volume's walks, so it had nothing
     /// measured about it and paid the conservative two for the whole run while workers sat idle.
     /// </remarks>
-    /// <param name="videoPath">The media file, which names the volume.</param>
-    private void ProbeVolumeIfUnmeasured(string videoPath)
+    /// <param name="videoPath">The media file, which names the volume, or null when it is not known yet.</param>
+    private void ProbeVolumeIfUnmeasured(string? videoPath)
     {
+        if (string.IsNullOrWhiteSpace(videoPath))
+        {
+            return;
+        }
+
         var profile = Services.VolumeProfiles.For(videoPath);
         if (!profile.NeedsProbe || !profile.TryBeginProbe())
         {
@@ -4242,6 +4247,13 @@ public class SubSyncService : IDisposable
         CancellationToken cancellationToken)
     {
         job.Status = SyncJobStatus.Running;
+
+        // Every job passes here, and a job about to run is the right place to notice that nothing has measured
+        // its volume: the next planning pass can then judge that volume on a measurement instead of holding it.
+        // The first attempt at this sat in the audio-reference branch, which jobs on a real server do not take -
+        // 17 engine runs on 2026-09-14, several on the fast volume, and no probe ever fired (S38).
+        ProbeVolumeIfUnmeasured(
+            _jobContexts.TryGetValue(job.Id, out var probeContext) ? probeContext.Video.Path : null);
         job.StartedAtUtc = DateTime.UtcNow;
         job.Progress = 0.0;
 
@@ -4915,10 +4927,6 @@ public class SubSyncService : IDisposable
                     "the reference subtitle is not the same cut as the video").ConfigureAwait(false);
                 var audioArgs = BuildFfSubSyncArgs(
                     config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null);
-
-                // This job is about to read the media, so if nothing has measured this volume yet, do it now:
-                // the next planning pass can then judge the volume on a measurement instead of holding it.
-                ProbeVolumeIfUnmeasured(videoPath);
 
                 var audioExit = await RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, audioArgs, tempDir, null, cancellationToken,

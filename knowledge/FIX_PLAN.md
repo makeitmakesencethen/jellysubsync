@@ -1037,6 +1037,26 @@ still means 100 ms rather than 25. A source-level check pins the call to the job
 starting, while the share stays at 2. The 2.0.35 run could not evaluate S39's ratio criteria at all - no walk was
 ever *used*, so no ratio was ever computed - which is the other reason that run has to be repeated.
 
+### S40 - the enqueue itself is the slow part of a batch's start (high, open, from the field)
+
+Measured on 2026-09-14 while a 55-task batch was being queued, one line per item that took longer than it should:
+
+    enqueue slow: item=0 ms, sources=2 ms, settings=0 ms, log=21276 ms, total=21278 ms stream=2 video=/media/synology/…
+    enqueue slow: item=0 ms, sources=1 ms, settings=0 ms, log=8451 ms,  total=8453 ms  stream=0 …
+    enqueue slow: item=0 ms, sources=2 ms, settings=0 ms, log=7954 ms,  total=7957 ms  stream=2 …
+    enqueue slow: item=0 ms, sources=8 ms, settings=3 ms, log=7861 ms,  total=7873 ms  stream=3 …
+    enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=15422 ms, total=15426 ms stream=2 …
+
+Item lookup, source resolution and settings all cost nothing; **the `log` phase costs 8-21 seconds per queued item**,
+and the batch is queued one item at a time through that path. That is most of ten minutes spent before a 55-task
+batch has even started, and it is what "the batch takes a while to start" is. This is the first run in which the
+line was visible, and it is not the ceiling: the dispatcher showed `limit 8` throughout, so nothing was being held
+back by a cap.
+
+Not diagnosed yet - the row is the measurement, not the cause. The next step is to read what the log phase writes
+for each queued item (the batch history it persists, and how often it flushes the plugin log) and to time those
+two on their own, exactly as the audio-copy idea was killed by its own test rather than by an argument.
+
 ## 2026-09-14 - the register triage
 
 **Before:** 78 open rows and 4 open sections, of which only 23 rows carried a severity and about 55 carried
@@ -1073,3 +1093,9 @@ What the triage actually found, which is the part worth re-reading:
   line that decides it. The other 58 open rows say in their evidence cell that they are ranked and not yet read
   - that is the honest state, and it is the work the next pass picks up.
 
+**Correction to S38, from the same run.** The probe's first placement was in the audio-reference branch, which
+jobs on a real server do not take: 17 engine runs in that era, several of them on the fast volume, and **not one
+probe line**. It now sits in `RunSyncJob` where every job passes, right after the job's status becomes Running, and
+the reason for the move is written into the code so the next reader does not repeat it. The run also confirmed the
+arithmetic: `dispatch: … running 2-4` with both volumes unmeasured is exactly two per volume, so the ceiling was
+the binding constraint on concurrency even though the batch's *start* was S40's problem.

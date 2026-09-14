@@ -2761,11 +2761,13 @@ def run_page_checks():
            and 'job(s) on another volume were being ' in service_source
            and service_source.count('ObserveWalk(') == 1)
 
-    report('an unmeasured volume is read once instead of guessed at, in the job\'s own thread',
-           'ProbeVolumeIfUnmeasured(' in service_source
-           and 'ProbeBytes = 16 * 1024' in service_source
+    report('an unmeasured volume is read once instead of guessed at, from where every job passes',
+           'ProbeBytes = 16 * 1024' in service_source
            and 'TryBeginProbe()' in service_source
-           and service_source.count('ProbeVolumeIfUnmeasured(videoPath);') == 1
+           and service_source.count('ProbeVolumeIfUnmeasured(') == 2      # the method and one call site
+           and 'ProbeVolumeIfUnmeasured(\n            _jobContexts.TryGetValue' in service_source
+           # and not back in the audio-reference branch, which jobs on a real server never take (S38, 2026-09-14)
+           and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
 
     report('the page reads and writes settings through the plugin, not the web client',
