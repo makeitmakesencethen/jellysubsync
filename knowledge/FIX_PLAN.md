@@ -665,6 +665,62 @@ Also worth having: the reference's provenance in the job result, not only in the
 source track and cue count (`Built this run's reference subtitle for {Video} from track {Reference}: {Cues}
 cues`) but the reference file is run-scoped and deleted, so after the fact nothing can be inspected.
 
+### The walk ceiling A - shipped and verified in the field (2.0.30/2.0.31, done)
+
+The per-volume ceiling is in the released beta and was measured on fabji's own server, on the season that
+first exposed the problem (`Outsiders` S10, eight episodes, same share, `ParallelWorkers` 8):
+
+| | walks | per walk (min) | max concurrent | batch |
+|---|---|---|---|---|
+| 2.0.30, ceiling never applied | 8 | 5,5 6,6 6,6 6,8 6,8 6,8 6,9 7,0 | **8** | 7,3 min |
+| 2.0.31, ceiling applying | 8 | 0,6 0,6 0,7 0,7 0,8 0,8 1,1 1,1 | **2** | 3,4 min |
+
+Per file 8,5x faster, batch 2,1x faster, every job again `UNVERIFIED` (nothing written) so the test repeats.
+2.0.30 shipped the ceiling with "no measurement means no ceiling", and the measurement is filled in *during*
+the extraction pass while the wave is planned *before* it - so on a cold store the ceiling was never consulted
+with anything in it. Two holes: `WalkCapForProfile(null)` and `WalkCapOfPath(null)` (a job whose volume could
+not be resolved) both returned "no ceiling". Fixed in 2.0.31 by treating an unmeasured volume, and an
+unidentifiable one, as **not known to be fast** - held at 2 until that volume's own reads say otherwise.
+
+### S32 - the ceiling's own log line cannot say which of two cases it is in (low, small)
+
+`walk ceiling: holding <volume> at 2 concurrent media read(s)` picks its wording from the *cap value*, and 2
+is both the unmeasured fallback and what a volume measured between 5 and 100 ms per read gets. On 2026-09-14
+it printed "this volume has not been read yet" for a volume whose extraction pass had measured 7,7-39 ms per
+read minutes earlier, so the line could not distinguish "nothing measured yet" from "measured slow". Fix: pass
+the measured value into the message. This is the one output S33 is diagnosed from, so it is worth having.
+
+### S33 - a fast volume's ceiling may never lift, because nothing feeds the profile (medium, correctness)
+
+`VolumeProfiles` is fed only by reads made through `ReadPolicy` (`ReadPolicy.cs:466 _volume?.Observe`), and
+those come from the extraction path. Two consequences:
+
+- when a run's extraction is served from the **subtitle cache** (`extract: method=cache ... no read: this file's
+  subtitle was extracted on an earlier run`), no reads happen, so the volume keeps no samples and the
+  conservative cap of 2 sticks - on a *fast* volume too, which is a throughput regression the ceiling was never
+  meant to introduce;
+- the **walk's own reads are invisible**: ffsubsync runs as a child process, so the tens of thousands of reads
+  that actually cost the time are never measured by the plugin's read path.
+
+The 2.0.31 run's hold line said "has not been read yet" once a minute for the whole run, which is consistent
+with either case (see S32). Needs the measurement surfaced first (S32), then a decision: feed the profile from
+the walk (even approximately, e.g. duration and bytes read) or treat "no samples after N walks" as fast rather
+than as unmeasured.
+
+### S34 - the only way to force re-analysis is an API call (low)
+
+`POST /SubSync/SpeechCache/Clear` exists, is documented safe, and is what a re-test needs after a run has
+cached its audio analyses - but it is not wired to anything in the page (no UI hits for it). Anyone wanting to
+re-walk a file has to call the API with an API key. A button in the plugin's settings would make it reachable.
+
+### Housekeeping - the open rows that carry no severity (low)
+
+77 rows are open; 53 of them sit in the older tables that have no severity column (GUI, API surface, queue and
+file-writing items), so "what is left" cannot be answered by severity for most of the list. Worth one pass to
+give them a severity and drop the stale ones - **S13** in particular describes a harness defect
+(`tests/backend/slowread.so` missing) that no longer exists: the shim is in the tree and was used for every
+measurement on 2026-09-14.
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
