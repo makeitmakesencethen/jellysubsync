@@ -1051,6 +1051,24 @@ local volume at `ceiling none (fast)` for the whole run while the share reads `s
 against the reference, with no flipping - and the reference the log names should be the local disk's own numbers,
 not a floor.
 
+**What the local rig could and could not prove (2026-09-14).** A two-volume end-to-end run was attempted on the
+dev box instead of waiting for the server, and it stopped one step short: the rig's Jellyfin would not index the
+two freshly cut clips (`ffprobe` confirms both are h264 + eac3, and neither a library refresh nor a scoped
+`POST /Items/{id}/Refresh` produced an item - only the folder), so no batch could be queued for them. What the
+attempt did establish, and what the next session should not redo:
+
+- The rig's live instance **is** preloaded with the read shim (`LD_PRELOAD=…/slowread.so`,
+  `SLOWREAD_PREFIX=/opt/data/jf12test/media-slow/`, `SLOWREAD_MS_PER_16K=12.8`), so a genuinely slow volume exists
+  there without root. `/dev/shm` is the only other device, and it is 64 MB with no way to remount it: user
+  namespaces are blocked (`unshare: Operation not permitted`), so a fast volume big enough for a real walk is not
+  available on this box at all. Two clips on two different devices were made and verified (`stat`: device 99 for
+  `/dev/shm/s39-fast/fast-clip.mkv`, 66306 for `media-slow/s39-slow/slow-clip.mkv`), and a `S39 Fast Storage`
+  library was registered over the tmpfs path - the pieces are in place if a future session wants to finish it, and
+  the current build is installed in the rig as `SubSync_2.0.35.0` (the two older plugin directories are parked in
+  `/tmp/s39-old/`).
+- The consequence: the mixed-batch verification stays a **field run on the real server**, which is also the run
+  that has already failed twice with absolute thresholds. It is the last thing standing between S39 and done.
+
 **If this proves too blunt later:** the honest end state is a ceiling that varies concurrency and watches what it
 costs (`2 -> 4 -> 8`, keeping the level where per-walk throughput holds and dropping back where it falls), which
 needs no reference and no ratio at all. That is a larger change than this one, and it is the design worth
