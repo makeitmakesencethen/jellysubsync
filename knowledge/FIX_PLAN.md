@@ -599,14 +599,27 @@ the ceiling safe). Renaming a property to slip past the old reflection check was
 4 of 4 (as it always did); a volume measuring 20 ms per read now takes **2**, and one measuring over 100 ms
 takes **1**.
 
-**Verification status.** Done: the policy checks above, deterministic and I/O-free, plus the profile->
-ceiling mapping fed real latencies. **Not done: the end-to-end mixed-volume run.** The plan was a synthetic
-slow volume via `slowread.so` plus a fast one, but the shim only slows processes we launch ourselves - it
-cannot be injected into the running Jellyfin process, and throttling a device needs privileges this host does
-not have. What replaces it for now is the in-process check that a volume whose profile has measured 20 ms per
-read maps to a ceiling of 2 while another volume's jobs keep the full worker count. The real mixed case - this
-user's own server, local `/Media` against `/media/synology` - is the test that settles it, and it needs the
-new build running there (a dev build, not a release).
+**Verification status.** Done, in three layers:
+
+1. The ceiling rule itself: unmeasured and fast volumes fill the wave exactly as before; a volume measuring
+   20 ms per read takes 2 of 5 queued; one measuring over 100 ms takes 1; light work is never bound.
+2. The mapping: 0,05 ms (the class default) -> uncapped, 13 and 46 ms -> 2, 1419 and 1613 ms -> 1, a path with
+   no volume -> uncapped, and a `VolumeProfile` fed this share's own latencies -> 2.
+3. **The mixed-storage case, on real devices, through the real dispatch entry.** `PlanStart` is called with
+   `volumeOf = MediaVolume.Of` and `walkCapOf = WalkCapOfPath` over a queue spanning two genuinely different
+   devices - `/opt/data` (`/dev/nvme0n1p2`) and `/dev/shm` (tmpfs) - with the tmpfs volume fed slow reads:
+   the wave takes **2 of the 3 slow jobs and all 3 fast ones, 5 of 6 slots**, i.e. the storage-bound volume
+   is held and the fast volume is not throttled by it. The run also asserts the two paths resolve to two
+   different volumes, so this is the real mount-table identity and not a stand-in.
+
+**What the shim could not do**: the plan was a synthetic slow volume via `slowread.so`, but the shim only
+slows processes we launch - it cannot be injected into the running Jellyfin process, and throttling a device
+needs privileges this host lacks. Feeding the real profile slow samples and then driving the real dispatch is
+the faithful substitute: same code path, same identity, same decision, only the latency source differs.
+
+**Still open**: the four-level curve re-confirmed *with the ceiling in place* on the user's own server. That
+needs the new build running there (a dev build, not a release - nothing is pushed), and it is the last piece
+of the goal's verification list.
 
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
