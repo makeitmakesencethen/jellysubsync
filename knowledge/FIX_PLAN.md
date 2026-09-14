@@ -733,7 +733,7 @@ and how long the engine took over it, so a volume can be measured with nothing r
 - An unmeasured volume keeps the conservative cap of 2: the hole 2.0.30 shipped is not reopened, it is only
   closed on the other side, so a fast volume leaves it as soon as its own walk has finished.
 
-Verified in the suite (577 checks green, commit `d8f42a7`): a walk-only volume measured fast keeps no
+Verified in the suite (577 checks green, commit `3391972`): a walk-only volume measured fast keeps no
 ceiling; the same volume at the share's rate is held at 2; one whose walk barely moves is held at 1; reads fast
 with a slow walk and reads slow with a fast walk both hold at 2; with neither signal the volume stays at 2; and
 end to end through `PlanStart` on a device of its own (`/dev/shm`), eight heavy jobs on an unmeasured volume
