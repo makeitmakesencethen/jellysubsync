@@ -294,10 +294,20 @@ public class SubSyncService : IDisposable
             folders = Array.Empty<string>();
         }
 
-        return ItemAccess.Allows(
-            user.HasPermission(PermissionKind.EnableAllFolders),
-            folders,
-            AncestorIds(item));
+        var allFolders = user.HasPermission(PermissionKind.EnableAllFolders);
+        var ancestors = AncestorIds(item);
+        var allowed = ItemAccess.Allows(allFolders, folders, ancestors);
+        if (!allowed)
+        {
+            // One line, both sides of the comparison. This is what makes a refusal diagnosable in the field:
+            // if a legitimate account is ever refused, the log says which folders the item was found in and
+            // which libraries the account holds, so the check can be corrected rather than guessed at.
+            PluginLog.Info(
+                $"item {itemId} not visible to account {userId}: it sits under [{string.Join(", ", ancestors)}], "
+                + $"and that account's libraries are [{string.Join(", ", folders)}] (all-folders={allFolders})");
+        }
+
+        return allowed;
     }
 
     /// <summary>
