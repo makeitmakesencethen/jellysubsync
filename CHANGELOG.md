@@ -4,6 +4,24 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.37 (beta)
+
+Fixes the first measurement a volume gets, which 2.0.36 added in the wrong place.
+
+2.0.36 gave a volume with nothing measured about it one timed read, so that a mixed batch could judge a fast
+volume instead of guessing at it. The read was taken inside the audio-reference branch of a job - a branch jobs on
+a real server do not take. The field run was the proof: seventeen engine runs in that build, several of them on
+the fast volume, and **not one probe in the log**. The volume stayed unmeasured, both volumes were held to two
+walks each, and a mixed batch ran four jobs at a time with six workers idle.
+
+- The read is now taken from `RunSyncJob`, where every job passes, immediately after the job starts running. That
+  is also the right moment: the job is about to read the media, and the next planning pass can then judge the
+  volume on the measurement rather than holding it.
+- The probe logs what it measured and the ceiling it produced, so the decision can be read out of the log rather
+  than inferred.
+- A check pins the call site **and** asserts it is not back in the old branch, because that is exactly how this
+  went wrong once.
+
 ## 2.0.36 (beta)
 
 A volume that nothing has measured gets measured rather than guessed at - and one threshold is recalibrated, so
