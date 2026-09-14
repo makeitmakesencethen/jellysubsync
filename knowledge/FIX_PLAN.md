@@ -621,6 +621,50 @@ the faithful substitute: same code path, same identity, same decision, only the 
 needs the new build running there (a dev build, not a release - nothing is pushed), and it is the last piece
 of the goal's verification list.
 
+### S30 - a refusal is rendered as a failure (medium, reporting)
+
+Seen by the user in the batch view: `FAIL Extrema livsstilar - Swedish - SUBRIP - unverified: this subtitle was
+aligned against the audio (-120 ms offset) and the file holds no other text track to check that against, so
+nothing was written...`
+
+The decision is deliberate - an audio-only ruler on a short file can be out by a second or more, and with no
+second text track to check it against the plugin declines to write - but the plugin has only three terminal
+statuses (`Completed`, `Failed`, `Cancelled`), every refusal is filed as `Failed`, and the page prints
+`FAIL <title> - <message>` for anything Failed (`Web/subsyncMain.js:279,1551,1588`). A refusal ("found
+something, will not trust it") and a failure ("this broke") are different outcomes rendered identically.
+
+Fix: give refusals their own terminal state or badge ("not written - unverified", "refused") and render it as
+its own line, not as FAIL. The plugin log already distinguishes them (`UNVERIFIED:` / `REFUSED:`), so this is
+presentation only.
+
+### S31 - a reference subtitle is trusted on plausibility, never on correctness (high, correctness)
+
+Question that produced this row: when the plugin checks a sync against a sibling subtitle, how do we know that
+sibling is right? **We do not.** There is no ground truth inside the plugin; what exists is four plausibility
+checks, and a wrong-but-plausible track passes all of them:
+
+- cue count: a track with too few cues is rejected as a signs track (`The reference subtitle {Track} ... holds
+  only {Cues} cue(s) - a signs track, not usable as a reference`);
+- span against the file's duration, 3 % (`IsTargetOffTheVideo`: `referenceOnVideo = |referenceSpan/videoSeconds
+  - 1| <= 0,03`);
+- the shift it may ask for (`MaxSubtitleReferenceOffsetSeconds`, default 30 s - past it the ruler is discarded
+  and the audio used);
+- framerate plausibility (a span ratio that is not a framerate pair is refused).
+
+What none of those catch is **subtitles for a different film with a similar runtime** - which is not
+hypothetical: the Alex S01E01 sidecar investigated on 2026-09-13 held another show's dialogue, and every span
+and ratio check passed because the lengths were close. That investigation was withdrawn as a subtitle
+acquisition error, but the same shape can poison a sync silently.
+
+**Cheapest signal, currently thrown away**: ffsubsync prints an alignment `score` (seen in a local run:
+`score: 126979.776`), and nothing in the plugin captures, logs or judges it. Logging it, and refusing to trust
+a *subtitle* ruler whose score is far below what the audio ruler produces for the same file, would catch a
+wrong reference at the one point where the engine itself knows something is off.
+
+Also worth having: the reference's provenance in the job result, not only in the log - the log line names the
+source track and cue count (`Built this run's reference subtitle for {Video} from track {Reference}: {Cues}
+cues`) but the reference file is run-scoped and deleted, so after the fact nothing can be inspected.
+
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
 Not a row to act on; recorded so the numbers are not lost. Keying an audio-only copy next to the speech
