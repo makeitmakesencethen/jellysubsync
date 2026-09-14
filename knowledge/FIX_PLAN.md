@@ -380,10 +380,19 @@ Same 8 files, same order, audio analysis cleared before every level (verified: a
 | 1 | 8 | 18,0 / **22,2** / 32,8 s | 235,8 s | 122,15 files/h | OK |
 | 2 | 8 | 34,1 / **48,9** / 53,5 s | 213,9 s | 134,63 | OK |
 | 4 | 8 | 68,6 / **94,1** / 107,1 s | 216,7 s | 132,89 | OK |
+| 8 | 8 | 366,5 / **421,3** / 432,6 s | 438,9 s | **65,62** | OK |
 
 - **Per-file time is proportional to the limit** (1 : 2,20 : 4,24) - the queueing signature, exactly what
   the shim's bandwidth+queue model predicted.
-- **The level's wall clock is flat** (3,9 / 3,6 / 3,6 min) and so is the aggregate (122-135 files/h).
+- **The level's wall clock is flat up to 4** (3,9 / 3,6 / 3,6 min) and so is the aggregate
+  (122-135 files/h) - but **both collapse at 8**: 7,3 min and **65,6 files/h**, half the throughput of
+  every lower level, with 421 s for a file that takes 22 s alone. So parallelism is *free* up to ~4 and
+  *harmful* past it: the knee sits between 4 and 8, and per-file time is linear (1 : 2,20 : 4,24) only
+  until the volume itself saturates.
+- **What a user watching the UI sees**: at limit 1 the first episode is done in 22 s and files land
+  every ~25 s; at limit 4 the first result takes 69 s and they then arrive in bursts; at limit 8 nothing
+  completes for six minutes. The *last* file lands at ~3,6-3,9 min either way (4,4 min at limit 8), so
+  concurrency redistributes the wait rather than shortening it.
 - **Verdict: this share is in the queueing regime.** Concurrency buys no throughput at all; it only
   multiplies how long one file waits. All 8 files needing analysis cost ~3,6 min of wall clock whether
   the limit is 1 or 4, but a single file finishes in 22 s at limit 1 against 94 s at limit 4.
@@ -400,8 +409,9 @@ subtitle-ruler jobs, since the two cost entirely different things: an audio rule
 container (22-500 s per file), a subtitle ruler reads the container index (field median 2,9 s). The
 measurement says an audio cap is free - aggregate is flat between limit 1 and 4 - while it cuts the time
 for any *individual* file up to 4x, and it protects the extraction lane from competing with eight walks
-on the same volume. Cap 2 keeps a second job moving during the first one's waits; cap 1 is the fastest
-per file. Decide the number when this is scoped.
+on the same volume. Measured curve points at **1 or 2**: limit 1 is the fastest per file (22 s) and limit 2 costs 2,2x per
+file for the same aggregate, while 4 costs 4,2x and 8 costs 19x *and half the throughput*. Decide between
+1 and 2 when this is scoped.
 
 ### Parked, low priority — cache the decoded audio for re-analysis (from S28, 2026-09-14)
 
