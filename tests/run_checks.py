@@ -687,6 +687,27 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         && ItemAccess.UserIdFrom(new[] { new KeyValuePair<string, string>("sub", account.ToString()) }) == account);
 }
 
+// S37: a walk measures the volume *and* whatever else happened to be running. Measured on 2026-09-14: the same
+// local NVMe volume walked at 85-91 MB/s with only its own jobs in flight, and at 45-58 MB/s while a slow share
+// was walked alongside it - which straddles the 50 MB/s boundary, so the ceiling held a fast volume to two
+// walks for the rest of the batch. A walk taken while another volume was being read is not evidence about this
+// volume, so it is deliberately not fed to the profile.
+{
+    const string local = "/Media|/dev/nvme0n1p2";
+    const string share = "/media/synology|192.168.0.110:/volume1/JELLYFIN";
+
+    Check("nothing else in flight means the walk is the volume's own measurement",
+        SubSyncService.VolumesOtherThan(local, new[] { local }) == 0
+        && SubSyncService.VolumesOtherThan(local, Array.Empty<string>()) == 0);
+    Check("a walk taken while another volume was being read is not that volume's measurement",
+        SubSyncService.VolumesOtherThan(local, new[] { local, share }) == 1,
+        "got " + SubSyncService.VolumesOtherThan(local, new[] { local, share }));
+    Check("a volume's own concurrent jobs are not contention",
+        SubSyncService.VolumesOtherThan(share, new[] { share, share, share }) == 0);
+    Check("every other volume in flight is counted",
+        SubSyncService.VolumesOtherThan("a", new[] { "a", "b", "c", "b" }) == 3);
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
     SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,
@@ -2596,6 +2617,11 @@ def run_page_checks():
            and main_html.count("api('SubSync/Batch'") == 2
            and main_html.count('return postBatch(label, ') == 2
            and 'rows.length <= BATCH_CHUNK' in main_html)
+
+    report('a walk is only used to judge its own volume, and only from one place',
+           'VolumesOtherThan(' in service_source
+           and 'job(s) on another volume were being ' in service_source
+           and service_source.count('ObserveWalk(') == 1)
 
     report('the page reads and writes settings through the plugin, not the web client',
            "api('SubSync/Configuration')" in pages['subsyncMain.html']

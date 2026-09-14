@@ -2839,6 +2839,22 @@ public class SubSyncService : IDisposable
     public const double ThrashingWalkMbPerSec = 1.0;
 
     /// <summary>
+    /// Counts how many of the volumes given are not the one a walk just measured.
+    /// </summary>
+    /// <remarks>
+    /// A walk's throughput is the storage's speed *and* everything else that happened to be running: measured
+    /// on 2026-09-14, the same local NVMe volume walked at 85-91 MB/s with only its own jobs in flight and at
+    /// 45-58 MB/s while a slow share was being walked at the same time. The second number is a statement about
+    /// the moment, not about the disk, and feeding it to the ceiling held a fast volume to two concurrent
+    /// walks for the rest of a mixed batch.
+    /// </remarks>
+    /// <param name="thisVolume">The volume the walk measured.</param>
+    /// <param name="otherVolumes">The volumes of every other job in flight.</param>
+    /// <returns>How many of them are elsewhere (each job counts once).</returns>
+    internal static int VolumesOtherThan(string thisVolume, IEnumerable<string> otherVolumes)
+        => otherVolumes.Count(v => !string.Equals(v, thisVolume, StringComparison.Ordinal));
+
+    /// <summary>
     /// Gets the ceiling for a volume from a measured cost per read.
     /// </summary>
     /// <param name="msPerCall">Milliseconds per read, or null when nothing has read from this volume.</param>
@@ -4492,21 +4508,43 @@ public class SubSyncService : IDisposable
             PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
 
             // A walk of the media measures its volume without taking any read to measure it, which is the only
-            // signal that exists on a run whose extractions were all served from the subtitle cache.
+            // signal that exists on a run whose extractions were all served from the subtitle cache. It only
+            // counts when it is the volume being measured: a walk taken while another volume was being read
+            // measures the moment as much as the storage, and believing it held a fast volume to two walks for
+            // the rest of a mixed batch on 2026-09-14.
             if (!usedSubtitleReference)
             {
                 var walked = MediaLengthOf(videoPath);
                 if (walked > 0)
                 {
                     var walkedVolume = Services.VolumeProfiles.For(videoPath);
-                    walkedVolume.ObserveWalk(walked, engineWatch.ElapsedMilliseconds);
-                    var walkedCap = WalkCapForProfile(walkedVolume.MsPerCall(), walkedVolume.WalkBytesPerMs());
-                    PluginLog.Info(
-                        $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
-                        + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = "
-                        + $"{(walkedVolume.WalkBytesPerMs() ?? 0) / 1000.0:0.0} MB/s - "
-                        + $"the ceiling for that volume is "
-                        + $"{(walkedCap.Cap >= int.MaxValue ? "none" : walkedCap.Cap.ToString())} ({walkedCap.Why})");
+                    var elsewhere = VolumesOtherThan(
+                        MediaVolume.Of(videoPath),
+                        _jobs.Values
+                            .Where(j => j.Status == SyncJobStatus.Running)
+                            .Select(j => MediaVolume.Of(
+                                _jobContexts.TryGetValue(j.Id, out var other) ? other.Video.Path : null)));
+                    var walkedMbPerSec = walked / (engineWatch.ElapsedMilliseconds <= 0 ? 1.0 : engineWatch.ElapsedMilliseconds) / 1000.0;
+
+                    if (elsewhere > 0)
+                    {
+                        PluginLog.Info(
+                            $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
+                            + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = {walkedMbPerSec:0.0} MB/s, but it is "
+                            + $"not being used to judge that volume: {elsewhere} job(s) on another volume were being "
+                            + "read at the same time, so this number belongs to the moment rather than to the storage");
+                    }
+                    else
+                    {
+                        walkedVolume.ObserveWalk(walked, engineWatch.ElapsedMilliseconds);
+                        var walkedCap = WalkCapForProfile(walkedVolume.MsPerCall(), walkedVolume.WalkBytesPerMs());
+                        PluginLog.Info(
+                            $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
+                            + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = "
+                            + $"{(walkedVolume.WalkBytesPerMs() ?? 0) / 1000.0:0.0} MB/s - "
+                            + $"the ceiling for that volume is "
+                            + $"{(walkedCap.Cap >= int.MaxValue ? "none" : walkedCap.Cap.ToString())} ({walkedCap.Why})");
+                    }
                 }
             }
 
