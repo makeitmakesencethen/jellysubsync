@@ -1592,6 +1592,30 @@ foreach (var line in heartbeatLines.TakeLast(3))
     Console.WriteLine("   " + line);
 }
 
+// ---------------- S21: a completion that wrote nothing is traceable ----------------
+// Before this change the two "completed, nothing written" paths logged only to Jellyfin's log, so a
+// batch could not be reconciled from the plugin log alone (27 jobs in one night's run). This invokes
+// the shared helper the real paths call, then reads the file the plugin writes.
+var nothingWritten = new SyncJob { Id = "s21-nothing-written-probe", Mode = "ultimate" };
+nothingWritten.Outcome = "already in sync (median cue delta 0 ms, ratio 1.0000x) - nothing written";
+nothingWritten.OutputPath = null;
+nothingWritten.ExtractionNote = "seekhead-cues, 412 cues";
+var logCompletion = typeof(SubSyncService).GetMethod(
+    "LogPluginCompletion", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static);
+Check("the completion line has one shared definition (S21)", logCompletion is not null);
+logCompletion!.Invoke(null, new object?[] { nothingWritten, null });
+var nothingWrittenLines = File.Exists(heartbeatLog)
+    ? File.ReadAllLines(heartbeatLog).Where(l => l.Contains("s21-nothing-written-probe")).ToArray()
+    : Array.Empty<string>();
+Check("a job that completed without writing still gets its plugin-log line (S21)",
+    nothingWrittenLines.Any(l => l.Contains("completed:") && l.Contains("output=(none)") && l.Contains("nothing written")),
+    nothingWrittenLines.LastOrDefault() ?? "no line");
+Console.WriteLine("---- S21 sample: a completion that wrote nothing ----");
+foreach (var line in nothingWrittenLines.TakeLast(2))
+{
+    Console.WriteLine("   " + line);
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -2330,6 +2354,14 @@ def run_page_checks():
            and 'Path.GetFileName(videoPath), referenceStream' in service
            and 'CancelAfter' not in heartbeat_source
            and 'Kill' not in heartbeat_source)
+
+    # S21: every completed job is traceable in the plugin log, whatever it wrote. One shared helper
+    # builds the line and both "completed, nothing written" paths call it - they used to log only to
+    # Jellyfin's log, which is what made a batch impossible to reconcile from the plugin log.
+    report('a completion that wrote nothing is traceable in the plugin log (S21)',
+           'private static void LogPluginCompletion(SyncJob job, long? outputSize)' in service
+           and service.count('LogPluginCompletion(job,') >= 3
+           and 'job {job.Id} completed: mode={job.Mode} output={job.OutputPath ?? "(none)"}' in service)
 
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)

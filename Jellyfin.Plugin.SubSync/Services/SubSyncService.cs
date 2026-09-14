@@ -3993,6 +3993,7 @@ public class SubSyncService : IDisposable
                 job.Status = SyncJobStatus.Completed;
                 job.Progress = 1.0;
                 _logger.LogInformation("Sync job {JobId}: subtitle already in sync \u2014 no output written", job.Id);
+                LogPluginCompletion(job, null);
                 return;
             }
 
@@ -4314,6 +4315,7 @@ public class SubSyncService : IDisposable
                 job.FinishedAtUtc = DateTime.UtcNow;
                 job.OutputPath = null;
                 SafeDelete(tempOutput);
+                LogPluginCompletion(job, null);
                 return;
             }
 
@@ -4541,8 +4543,7 @@ public class SubSyncService : IDisposable
                 outputSize is null ? "size unreadable" : $"{outputSize} bytes",
                 job.Outcome ?? "unknown");
 
-            PluginLog.Info(
-                $"job {job.Id} completed: mode={job.Mode} output={job.OutputPath ?? "(none)"} bytes={outputSize?.ToString() ?? "unknown"} change={job.Outcome ?? "unknown"} extraction={job.ExtractionNote ?? "n/a"}");
+            LogPluginCompletion(job, outputSize);
 
             if (changedDir is not null && outputSize is null)
             {
@@ -5851,6 +5852,16 @@ public class SubSyncService : IDisposable
 
         return (null, true, originalInput);
     }
+
+    // One definition of the plugin log's completion line (S21). It used to be written inline on the
+    // success path only, so a job that finished having written nothing logged the fact to Jellyfin's log
+    // and nowhere else: a batch could never be reconciled from the plugin log alone, and the tail watcher
+    // never saw those jobs at all. Every completed job now produces this line, whatever it wrote.
+    private static void LogPluginCompletion(SyncJob job, long? outputSize)
+        => PluginLog.Info(
+            $"job {job.Id} completed: mode={job.Mode} output={job.OutputPath ?? "(none)"} "
+            + $"bytes={outputSize?.ToString() ?? "unknown"} change={job.Outcome ?? "unknown"} "
+            + $"extraction={job.ExtractionNote ?? "n/a"}");
 
     // watch (optional): when set, a heartbeat line is written to the plugin's own log every few minutes
     // for as long as the process runs (S27). Visibility only - no deadline and no kill is added by it.
