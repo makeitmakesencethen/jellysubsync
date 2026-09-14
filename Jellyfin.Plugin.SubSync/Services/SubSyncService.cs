@@ -1559,11 +1559,12 @@ public class SubSyncService : IDisposable
 
         /// <summary>
         /// Gets or sets the ceiling on media-reading jobs for a job's volume, as that volume measured
-        /// itself. Null or <see cref="int.MaxValue"/> means no ceiling: a volume nothing has measured, or
-        /// one that measures fast, runs exactly as it did before this existed. Only a volume whose own
-        /// reads have shown it storage-bound is held below the worker count.
+        /// itself, with the measurement that produced it. <see cref="int.MaxValue"/> as the cap means no
+        /// ceiling. The reason travels with the number because the log line that reports a held walk has to
+        /// say which case it is in - "nothing measured yet" and "measured storage-bound" both produce a cap
+        /// of 2, and a line that cannot tell them apart is what made 2.0.30's silent ceiling so hard to see.
         /// </summary>
-        public Func<SyncJob, int>? WalkCapOf { get; set; }
+        public Func<SyncJob, (int Cap, string Why)>? WalkCapOf { get; set; }
     }
 
     /// <summary>
@@ -2468,7 +2469,7 @@ public class SubSyncService : IDisposable
     /// Whether a job may start at all, asked about every candidate. The plugin passes "this job's
     /// subtitle is already extracted"; null means anything may start.
     /// </param>
-    /// <param name="walkCapOf">Ceiling on media-reading jobs for a job's volume, or null for none.</param>
+    /// <param name="walkCapOf">Ceiling on media-reading jobs for a job's volume, with its reason.</param>
     /// <returns>The jobs to start, in queue order (empty when every slot is busy).</returns>
     public static List<SyncJob> PlanStart(
         IEnumerable<SyncJob> queuedInOrder,
@@ -2480,7 +2481,7 @@ public class SubSyncService : IDisposable
         Func<SyncJob, bool> isHeavyIo,
         Func<SyncJob, bool> canShareMediaFile,
         Func<SyncJob, bool>? mayStart = null,
-        Func<SyncJob, int>? walkCapOf = null)
+        Func<SyncJob, (int Cap, string Why)>? walkCapOf = null)
     {
         var slots = limit - running.Count;
         if (slots <= 0)
@@ -2539,13 +2540,13 @@ public class SubSyncService : IDisposable
             return true; // not a media read: the worker count remains its only bound
         }
 
-        var cap = policy.WalkCapOf?.Invoke(candidate) ?? int.MaxValue;
-        if (cap >= int.MaxValue)
+        var ceiling = policy.WalkCapOf?.Invoke(candidate) ?? (int.MaxValue, "no ceiling is configured");
+        if (ceiling.Cap >= int.MaxValue)
         {
             return true;
         }
 
-        if (cap <= 0)
+        if (ceiling.Cap <= 0)
         {
             return false;
         }
@@ -2556,9 +2557,9 @@ public class SubSyncService : IDisposable
                 ? inUse
                 : 0;
         heavyInWave.TryGetValue(volume, out var inWave);
-        if (running + inWave >= cap)
+        if (running + inWave >= ceiling.Cap)
         {
-            LogCeilingHeld(volume, cap);
+            LogCeilingHeld(volume, ceiling.Cap, ceiling.Why);
             return false;
         }
 
@@ -2573,7 +2574,7 @@ public class SubSyncService : IDisposable
     /// capped run and an uncapped one look identical in the log - which is exactly how the first release of
     /// this ceiling hid that it was never applying.
     /// </summary>
-    private static void LogCeilingHeld(string volume, int cap)
+    private static void LogCeilingHeld(string volume, int cap, string why)
     {
         var now = DateTime.UtcNow;
         if (_ceilingLogged.TryGetValue(volume, out var last) && now - last < TimeSpan.FromSeconds(60))
@@ -2582,11 +2583,7 @@ public class SubSyncService : IDisposable
         }
 
         _ceilingLogged[volume] = now;
-        Services.PluginLog.Info(
-            $"walk ceiling: holding {volume} at {cap} concurrent media " +
-            (cap == UnmeasuredWalkCap
-                ? "read(s) - this volume has not been read yet, so it is treated as slow until it measures fast"
-                : "read(s) - this volume's own reads measured it as storage-bound"));
+        Services.PluginLog.Info($"walk ceiling: holding {volume} at {cap} concurrent media read(s) - {why}");
     }
 
     /// <summary>Counts a candidate that joined the wave against its volume's ceiling.</summary>
@@ -2683,9 +2680,10 @@ public class SubSyncService : IDisposable
     /// worked out is treated like an unmeasured one: not known to be fast is not the same as fast, and the
     /// alternative is what let eight walks onto one share on 2026-09-14.
     /// </summary>
-    public static int WalkCapOfPath(string? path)
+    public static (int Cap, string Why) WalkCapOfPath(string? path)
         => string.IsNullOrWhiteSpace(path)
-            ? UnmeasuredWalkCap
+            ? (UnmeasuredWalkCap,
+               "this job's volume could not be worked out, so it is treated as slow until it measures fast")
             : WalkCapForProfile(Services.VolumeProfiles.For(path).MsPerCall());
 
     /// <summary>
@@ -2702,19 +2700,25 @@ public class SubSyncService : IDisposable
     /// </summary>
     /// <param name="msPerCall">Measured cost per read, or null when the volume has not been read yet.</param>
     /// <returns>The ceiling for that volume.</returns>
-    public static int WalkCapForProfile(double? msPerCall)
+    public static (int Cap, string Why) WalkCapForProfile(double? msPerCall)
     {
         if (msPerCall is null)
         {
-            return UnmeasuredWalkCap;
+            return (UnmeasuredWalkCap,
+                "nothing has measured this volume yet, so it is treated as slow until something does");
         }
 
         if (msPerCall.Value >= ThrashingReadMsPerCall)
         {
-            return 1;
+            return (1, $"this volume measured {msPerCall.Value:0.0} ms per read, which is thrashing");
         }
 
-        return msPerCall.Value >= SlowReadMsPerCall ? 2 : int.MaxValue;
+        if (msPerCall.Value >= SlowReadMsPerCall)
+        {
+            return (2, $"this volume measured {msPerCall.Value:0.0} ms per read, which is storage-bound");
+        }
+
+        return (int.MaxValue, $"this volume measured {msPerCall.Value:0.00} ms per read, which is fast");
     }
 
     /// <summary>

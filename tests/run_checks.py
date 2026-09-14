@@ -424,7 +424,7 @@ Check("worker count is the only bound for uncapped work (2 requested -> 2 in fli
 var cappedTwo = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
-    WalkCapOf = _ => 2,
+    WalkCapOf = _ => (2, "check"),
 });
 Check("a storage-bound volume is held to its own ceiling (2 of 5 queued)",
     cappedTwo.Count == 2, "got " + cappedTwo.Count);
@@ -432,7 +432,7 @@ Check("a storage-bound volume is held to its own ceiling (2 of 5 queued)",
 var cappedOne = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
-    WalkCapOf = _ => 1,
+    WalkCapOf = _ => (1, "check"),
 });
 Check("a thrashing volume is held to one walk at a time", cappedOne.Count == 1, "got " + cappedOne.Count);
 
@@ -458,7 +458,7 @@ var mixedWave = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubSy
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
     VolumeOf = j => mixedVolumes[j.ItemId],
-    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 2 : int.MaxValue,
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? (2, "check") : (int.MaxValue, "check"),
 });
 var slowInWave = mixedWave.Count(j => mixedVolumes[j.ItemId] == "//nas/share");
 var fastInWave = mixedWave.Count(j => mixedVolumes[j.ItemId] == "//nvme/data");
@@ -470,7 +470,7 @@ var mixedTight = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubS
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
     VolumeOf = j => mixedVolumes[j.ItemId],
-    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 1 : int.MaxValue,
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? (1, "check") : (int.MaxValue, "check"),
 });
 Check("a ceiling of 1 costs the slow volume one slot, not the fast volume's three",
     mixedTight.Count(j => mixedVolumes[j.ItemId] == "//nas/share") == 1
@@ -483,7 +483,7 @@ var busyWave = SubSyncService.SelectWave(mixedQueue, "ultimate", "b", new SubSyn
 {
     Limit = 4, IsHeavyIo = _ => true, CanShareMediaFile = _ => false,
     VolumeOf = j => mixedVolumes[j.ItemId],
-    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? 2 : int.MaxValue,
+    WalkCapOf = j => mixedVolumes[j.ItemId] == "//nas/share" ? (2, "check") : (int.MaxValue, "check"),
     HeavyInUseByVolume = busySlow,
 });
 Check("a volume already at its ceiling starts no more walks on it",
@@ -495,26 +495,48 @@ Check("a volume already at its ceiling starts no more walks on it",
 var lightWave = SubSyncService.SelectWave(wideQueue, "ultimate", "b", new SubSyncService.WavePolicy
 {
     Limit = 4, IsHeavyIo = _ => false, CanShareMediaFile = _ => false, VolumeOf = _ => "//nas/share",
-    WalkCapOf = _ => 1,
+    WalkCapOf = _ => (1, "check"),
 });
 Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + lightWave.Count);
 
+// S32: a cap of 2 comes from two different situations and the log line has to say which. It used to choose
+// its wording from the cap value, so a volume measured at 21 ms per read was reported as "has not been read
+// yet" - which is how a working ceiling looked broken in the field on 2026-09-14.
+{
+    var s32Unmeasured = SubSyncService.WalkCapForProfile(null);
+    var s32Measured = SubSyncService.WalkCapForProfile(21.26);
+    var s32Thrashing = SubSyncService.WalkCapForProfile(1419.0);
+    var s32Fast = SubSyncService.WalkCapForProfile(0.05);
+
+    Check("both cases that cap at 2 report their own reason",
+        s32Unmeasured.Cap == 2 && s32Measured.Cap == 2 && s32Unmeasured.Why != s32Measured.Why,
+        $"unmeasured: {s32Unmeasured.Why} | measured: {s32Measured.Why}");
+    Check("the measured reason quotes the measurement and its unit",
+        s32Measured.Why.Contains("21") && s32Measured.Why.Contains("ms per read"), s32Measured.Why);
+    Check("only the unmeasured case says nothing has measured the volume",
+        s32Unmeasured.Why.Contains("nothing has measured") && !s32Measured.Why.Contains("nothing has measured"),
+        $"unmeasured: {s32Unmeasured.Why} | measured: {s32Measured.Why}");
+    Check("the thrashing and fast reasons carry their numbers too",
+        s32Thrashing.Why.Contains("1419") && s32Fast.Why.Contains("0") && s32Fast.Cap == int.MaxValue,
+        $"{s32Thrashing.Cap}: {s32Thrashing.Why} | {s32Fast.Cap}: {s32Fast.Why}");
+}
+
 // The mapping from a measured cost per read onto a ceiling, at the numbers this plugin actually sees.
 Check("nothing measured means the conservative ceiling, never none",
-    SubSyncService.WalkCapForProfile(null) == SubSyncService.UnmeasuredWalkCap,
-    "got " + SubSyncService.WalkCapForProfile(null));
+    SubSyncService.WalkCapForProfile(null).Cap == SubSyncService.UnmeasuredWalkCap,
+    "got " + SubSyncService.WalkCapForProfile(null).Cap);
 Check("a volume that measures fast is uncapped from that first measured pass onwards",
-    SubSyncService.WalkCapForProfile(0.05) == int.MaxValue && SubSyncService.WalkCapForProfile(1.0) == int.MaxValue,
-    $"0,05 ms -> {SubSyncService.WalkCapForProfile(0.05)}, 1 ms -> {SubSyncService.WalkCapForProfile(1.0)}");
+    SubSyncService.WalkCapForProfile(0.05).Cap == int.MaxValue && SubSyncService.WalkCapForProfile(1.0).Cap == int.MaxValue,
+    $"0,05 ms -> {SubSyncService.WalkCapForProfile(0.05).Cap}, 1 ms -> {SubSyncService.WalkCapForProfile(1.0).Cap}");
 Check("fabji's share at rest (13-46 ms per read) is capped at 2",
-    SubSyncService.WalkCapForProfile(13) == 2 && SubSyncService.WalkCapForProfile(46) == 2,
-    $"13 ms -> {SubSyncService.WalkCapForProfile(13)}, 46 ms -> {SubSyncService.WalkCapForProfile(46)}");
+    SubSyncService.WalkCapForProfile(13).Cap == 2 && SubSyncService.WalkCapForProfile(46).Cap == 2,
+    $"13 ms -> {SubSyncService.WalkCapForProfile(13).Cap}, 46 ms -> {SubSyncService.WalkCapForProfile(46).Cap}");
 Check("the same share thrashing (1419-1613 ms per read) is held to 1",
-    SubSyncService.WalkCapForProfile(1419) == 1 && SubSyncService.WalkCapForProfile(1613) == 1,
-    $"1419 ms -> {SubSyncService.WalkCapForProfile(1419)}");
+    SubSyncService.WalkCapForProfile(1419).Cap == 1 && SubSyncService.WalkCapForProfile(1613).Cap == 1,
+    $"1419 ms -> {SubSyncService.WalkCapForProfile(1419).Cap}");
 Check("a path whose volume cannot be worked out is held at the conservative ceiling",
-    SubSyncService.WalkCapOfPath(null) == SubSyncService.UnmeasuredWalkCap
-    && SubSyncService.WalkCapOfPath("") == SubSyncService.UnmeasuredWalkCap,
+    SubSyncService.WalkCapOfPath(null).Cap == SubSyncService.UnmeasuredWalkCap
+    && SubSyncService.WalkCapOfPath("").Cap == SubSyncService.UnmeasuredWalkCap,
     "got " + SubSyncService.WalkCapOfPath(null));
 
 // End to end: the profile's own arithmetic, fed the share's latencies, produces the ceiling.
@@ -527,7 +549,7 @@ Check("a path whose volume cannot be worked out is held at the conservative ceil
     }
 
     Check("a profile fed this share's latencies maps to a ceiling of 2",
-        SubSyncService.WalkCapForProfile(nasProfile.MsPerCall()) == 2,
+        SubSyncService.WalkCapForProfile(nasProfile.MsPerCall()).Cap == 2,
         $"{nasProfile.MsPerCall():0.00} ms per read");
 }
 
@@ -552,10 +574,10 @@ Check("a path whose volume cannot be worked out is held at the conservative ceil
     }
 
     Check("a volume measured at 20 ms per read carries a ceiling of 2",
-        SubSyncService.WalkCapOfPath(slowPath) == 2, "got " + SubSyncService.WalkCapOfPath(slowPath));
+        SubSyncService.WalkCapOfPath(slowPath).Cap == 2, "got " + SubSyncService.WalkCapOfPath(slowPath).Cap);
     Check("a real volume that nothing has read yet is held conservatively",
-        SubSyncService.WalkCapOfPath(fastPath) == SubSyncService.UnmeasuredWalkCap,
-        "got " + SubSyncService.WalkCapOfPath(fastPath));
+        SubSyncService.WalkCapOfPath(fastPath).Cap == SubSyncService.UnmeasuredWalkCap,
+        "got " + SubSyncService.WalkCapOfPath(fastPath).Cap);
 
     // ... and the ceiling lifts as soon as that volume's own reads say it is fast.
     for (var i = 0; i < 20; i++)
@@ -564,8 +586,8 @@ Check("a path whose volume cannot be worked out is held at the conservative ceil
     }
 
     Check("a volume whose own reads measured it fast keeps no ceiling",
-        SubSyncService.WalkCapOfPath(fastPath) == int.MaxValue,
-        "got " + SubSyncService.WalkCapOfPath(fastPath));
+        SubSyncService.WalkCapOfPath(fastPath).Cap == int.MaxValue,
+        "got " + SubSyncService.WalkCapOfPath(fastPath).Cap);
 
     var pathOf = new Dictionary<Guid, string>();
     var probeQueue = new List<SyncJob>();

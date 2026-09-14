@@ -682,13 +682,29 @@ with anything in it. Two holes: `WalkCapForProfile(null)` and `WalkCapOfPath(nul
 not be resolved) both returned "no ceiling". Fixed in 2.0.31 by treating an unmeasured volume, and an
 unidentifiable one, as **not known to be fast** - held at 2 until that volume's own reads say otherwise.
 
-### S32 - the ceiling's own log line cannot say which of two cases it is in (low, small) - see `WALK_CEILING_GOAL_PROMPT.md`
+### S32 - the ceiling's own log line could not say which of two cases it was in (done)
 
-`walk ceiling: holding <volume> at 2 concurrent media read(s)` picks its wording from the *cap value*, and 2
-is both the unmeasured fallback and what a volume measured between 5 and 100 ms per read gets. On 2026-09-14
-it printed "this volume has not been read yet" for a volume whose extraction pass had measured 7,7-39 ms per
-read minutes earlier, so the line could not distinguish "nothing measured yet" from "measured slow". Fix: pass
-the measured value into the message. This is the one output S33 is diagnosed from, so it is worth having.
+`walk ceiling: holding <volume> at 2 concurrent media read(s)` chose its wording from the cap *value*, and 2 is
+both the unmeasured fallback and what a volume measured between 5 and 100 ms per read gets. On 2026-09-14 it
+printed this once a minute, for the whole run:
+
+    walk ceiling: holding /media/synology|192.168.0.110:/volume1/JELLYFIN at 2 concurrent media read(s) -
+    this volume has not been read yet, so it is treated as slow until it measures fast
+
+for a volume whose own extraction pass had measured 7,74 ms and 39,25 ms per read minutes earlier
+(`extract: ... storage 7,74 ms per read`, `storage 39,25 ms per read`) - so the line could not be told from the
+unmeasured case, which is exactly the case S33 is about.
+
+Fixed: the measurement now travels with the cap. `WalkCapOf` is a `Func<SyncJob, (int Cap, string Why)>` and
+`WalkCapForProfile` / `WalkCapOfPath` return the reason alongside the number, so the line reads
+
+    walk ceiling: holding /media/synology|...:/JELLYFIN at 2 concurrent media read(s) - this volume measured
+    21,0 ms per read, which is storage-bound
+
+or `nothing has measured this volume yet, so it is treated as slow until something does`, never both for the
+same situation. Four checks pin it: the two cap-of-2 cases produce different reasons, only the unmeasured case
+says nothing has measured the volume, and the measured reasons quote their number and unit. Suite: 563 checks
+green. Commit `9671209`.
 
 ### S33 - a fast volume's ceiling may never lift, because nothing feeds the profile (medium, correctness) - see `WALK_CEILING_GOAL_PROMPT.md`
 
