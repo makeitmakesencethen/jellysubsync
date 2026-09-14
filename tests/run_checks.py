@@ -536,6 +536,25 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
     Check("a volume only a walk has measured at the share's rate is held at 2",
         SubSyncService.WalkCapForProfile(null, 2_600).Cap == 2,
         "got " + SubSyncService.WalkCapForProfile(null, 2_600).Cap);
+
+    // The boundary, at the throughputs the field run of 2026-09-14 actually produced: the share's eight walks
+    // measured 16,8-23,1 MB/s and local NVMe's five measured 84,4-91,4 MB/s. A threshold anywhere inside the
+    // share's own range makes the ceiling flip between runs of the same batch, which is what put five
+    // concurrent walks on the share that day.
+    Check("the share's fastest measured walk still counts as storage-bound",
+        SubSyncService.WalkCapForProfile(null, 23_100).Cap == 2,
+        "got " + SubSyncService.WalkCapForProfile(null, 23_100).Cap);
+    Check("the share's slowest measured walk is held at 2 as well",
+        SubSyncService.WalkCapForProfile(null, 16_800).Cap == 2,
+        "got " + SubSyncService.WalkCapForProfile(null, 16_800).Cap);
+    Check("local storage's slowest measured walk counts as fast",
+        SubSyncService.WalkCapForProfile(null, 84_400).Cap == int.MaxValue,
+        "got " + SubSyncService.WalkCapForProfile(null, 84_400).Cap);
+    Check("the whole share range maps to the same ceiling, so it cannot flip within a batch",
+        new[] { 16_800.0, 17_400.0, 18_900.0, 19_700.0, 22_700.0, 23_100.0 }
+            .All(b => SubSyncService.WalkCapForProfile(null, b).Cap == 2)
+        && new[] { 84_400.0, 91_400.0, 137_000.0 }.All(b => SubSyncService.WalkCapForProfile(null, b).Cap == int.MaxValue),
+        "share range -> " + string.Join(",", new[] { 16_800.0, 23_100.0 }.Select(b => SubSyncService.WalkCapForProfile(null, b).Cap)));
     Check("a volume whose walk barely moves is held at 1",
         SubSyncService.WalkCapForProfile(null, 250).Cap == 1,
         "got " + SubSyncService.WalkCapForProfile(null, 250).Cap);

@@ -706,6 +706,21 @@ same situation. Four checks pin it: the two cap-of-2 cases produce different rea
 says nothing has measured the volume, and the measured reasons quote their number and unit. Suite: 563 checks
 green. Commit `af66eaf`.
 
+**Verified in the field on 2026-09-14**, on the same share, before and after 2.0.32:
+
+    14:15:34  2.0.31  walk ceiling: holding /media/synology|192.168.0.110:/volume1/JELLYFIN at 2 concurrent
+                      media read(s) - this volume has not been read yet, so it is treated as slow until it
+                      measures fast
+    14:49:09  2.0.32  walk ceiling: holding /media/synology|192.168.0.110:/volume1/JELLYFIN at 2 concurrent
+                      media read(s) - nothing has measured this volume yet, so it is treated as slow until
+                      something does
+    14:50:09  2.0.32  walk ceiling: holding /media/synology|192.168.0.110:/volume1/JELLYFIN at 2 concurrent
+                      media read(s) - this volume's last walk moved 17,4 MB/s, which is storage-bound
+
+The 2.0.31 line was printed for a volume the extraction pass had measured at 7,74 ms per read in the same run;
+the 2.0.32 lines distinguish the unmeasured case from the measured one, and the third line is the walk's own
+measurement, which is the point of S33.
+
 ### S33 - a fast volume's ceiling could never lift, because nothing fed the profile (done in code and checks)
 
 `VolumeProfiles` was fed only by reads made through `ReadPolicy`, and reads only happen when the extraction
@@ -745,10 +760,43 @@ every temp path on one filesystem shares a single profile. The first version of 
 other through it and failed for the wrong reason. Checks that need a volume of their own must go through the
 mapping directly, or use `/dev/shm`.
 
-**Field run still owed** (the goal's criterion): (a) the new line must name the throughput; (b) on the share,
-max concurrent audio walks must stay <= 2; (c) on a **local** volume, more than 2 concurrent walks once that
-volume has been walked - the case that has never been measured. Clear the speech cache before a season test,
-or the walks are skipped and the run proves nothing.
+**Field run on 2026-09-14, on fabji's server with 2.0.32 installed** (thirteen audio-ruler walks, parsed from
+`/subsync-logs/subsync.log`; the plugin had to keep the media as its reference, `reference=(default)`):
+
+- **criterion (a), the line names the measurement: passed.** Every one of the thirteen walks logged
+  `this walk moved <MB> MB of <file> in <s> s = <MB/s> - the ceiling for that volume is <n> (<why>)`.
+- **criterion (c), a local volume goes above two: passed.** Five episodes on `/Media`
+  (`/dev/nvme0n1p2`): the first two walks ran under the unmeasured cap, then **3 ran at once** - max concurrent
+  **3** - at 84,4 / 85,3 / 85,6 / 91,0 / 91,4 MB/s, 13,8-16,5 s each, `ceiling none (fast)`. That is the case
+  that had never been measured, and the ceiling lifted for it without any read ever being taken on that volume.
+- **criterion (b), the share stays at two: failed** - max concurrent **5**. Cause found, see S35; the threshold
+  it was measured against was mine, not the share's.
+- The share itself behaved: eight episodes, 16,8-23,1 MB/s per walk, 33-116 s each, 9,82 GB in 212 s -
+  against 5,5-7,0 min per walk at eight concurrent before the ceiling existed.
+
+### S35 - the walk threshold sat inside the share's own measured range (high, fixed in code, field re-run owed)
+
+The field run of 2026-09-14 failed criterion (b): the share ran **five concurrent walks**. The cause is the
+threshold this row is about, and it was set from a bad measurement.
+
+`FastWalkMbPerSec` was 20, taken from "the share walks 2,4 GB in 903 s = 2,6 MB/s". That 903 s figure was
+measured while eight walks were already running on that volume - **the volume was being throttled by the very
+ceiling the number was supposed to decide**. Measured at its own pace, the same share walked eight episodes at
+16,8 / 17,1 / 17,4 / 18,9 / 19,7 / 22,7 / 22,7 / 23,1 MB/s. So 20 sat *inside* the share's range: the ceiling
+lifted after a 23,1 MB/s walk and dropped after a 17,4 MB/s one, and a wave planned while it read "fast" put
+five walks on the share at once - 22:21 to 22:38, three of them within 11 s of each other.
+
+Fixed by setting the boundary between the two populations the field has now shown, with margin on both sides:
+**50 MB/s** (2,2x above every walk this share has produced, 1,7x below every local walk: NVMe measured
+84,4-91,4 MB/s over five episodes and 137 MB/s on a lone 2,4 GB file). The whole share range now maps to one
+ceiling, so it cannot flip within a batch - pinned by a check that walks every measured throughput through the
+mapping. Suite: 581 checks green. Commit `f6aa6f5`.
+
+**Lesson, and the reason this shipped wrong:** a measurement taken while the thing under test is already being
+throttled cannot set the boundary for that throttling. The 20 came from a run in which the ceiling had failed
+to apply; the number that should have come out of it (23 MB/s) was the *evidence of the failure*, not the
+volume's speed. Field re-run owed: the share must show max concurrent walks <= 2, and local storage must still
+show more than two.
 
 ### S34 - the only way to force re-analysis is an API call (low)
 

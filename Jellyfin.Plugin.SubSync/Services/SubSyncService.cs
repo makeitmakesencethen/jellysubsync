@@ -2709,11 +2709,20 @@ public class SubSyncService : IDisposable
                 Services.VolumeProfiles.For(path).WalkBytesPerMs());
 
     /// <summary>
-    /// Throughput above which a volume's own walk says its storage is not the constraint, in MB/s. Measured:
-    /// a 2,4 GB file walked off local disk in 17 s (137 MB/s) against the same file off the share in 903 s
-    /// (2,6 MB/s), and eight episodes of one season off the share at 3,1-3,5 MB/s.
+    /// Throughput above which a volume's own walk says its storage is not the constraint, in MB/s.
     /// </summary>
-    public const double FastWalkMbPerSec = 20.0;
+    /// <remarks>
+    /// 50, set between the two populations the field has shown, with margin on both sides. On 2026-09-14 the
+    /// share's walks measured 16,8 / 17,1 / 17,4 / 18,9 / 19,7 / 22,7 / 22,7 / 23,1 MB/s over eight episodes,
+    /// and local NVMe measured 84,4 / 85,3 / 85,6 / 91,0 / 91,4 MB/s over five, with a lone 2,4 GB file at
+    /// 137 MB/s. That is a 2,2x margin above every walk this share has produced and 1,7x below every local
+    /// walk. The first version of this threshold was 20 and the field run caught it: 20 sits *inside* the
+    /// share's own range, so the ceiling lifted on a 23,1 MB/s walk and dropped on a 17,4 MB/s one, and the
+    /// wave planned while it read "fast" put **five concurrent walks** on the share. It was derived from a
+    /// 2,6 MB/s figure measured while that volume was already being walked eight at a time - a throttled
+    /// measurement cannot set the boundary that decides whether to throttle.
+    /// </remarks>
+    public const double FastWalkMbPerSec = 50.0;
 
     /// <summary>
     /// Throughput below which a volume's own walk says its storage is thrashing, in MB/s: nothing measured
