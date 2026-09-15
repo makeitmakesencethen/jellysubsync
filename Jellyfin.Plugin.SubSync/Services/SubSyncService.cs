@@ -473,6 +473,18 @@ public class SubSyncService : IDisposable
     // this queue; one background pump runs them strictly one at a time, so
     // overlapping batches can never race on the same subtitle files.
     private readonly object _queueLock = new();
+
+    /// <summary>How long a resolved bundled-engine path is trusted before it is checked again (B5/S7).</summary>
+    private const long BundlePathRecheckMs = 1000;
+
+    /// <summary>The bundled engine's version, remembered per binary rather than spawned per question (B5).</summary>
+    private readonly EngineVersionCache _bundledVersionCache;
+
+    private string? _bundlePath;
+    private long _bundlePathCheckedMs;
+
+    /// <summary>Gets how many times the bundled engine was spawned to ask its version (B5).</summary>
+    internal long EngineVersionProbes => _bundledVersionCache.Probes;
     private readonly List<SyncJob> _runOrder = new();
     private Task? _pumpTask;
 
@@ -620,6 +632,16 @@ public class SubSyncService : IDisposable
         _userManager = userManager;
         _libraryMonitor = libraryMonitor;
 
+        // B5: the probe goes through the plugin's own process runner, so the shipped path is the one the checks
+        // exercise - and it reports the one spawn per binary, which is what the rig counts from outside.
+        _bundledVersionCache = new EngineVersionCache(path =>
+        {
+            var (exitCode, output) = RunProcessCaptureAsync(path, "--version", null).GetAwaiter().GetResult();
+            var version = exitCode == 0 ? output.Trim() : null;
+            PluginLog.Info($"engine identity: {path} answered '{version}' (resolved once for this binary)");
+            return version;
+        });
+
         // Evict completed/failed jobs older than 1 hour, check every 30 minutes
         _cleanupTimer = new Timer(_ => CleanupOldJobs(), null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
 
@@ -724,15 +746,31 @@ public class SubSyncService : IDisposable
 
             var exeName = OperatingSystem.IsWindows() ? "ffsubsync.exe" : "ffsubsync";
             var candidate = Path.Combine(pluginDir, "ffsubsync", rid, exeName);
+
+            // B5/S7: this getter used to stat the file *and* re-set its mode on every call, and the version
+            // property asked for it every time a cache key was built - a syscall per queued job on the
+            // scheduler's own path. Both answers change only when a plugin upgrade replaces the file, so a
+            // resolved path is trusted for a second (one stat per second, not per call) and the executable
+            // bit is restored once per resolved path.
+            var now = Environment.TickCount64;
+            var cached = Volatile.Read(ref _bundlePath);
+            if (cached is not null
+                && string.Equals(cached, candidate, StringComparison.Ordinal)
+                && now - Volatile.Read(ref _bundlePathCheckedMs) < BundlePathRecheckMs)
+            {
+                return cached;
+            }
+
             if (!File.Exists(candidate))
             {
+                Volatile.Write(ref _bundlePath, null);
                 return null;
             }
 
             // Jellyfin extracts plugin zips with System.IO.Compression, which does
             // not preserve Unix executable permissions — restore the bit so the
             // bundled PyInstaller launcher can actually be spawned.
-            if (!OperatingSystem.IsWindows())
+            if (!OperatingSystem.IsWindows() && !string.Equals(cached, candidate, StringComparison.Ordinal))
             {
                 try
                 {
@@ -748,6 +786,8 @@ public class SubSyncService : IDisposable
                 }
             }
 
+            Volatile.Write(ref _bundlePath, candidate);
+            Volatile.Write(ref _bundlePathCheckedMs, now);
             return candidate;
         }
     }
@@ -765,15 +805,25 @@ public class SubSyncService : IDisposable
                 return null;
             }
 
+            // B5: the answer is remembered per binary. Before this, asking cost a process spawn - a fork and a
+            // PyInstaller bootstrap - and the scheduler asked once per queued job on every planning pass, from a
+            // property getter, while the queue waited. The identity is what the speech cache keys on, so the
+            // spawns multiplied with the queue rather than with the number of engines.
+            DateTime stamp;
+            long size;
             try
             {
-                var (exitCode, output) = RunProcessCaptureAsync(path, "--version", null).GetAwaiter().GetResult();
-                return exitCode == 0 ? output.Trim() : null;
+                var info = new FileInfo(path);
+                stamp = info.LastWriteTimeUtc;
+                size = info.Length;
             }
-            catch
+            catch (Exception)
             {
-                return null;
+                stamp = DateTime.MinValue;
+                size = -1;
             }
+
+            return _bundledVersionCache.VersionFor(path, stamp, size);
         }
     }
 
@@ -1206,6 +1256,10 @@ public class SubSyncService : IDisposable
         long logWriteMs = 0;    // one line to the plugin log, which serialises every writer
         long lockMs = 0;        // the queue lock, also held by the pump while it plans
         long wakeMs = 0;        // waking the pump: starts extraction lanes, takes the lock twice more
+        long settingsReadMs = 0; // the settings file, which is stat-ed to notice a hand-edited change
+        long jellyfinLogMs = 0;  // Jellyfin's own log sink, whose writes also serialise
+        long duplicateCheckMs = 0; // the duplicate job check, which is the one lock wait on the enqueue path
+        long settingsUnaccountedMs = 0; // time inside the settings phase that neither of its two calls spent
         if (subtitleIndex < 0)
         {
             throw new ArgumentException("Subtitle index must be non-negative.");
@@ -1260,41 +1314,63 @@ public class SubSyncService : IDisposable
         // to land inside the range it made the lane read a neighbouring track instead.
         var subtitleOrdinal = EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream);
 
-        var config = Services.SettingsSource.Current() ?? new Configuration.PluginConfiguration();
         sourcesMs = phase.ElapsedMilliseconds;
         phase.Restart();
 
+        var settingsWatch = System.Diagnostics.Stopwatch.StartNew();
+        var config = Services.SettingsSource.Current() ?? new Configuration.PluginConfiguration();
+        settingsReadMs = settingsWatch.ElapsedMilliseconds;
+
+        var jellyfinLogWatch = System.Diagnostics.Stopwatch.StartNew();
         _logger.LogInformation(
             "Queued sync: item {ItemId} subtitle stream {SubtitleIndex} — output mode: {Mode}",
             itemId, subtitleIndex, config.SyncModeCopy ? "copy (.SYNCED.srt)" : "replace original in place");
+        jellyfinLogMs = jellyfinLogWatch.ElapsedMilliseconds;
+
+        // The settings phase ends here, before the duplicate check's critical section: that wait belongs to
+        // `queueLock`, and leaving it inside `settings` is what made a lock wait look like a storage read (S7).
+        settingsMs = phase.ElapsedMilliseconds;
+        phase.Restart();
 
         // One job per item and track (D9): asking twice used to queue two jobs, so the same subtitle was read,
         // synced and written twice while the second waited for the first one's file gate. The queued job is
         // returned instead, and the caller can say "already queued" instead of implying a second run exists.
+        SyncJob? alreadyQueued;
         lock (_queueLock)
         {
-            var alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);
-            if (alreadyQueued is not null)
-            {
-                total.Stop();
-                PluginLog.Info(
-                    $"queue duplicate: item={itemId} stream={subtitleIndex} existing={alreadyQueued.Id} "
-                    + $"status={alreadyQueued.Status} batch={alreadyQueued.BatchId ?? "(standalone)"}");
-
-                // A job another account queued is not this caller's to be handed (F4): returning it would give out an
-                // identifier its owner cannot read - the run list does not contain it and asking for it answers 404 - so
-                // the page would attach to a run it can never follow. Plugins queued by the plugin itself have no owner
-                // and are treated as everyone's, which is how a sweep's run is reported to whoever asks next.
-                if (alreadyQueued.OwnerId is not null && alreadyQueued.OwnerId != ownerId)
-                {
-                    throw new SyncQueueConflictException(
-                        $"That subtitle track is already queued by another account (run {alreadyQueued.Id}). It is "
-                        + "processed once; ask again when it has finished.");
-                }
-
-                return (alreadyQueued, $"totalMs={total.ElapsedMilliseconds} duplicate=1", true);
-            }
+            alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);
         }
+
+        if (alreadyQueued is not null)
+        {
+            total.Stop();
+
+            // B15: written after the lock is released, not inside it. The plugin log serialises every writer on
+            // its own gate, so a line written while the queue lock is held keeps the enqueue path - the very thing
+            // this lock exists to keep short - waiting for another thread's log write. The same shape was measured
+            // in the cancel paths (S40) and fixed the same way there.
+            PluginLog.Info(
+                $"queue duplicate: item={itemId} stream={subtitleIndex} existing={alreadyQueued.Id} "
+                + $"status={alreadyQueued.Status} batch={alreadyQueued.BatchId ?? "(standalone)"}");
+
+            // A job another account queued is not this caller's to be handed (F4): returning it would give out an
+            // identifier its owner cannot read - the run list does not contain it and asking for it answers 404 - so
+            // the page would attach to a run it can never follow. Plugins queued by the plugin itself have no owner
+            // and are treated as everyone's, which is how a sweep's run is reported to whoever asks next.
+            if (alreadyQueued.OwnerId is not null && alreadyQueued.OwnerId != ownerId)
+            {
+                throw new SyncQueueConflictException(
+                    $"That subtitle track is already queued by another account (run {alreadyQueued.Id}). It is "
+                    + "processed once; ask again when it has finished.");
+            }
+
+            return (alreadyQueued, $"totalMs={total.ElapsedMilliseconds} duplicate=1", true);
+        }
+
+        // The duplicate check's wait on the queue lock is reported on its own, not folded into `settings` (S7):
+        // a lock wait read as a storage read is how a burst's cost got attributed to the wrong thing.
+        duplicateCheckMs = phase.ElapsedMilliseconds;
+        phase.Restart();
 
         var job = new SyncJob
         {
@@ -1307,7 +1383,6 @@ public class SubSyncService : IDisposable
             Label = label,
             Mode = NormalizeMode(mode ?? config.MultiSyncMode)
         };
-        settingsMs = phase.ElapsedMilliseconds;
         phase.Restart();
 
         _jobs[job.Id] = job;
@@ -1339,6 +1414,12 @@ public class SubSyncService : IDisposable
         var timing = $"item={itemMs} ms, sources={sourcesMs} ms, settings={settingsMs} ms, "
             + $"log={logMs} ms, total={total.ElapsedMilliseconds} ms";
 
+        // The settings phase contains two calls and nothing else, so whatever it measures beyond them is time this
+        // thread was not running - a contended host or a GC pause - and it is named rather than left looking like
+        // storage work (S7: the worst enqueue of a 27-task burst reported `settings=270 ms` with both of its calls
+        // at 0 ms, which is a scheduling pause, not a read).
+        settingsUnaccountedMs = Math.Max(0, settingsMs - settingsReadMs - jellyfinLogMs);
+
         // Anything beyond a few milliseconds here is worth naming: a slow enqueue is invisible in
         // every other view and looks exactly like a scheduler that will not parallelise.
         //
@@ -1352,7 +1433,10 @@ public class SubSyncService : IDisposable
         {
             PluginLog.Info(
                 $"enqueue slow: {timing} stream={subtitleIndex} breakdown: state={stateMs} ms, "
-                + $"logWrite={logWriteMs} ms, queueLock={lockMs} ms, wakePump={wakeMs} ms "
+                + $"logWrite={logWriteMs} ms, queueLock={lockMs} ms, wakePump={wakeMs} ms, "
+                + $"settingsRead={settingsReadMs} ms, jellyfinLog={jellyfinLogMs} ms, "
+                + $"duplicateCheck={duplicateCheckMs} ms, settingsUnaccounted={settingsUnaccountedMs} ms "
+                + $"settingsStats={Services.SettingsSource.Stats} settingsReads={Services.SettingsSource.Reads} "
                 + $"video={video.Path}");
         }
 
@@ -2153,6 +2237,51 @@ public class SubSyncService : IDisposable
 
     private readonly object _speechCachedGate = new();
 
+    /// <summary>How long "the extraction cache does not have this track yet" is trusted (S7).</summary>
+    /// <remarks>
+    /// The answer costs a read of the extraction cache, and the scheduler asks for it for every queued job on
+    /// every planning pass - so a queue waiting on a lane re-probed the same directory once per job per pass, while
+    /// that directory's volume was busy being read. A remembered miss cannot hide a track that has arrived: the
+    /// hand-over adds the key to <c>_extractedReady</c> first, and that is checked before this.
+    /// </remarks>
+    private static readonly TimeSpan ExtractedMissTtl = TimeSpan.FromSeconds(2);
+
+    private readonly Dictionary<string, DateTime> _extractedMissMemo = new(StringComparer.Ordinal);
+
+    private readonly object _extractedMissGate = new();
+
+    /// <summary>
+    /// True when a recent check of the extraction cache already said this track is not there yet (S7).
+    /// </summary>
+    /// <param name="key">The (file, ordinal) key the extraction cache is keyed by.</param>
+    /// <returns>True when the answer is still trusted, so the cache does not have to be read again.</returns>
+    private bool CacheSaysMissing(string key)
+    {
+        var now = DateTime.UtcNow;
+        lock (_extractedMissGate)
+        {
+            return _extractedMissMemo.TryGetValue(key, out var at) && now - at < ExtractedMissTtl;
+        }
+    }
+
+    /// <summary>Remembers that the extraction cache did not have a track, so the next pass need not read it.</summary>
+    /// <param name="key">The (file, ordinal) key the extraction cache is keyed by.</param>
+    private void RememberCacheMiss(string key)
+    {
+        var now = DateTime.UtcNow;
+        lock (_extractedMissGate)
+        {
+            // A long run over many files must not grow this without end: the entries are worth two seconds each,
+            // so clearing is cheaper than tracking them.
+            if (_extractedMissMemo.Count > 2048)
+            {
+                _extractedMissMemo.Clear();
+            }
+
+            _extractedMissMemo[key] = now;
+        }
+    }
+
     /// <summary>
     /// True when this job's subtitle is already out of the media file, so the job has nothing to read
     /// and can start syncing straight away.
@@ -2198,12 +2327,19 @@ public class SubSyncService : IDisposable
             return false;
         }
 
+        if (CacheSaysMissing(key))
+        {
+            return false;
+        }
+
         if (SubtitleCache.TryGet(path, context.Ordinal.ToString(CultureInfo.InvariantCulture), out var text)
             && text.Length > 0)
         {
             _extractedReady[key] = 0;
             return true;
         }
+
+        RememberCacheMiss(key);
 
         // The lane ran a pass over this file and came back without this track: a picture track with no
         // text, or an empty one. Holding the job back forever is what made the run look stuck (32
@@ -2235,6 +2371,9 @@ public class SubSyncService : IDisposable
     /// </remarks>
     public void ApplySettingsNow()
     {
+        // S7: the settings cache is reset outright, so a save through the API is in force at once rather than
+        // within the trust window the settings file is read under.
+        Services.SettingsSource.Reset();
         WakePump();
         PluginLog.Info($"settings applied: workers={ConfiguredWorkerLimit} lanes={ConfiguredLaneLimit}");
     }
@@ -2652,6 +2791,11 @@ public class SubSyncService : IDisposable
         _jobContexts.TryGetValue(job.Id, out var ctx) && ctx.Stream.IsExternal ? "auto" : "embedded";
 
     /// <summary>Identity of the engine that shapes a speech signal.</summary>
+    /// <remarks>
+    /// B5: this is called while a cache key is built, once per queued job on every planning pass, so both halves
+    /// are cheap on purpose - the version is remembered per binary (<see cref="EngineVersionCache"/>, which spawns
+    /// the engine once) and the plugin's own version is read from the assembly's name.
+    /// </remarks>
     private string EngineIdentity() => string.Join(
         "|",
         BundledFfSubSyncVersion,

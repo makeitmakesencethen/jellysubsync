@@ -4065,6 +4065,63 @@ else
     }
 }
 
+// ---------------- Queue lock efficiency: one engine probe, one settings stat (B5, S7) ----------------
+
+// B5: the engine's version is a property of the binary, not a question to ask it again. The probe here counts
+// spawns the way the rig counts them from outside the plugin, so the rule is checked without running anything.
+{
+    var b5Probes = 0;
+    var b5Cache = new EngineVersionCache(path => { b5Probes++; return "ffsubsync 0.5.1"; });
+    var b5Stamp = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
+    for (var i = 0; i < 500; i++)
+    {
+        b5Cache.VersionFor("/plugins/ffsubsync", b5Stamp, 8819880);
+    }
+
+    Check("B5: 500 questions about one engine spawn it once ",
+        b5Probes == 1 && b5Cache.Probes == 1 && b5Cache.Hits == 499,
+        $"probes={b5Probes} hits={b5Cache.Hits}");
+
+    var b5AfterUpgrade = b5Cache.VersionFor("/plugins/ffsubsync", b5Stamp.AddMinutes(5), 8819880);
+    Check("B5: an engine replaced by an upgrade is asked about again ",
+        b5Probes == 2 && b5AfterUpgrade == "ffsubsync 0.5.1",
+        $"probes={b5Probes} version='{b5AfterUpgrade}'");
+
+    Check("B5: the cache key changes when the binary does, and not when it does not ",
+        EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp, 8819880)
+            == EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp, 8819880)
+        && EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp, 8819880)
+            != EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp, 8819881)
+        && EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp, 8819880)
+            != EngineVersionCache.KeyFor("/plugins/ffsubsync", b5Stamp.AddSeconds(1), 8819880));
+
+    var b5Dead = new EngineVersionCache(path => throw new InvalidOperationException("no engine"));
+    Check("B5: an engine that cannot be run is asked about once, not once per question ",
+        b5Dead.VersionFor("/nope/ffsubsync", b5Stamp, 1) is null
+        && b5Dead.VersionFor("/nope/ffsubsync", b5Stamp, 1) is null
+        && b5Dead.Probes == 1,
+        $"probes={b5Dead.Probes}");
+}
+
+// S7: the settings file is not stat-ed on every question, and the window cannot hide a change for long.
+{
+    Check("S7: a settings stamp is trusted inside its window and re-read once it passes ",
+        !SettingsSource.StampIsDueFor(1000, 900, 250)
+        && SettingsSource.StampIsDueFor(1250, 900, 250)
+        && SettingsSource.StampIsDueFor(1000, long.MinValue, 250),
+        "inside the window it is trusted, past it the file is read, and a file never read is always read");
+    Check("S7: the window can be turned off, which is how the cost is measured on one build ",
+        SettingsSource.StampIsDueFor(1000, 900, 0)
+        && SettingsSource.StampIsDueFor(1000, 1000, 0)
+        && SettingsSource.StampIsDueFor(1000, 900, -1),
+        "with the window at 0 every call stats the file: the pre-fix behaviour, on the same build");
+    Check("S7: the window in force is bounded and defaults to a quarter of a second ",
+        SettingsSource.StatTtlMsValue >= 0 && SettingsSource.StatTtlMsValue <= 60000
+        && (SettingsSource.StatTtlMsValue == 250
+            || Environment.GetEnvironmentVariable("SUBSYNC_SETTINGS_STAT_MS") is not null),
+        $"window={SettingsSource.StatTtlMsValue} ms");
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4829,10 +4886,13 @@ def run_page_checks():
            'heartbeatTimer = setTimeout(function () {' in page_js
            and 'if (heartbeatTimer) return;' in page_js)
 
-    # D9: the same item and track is one job, not two.
+    # D9: the same item and track is one job, not two. The rule is consulted inside the queue lock - the shape
+    # changed in the S7 work (the log line moved out of the critical section, the lookup stayed in), so the check
+    # reads the lookup rather than the log line.
     report('D9: an enqueue consults the duplicate rule while it holds the queue lock',
-           'var alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);' in service_source
-           and 'lock (_queueLock)' in service_source
+           'alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);' in service_source
+           and 'SyncJob? alreadyQueued;\n        lock (_queueLock)\n        {\n            alreadyQueued = FindDuplicate('
+               in service_source
            and 'queue duplicate: item=' in service_source)
     report('D9: a batch reports what was already queued instead of counting it as its own work',
            'alreadyQueued.Add(queued.Job);' in service_source
@@ -5087,6 +5147,10 @@ def run_page_checks():
                                              'SubtitleCache.cs'), encoding='utf-8').read()
     sweepstate_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                           'SweepState.cs'), encoding='utf-8').read()
+    settings_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                        'SettingsSource.cs'), encoding='utf-8').read()
+    engineversioncache_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                                 'EngineVersionCache.cs'), encoding='utf-8').read()
 
     # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
     report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
@@ -5184,6 +5248,84 @@ def run_page_checks():
            'public const int MaxEntries = 5000;' in sweepstate_source
            and 'if (entries.Count > MaxEntries)' in sweepstate_source
            and '_entries.Count > MaxEntries || _pendingWrites >= SaveBatchSize' in sweepstate_source)
+
+    # B3/B15: the queue lock is what the enqueue path waits on, so the work that must never happen while it is held
+    # is work that touches storage or writes a log line. The audit is mechanical - every `lock (_queueLock)` block is
+    # found by matching braces, and the bodies are searched - because the defect this guards against is somebody
+    # adding a predicate or a log line to a critical section six months from now (AGENTS.md says any new predicate in
+    # `PlanStart` gets the same treatment as `SpeechIsCached`, which is the row this came from).
+    def queue_lock_bodies(text):
+        """Every `lock (_queueLock)` block in a source file, as (first line number, body lines)."""
+        lines = text.split('\n')
+        blocks = []
+        for index, line in enumerate(lines):
+            if 'lock (_queueLock)' not in line:
+                continue
+            depth, started = 0, False
+            for scan in range(index, len(lines)):
+                depth += lines[scan].count('{') - lines[scan].count('}')
+                started = started or '{' in lines[scan]
+                if started and depth <= 0:
+                    blocks.append((index + 1, lines[index:scan + 1]))
+                    break
+        return blocks
+
+    logging_call = re.compile(r'\b(PluginLog\.|_logger\.)')
+    # Storage, process and shared-store calls. `Task.Run` is deliberately not in this list: starting a lane or
+    # the pump from inside a critical section is a thread-pool scheduling call (microseconds), not a round trip
+    # to the share, and both are started while the lock is held so the reservation is atomic (S7 measured the
+    # whole wake at `wakePump=0 ms`). What must never be in there is work that waits on storage.
+    storage_call = re.compile(
+        r'\b(File\.|Directory\.|FileInfo|DirectoryInfo|SettingsSource\.Current|SubtitleCache\.|SpeechCache\.|'
+        r'VolumeProfiles\.|ReferenceStore\.|Process\.)\b|new Process')
+    log_in_lock = []
+    storage_in_lock = []
+    for first_line, body in queue_lock_bodies(service_source):
+        joined = '\n'.join(part for part in body if not part.strip().startswith('//'))
+        for match in logging_call.finditer(joined):
+            log_in_lock.append(first_line + joined[:match.start()].count('\n'))
+        for match in storage_call.finditer(joined):
+            storage_in_lock.append(first_line + joined[:match.start()].count('\n'))
+    report('B15: no log line is written while the queue lock is held',
+           not log_in_lock,
+           f'{len(log_in_lock)} critical section(s) log: {log_in_lock[:3]}'
+           if log_in_lock else 'every critical section is status updates only')
+    report('B3: no filesystem or process work happens while the queue lock is held',
+           not storage_in_lock,
+           f'{len(storage_in_lock)} critical section(s) touch storage: {storage_in_lock[:3]}'
+           if storage_in_lock else 'the planner, the reference store and the extractor all run outside it')
+
+    report('S7: the settings file is not stat-ed on every question',
+           'private static readonly long StatTtlMs = ResolveStatTtlMs();' in settings_source
+           and 'if (!StampIsDue())' in settings_source
+           and 'Interlocked.Increment(ref _stats);' in settings_source
+           and 'StampIsDue' not in service_source   # the rule lives where the file is read, not in the service
+           and 'SUBSYNC_SETTINGS_STAT_MS' in settings_source)
+    report('S7: a saved setting does not wait for the trust window',
+           'Services.SettingsSource.Reset();' in service_source
+           and 'Interlocked.Exchange(ref _lastStatMs, long.MinValue);' in settings_source)
+    report('S7: the extraction cache is not re-read for every queued job on every pass',
+           'private bool CacheSaysMissing(string key)' in service_source
+           and 'if (CacheSaysMissing(key))' in service_source
+           and 'RememberCacheMiss(key);' in service_source
+           and 'private static readonly TimeSpan ExtractedMissTtl' in service_source)
+    report('S7: the enqueue line reports the settings probes and the two phases inside the settings phase',
+           'settingsStats={Services.SettingsSource.Stats}' in service_source
+           and 'settingsReads={Services.SettingsSource.Reads}' in service_source
+           and 'settingsRead={settingsReadMs} ms, jellyfinLog={jellyfinLogMs} ms, ' in service_source
+           and 'duplicateCheck={duplicateCheckMs} ms' in service_source)
+    report('S7: a lock wait is reported as a lock wait, not folded into the phase beside it',
+           'duplicateCheckMs = phase.ElapsedMilliseconds;' in service_source
+           and 'settingsMs = phase.ElapsedMilliseconds;\n        phase.Restart();\n\n        // One job per item and track (D9)' in service_source)
+    report('B5: the bundled engine is spawned for its version once per binary, not once per question',
+           'return _bundledVersionCache.VersionFor(path, stamp, size);' in service_source
+           and 'internal long EngineVersionProbes => _bundledVersionCache.Probes;' in service_source
+           and 'engine identity: {path} answered' in service_source
+           and 'public long Probes => System.Threading.Interlocked.Read(ref _probes);' in engineversioncache_source
+           and 'public static string KeyFor(string path, DateTime stampUtc, long size)' in engineversioncache_source)
+    report('B5: the bundled path is not re-stat-ed and re-chmod-ed on every question',
+           'now - Volatile.Read(ref _bundlePathCheckedMs) < BundlePathRecheckMs' in service_source
+           and 'private const long BundlePathRecheckMs = 1000;' in service_source)
 
     report('F2: the cancel endpoint names what it stops and refuses a request that names nothing',
            'var (targets, refusal) = ItemAccess.SelectKillTargets(' in controller_source

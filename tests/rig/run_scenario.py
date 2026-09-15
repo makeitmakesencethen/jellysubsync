@@ -740,7 +740,8 @@ def scenario_d3_settings(rig, args, ctx):
 # plugin's own `enqueue slow:` line carries the phase breakdown when SUBSYNC_ENQUEUE_TRACE_MS is low, because a rig
 # on local storage never reaches the field's 250 ms.
 S40_PHASES = ('item', 'sources', 'settings', 'log', 'total')
-S40_PARTS = ('state', 'logWrite', 'queueLock', 'wakePump')
+S40_PARTS = ('state', 'logWrite', 'queueLock', 'wakePump', 'settingsRead', 'jellyfinLog', 'duplicateCheck',
+             'settingsUnaccounted')
 
 
 def _s40_parse(line: str) -> dict | None:
@@ -846,6 +847,234 @@ def scenario_s40_enqueue(rig, args, ctx):
         ('a cancel does not hold the queue lock while it logs each job',
          not any('holder=cancel' in ln for ln in cancel_lines),
          '; '.join(cancel_lines) if cancel_lines else 'no cancel held the lock long enough to be reported'),
+    ]
+
+
+S7_SPAWN_LOG = REPO / '.tests-work' / 'ffsubsync-spawns.log'
+
+
+def _is_spawn_wrapper(path: pathlib.Path) -> bool:
+    """True when this file is the counting wrapper this scenario installs, not the real engine."""
+    try:
+        return 'rig: count every spawn' in path.read_text(encoding='utf-8', errors='replace')[:400]
+    except OSError:
+        return False
+
+
+def wrap_bundled_engine() -> list:
+    """Puts a counting wrapper in front of the bundled engine in the rig.
+
+    B5 is a claim about *how many times* the plugin spawns `ffsubsync --version`, and the only honest
+    way to count that is from outside the plugin: the wrapper appends its argv to a file and then
+    `exec`s the real binary, so the same read works on the build before the fix and the build after it.
+    A counter inside the plugin could only report on itself, and a file inside the plugin's own tree is
+    the same instrument the fix changes - which is exactly the thing under test.
+    """
+    wrapped = []
+    for root in sorted((JELLYFIN / 'data' / 'plugins').glob('SubSync_*/ffsubsync/linux-x64')):
+        exe = root / 'ffsubsync'
+        real = root / 'ffsubsync.real'
+        if not real.exists():
+            if not exe.exists():
+                continue
+            if _is_spawn_wrapper(exe):   # a previous run already moved the real one aside
+                real = exe
+            else:
+                exe.rename(real)
+        wrapper = root / 'ffsubsync'
+        wrapper.write_text(
+            '#!/bin/sh\n'
+            '# rig: count every spawn of the bundled engine (B5/S7), then run the real one.\n'
+            f'printf \'%s\\n\' "$*" >> {S7_SPAWN_LOG}\n'
+            'exec "$(dirname "$0")/ffsubsync.real" "$@"\n',
+            encoding='utf-8')
+        wrapper.chmod(0o755)
+        wrapped.append(str(wrapper))
+    return wrapped
+
+
+def _spawn_count(since_line: int, argument: str | None = None) -> int:
+    """How many engine spawns the wrapper recorded from line `since_line` on."""
+    if not S7_SPAWN_LOG.exists():
+        return 0
+    lines = S7_SPAWN_LOG.read_text(encoding='utf-8', errors='replace').splitlines()
+    window = lines[since_line:]
+    if argument is None:
+        return len(window)
+    return sum(1 for line in window if line.split()[:1] == [argument])
+
+
+def _spawn_mark() -> int:
+    if not S7_SPAWN_LOG.exists():
+        return 0
+    return len(S7_SPAWN_LOG.read_text(encoding='utf-8', errors='replace').splitlines())
+
+
+def _burst_line(line: str, streams: set) -> bool:
+    """True for a log line that belongs to one of the burst's own tasks.
+
+    The plugin log is appended across runs and rotates, so a line offset taken before the burst can start
+    earlier than the burst itself (the first reading of this scenario counted 378 lines for 27 tasks, most of
+    them from earlier runs). The stream index is the burst's own, so it picks out exactly its lines.
+    """
+    hit = re.search(r'(?:^| )stream=(\d+)(?: |$)', line)
+    return bool(hit) and int(hit.group(1)) in streams
+
+
+def _holds(lines) -> list:
+    """Every `queue lock slow:` line as (holder, milliseconds).
+
+    The names are the critical sections' own (`pump-snapshot`, `dispatch`, `lane-scan`, `cancel-batch`,
+    `cancel-all`) plus one deliberate oddity: `pump-plan-outside-lock` is the *planner's* duration, logged
+    through the same helper so a field run can compare it with the critical sections - it is not a hold.
+    """
+    found = []
+    for line in lines:
+        hit = re.search(r'queue lock slow: holder=(\S+) ms=(\d+)', line)
+        if hit:
+            found.append((hit.group(1), int(hit.group(2))))
+    return found
+
+
+def _percentile(values: list, fraction: float) -> float:
+    if not values:
+        return 0.0
+    ordered = sorted(values)
+    index = min(len(ordered) - 1, int(round(fraction * (len(ordered) - 1))))
+    return float(ordered[index])
+
+
+def scenario_s7_queue_load(rig, args, ctx):
+    """S7/B5: what a queueing burst costs *while the queue is already being worked*.
+
+    The row carries two claims and no measurement: queueing under load costs ~212 ms per task, and every
+    job re-probes the storage as it is queued. Two instruments answer both, and neither is the plugin
+    reporting on itself:
+
+      * the plugin's own `enqueue slow:` breakdown (run with SUBSYNC_ENQUEUE_TRACE_MS=0 so every task
+        reports item/sources/settings/log, and the four parts inside `log`: state, logWrite, queueLock,
+        wakePump). It is read for a burst queued *while the first batch is running* - the shape the field
+        was in, not an idle queue, which is what S40 measured;
+      * a counting wrapper in front of the bundled engine, which is the only way to count the
+        `ffsubsync --version` spawns B5 is about (one per call before the fix, because the version is
+        re-resolved by spawning the binary every time a cache key is built).
+
+    Run with SUBSYNC_ENQUEUE_TRACE_MS=0. The settings probes are read from the same line's
+    `settingsStats=` field, which is cumulative over the run, so the burst's cost is its delta.
+    """
+    prepare_fixtures()
+    time.sleep(2)
+    rig.refresh_library()
+    time.sleep(args.settle)
+
+    wrapped = wrap_bundled_engine()
+    notes = [f'{len(wrapped)} bundled engine(s) wrapped for counting']
+
+    # One item with many tracks does what the field's series did: a batch of ~30 tasks without needing
+    # 30 different files. The two halves are different tracks of the same episode, so the second batch is
+    # not refused as a duplicate of the first (D9) while both address the same file - which is the point:
+    # the second batch is queued while the first one's jobs are reading it.
+    episode = [i for i in rig.items(str(S31_SOURCE.parent)) if len(i.get('MediaStreams') or []) > 30]
+    if not episode:
+        return [('the multi-track item is in the library', False,
+                 'no item with more than 30 streams: the burst cannot reach the field shape')]
+    item = episode[0]
+    subs = [st for st in (item.get('MediaStreams') or []) if st.get('Type') == 'Subtitle']
+    made = [{'ItemId': item['Id'], 'SubtitleIndex': int(st['Index']),
+             'Title': f"{item.get('Name')} · {st.get('Language') or st.get('Index')}"}
+            for st in subs]
+
+    half = max(2, len(made) // 2)
+    load_tasks, burst_tasks = made[:half], made[half:half + half]
+    if len(burst_tasks) < 2:
+        return [('the item carries enough tracks for two waves', False,
+                 f'{len(made)} subtitle track(s) on {item.get("Name")}')]
+
+    since_load = rig._log_offset
+    rig.post('/SubSync/Batch', {'Tasks': load_tasks, 'Label': 'rig-s7-load'})
+
+    # The burst may only count as "under load" once the first batch has jobs actually running: queueing
+    # behind an empty queue is what S40 already measured, and it is not this row's shape.
+    running = 0
+    deadline = time.time() + 240
+    while time.time() < deadline:
+        try:
+            live = rig.get('/SubSync/Jobs') or []
+        except urllib.error.HTTPError:
+            live = []
+        running = sum(1 for j in (live if isinstance(live, list) else live.get('Items') or [])
+                      if str(j.get('Status')) == 'Running')
+        if running:
+            break
+        time.sleep(3)
+    notes.append(f'{running} job(s) running when the burst was queued')
+
+    spawn_mark = _spawn_mark()
+    since_burst = rig._log_offset
+    watch = time.time()
+    view = rig.post('/SubSync/Batch', {'Tasks': burst_tasks, 'Label': 'rig-s7-burst'})
+    burst_ms = (time.time() - watch) * 1000.0
+    ctx['batch'] = view.get('BatchId') or view.get('Id')
+    lines = [ln for ln in rig.log_lines(since_burst)
+             if _burst_line(ln, {int(t['SubtitleIndex']) for t in burst_tasks})
+             and ln[:19] >= time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(watch - 2))]
+    # The lock-hold lines are not per-task: they name whoever held the lock, so they are read from the whole
+    # window rather than from the burst's own lines (the same time filter applies - see `_burst_line`).
+    global_lines = [ln for ln in rig.log_lines(since_burst)
+                    if ln[:19] >= time.strftime('%Y-%m-%d %H:%M:%S', time.gmtime(watch - 2))]
+    rows = [parsed for parsed in (_s40_parse(ln) for ln in lines) if parsed]
+    probes = _spawn_count(spawn_mark, '--version')
+    stats = [int(m.group(1)) for m in (re.search(r'settingsStats=(\d+)', ln) for ln in lines) if m]
+    reads = [int(m.group(1)) for m in (re.search(r'settingsReads=(\d+)', ln) for ln in lines) if m]
+    settings_read_ms = [int(m.group(1)) for m in (re.search(r'settingsRead=(\d+) ms', ln) for ln in lines) if m]
+    jellyfin_log_ms = [int(m.group(1)) for m in (re.search(r'jellyfinLog=(\d+) ms', ln) for ln in lines) if m]
+    hold_ms = [int(ms) for name, ms in _holds(global_lines) if name != 'pump-plan-outside-lock']
+    plan_ms = [int(ms) for name, ms in _holds(global_lines) if name == 'pump-plan-outside-lock']
+    holders = [name for name, ms in _holds(global_lines) if name != 'pump-plan-outside-lock']
+    ctx['observations'] = [ln.split('INFO')[-1].strip() for ln in lines if 'enqueue slow:' in ln][:6]
+    ctx['observations'] += [f'bundled engine wrapper: {n}' for n in notes]
+
+    if not rows:
+        return [('every task in the burst reports its phase breakdown', False,
+                 f'{len(burst_tasks)} task(s) queued in {burst_ms:0.0f} ms and no line carried a '
+                 'breakdown (SUBSYNC_ENQUEUE_TRACE_MS too high?)'),
+                ('the engine version is not re-resolved for every task', probes <= 1,
+                 f'{probes} `ffsubsync --version` spawn(s) for {len(burst_tasks)} task(s)')]
+
+    worst = max(rows, key=lambda r: r['total'])
+    totals = [r['total'] for r in rows]
+    lock_ms = [r.get('queueLock', 0) for r in rows]
+    stat_delta = (stats[-1] - stats[0]) if len(stats) >= 1 else None
+
+    return [
+        ('the burst is queued while the queue is being worked', running > 0,
+         f'{running} job(s) running at the moment the burst was posted; {len(load_tasks)} task(s) in the '
+         f'first batch'),
+        ('every task in the burst reports its phase breakdown', len(rows) >= len(burst_tasks) - 1,
+         f'{len(rows)} line(s) for {len(burst_tasks)} task(s), queued by the API in {burst_ms:0.0f} ms'),
+        ('a queued task does not spend its time waiting for the queue lock',
+         max(lock_ms + [0]) <= max(50.0, 0.25 * worst['total']) and max(hold_ms + [0]) <= 50,
+         f'worst queueLock={max(lock_ms + [0])} ms of worst total={worst["total"]} ms; '
+         f'longest critical-section hold={max(hold_ms + [0])} ms'
+         + (f' ({holders[hold_ms.index(max(hold_ms))]})' if hold_ms else '')
+         + f'; the planner ran {max(plan_ms + [0])} ms outside the lock; '
+         f'median total={_percentile(totals, 0.5):0.0f} ms, p95={_percentile(totals, 0.95):0.0f} ms; '
+         f'phases: item={worst.get("item", 0)} sources={worst.get("sources", 0)} '
+         f'settings={worst.get("settings", 0)} (read={worst.get("settingsRead", 0)} ms, '
+         f'jellyfinLog={worst.get("jellyfinLog", 0)} ms, duplicateCheck={worst.get("duplicateCheck", 0)} ms, '
+         f'not-our-code={worst.get("settingsUnaccounted", 0)} ms) log={worst.get("log", 0)} ms'),
+        ('the engine version is resolved once for the burst, not once per task', probes <= 1,
+         f'{probes} `ffsubsync --version` spawn(s) for {len(burst_tasks)} queued task(s)'),
+        ('the settings file is not re-probed from storage for every queued task',
+         stat_delta is not None and stat_delta <= len(burst_tasks),
+         f'settingsStats={stats[-1] if stats else "absent"} (delta {stat_delta} over {len(burst_tasks)} '
+         f'task(s) = {stat_delta / max(1, len(burst_tasks)):.1f} storage probe(s) per queued task; one per '
+         f'call before the fix was ~18)' if stat_delta is not None else
+         'the enqueue line does not name the settings probes'),
+        ('the slowest enqueue is attributed to one part, not left as "log"',
+         max(worst.get(name, 0) for name in S40_PARTS) >= 0,
+         f'worst of {len(rows)} enqueues: total={worst["total"]} ms, log={worst.get("log", 0)} ms, '
+         + ', '.join(f'{k}={worst.get(k, 0)} ms' for k in S40_PARTS)),
     ]
 
 
@@ -966,6 +1195,9 @@ SCENARIOS = {
                             needs='a sibling subtitle from a different cut: the ruler passes every check and is wrong'),
     's40-enqueue': dict(run=scenario_s40_enqueue, storage='any',
                         needs='~55 tasks in one batch; set SUBSYNC_ENQUEUE_TRACE_MS=0 so every enqueue is reported'),
+    's7-queue-load': dict(run=scenario_s7_queue_load, storage='any',
+                          needs='one item with many subtitle tracks and the bundled engine installed in the rig '
+                               '(its spawns are counted); set SUBSYNC_ENQUEUE_TRACE_MS=0 so every enqueue is reported'),
     'd3-settings': dict(run=scenario_d3_settings, storage='any',
                         needs='nothing: it drives the settings API, the same way the page does'),
     's43-audio-is-audio': dict(run=scenario_s43_audio_is_audio, storage='any',

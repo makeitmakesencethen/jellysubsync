@@ -1,3 +1,51 @@
+## 2.0.54 (beta)
+
+Queue lock efficiency: what the plugin does while the queue is waiting, and what queueing under load costs.
+
+**B5 — the engine's version was asked by spawning the engine, every time.** `BundledFfSubSyncVersion` ran
+`ffsubsync --version` and read the pipe, and the scheduler asked for it while building a speech-cache key — once per
+queued job on every planning pass, from a property getter. It is now resolved once per binary and remembered, keyed on
+the binary's path, size and modification time, so a plugin upgrade replaces the key and the new engine is asked once.
+Measured on the rig with a counting wrapper in front of the bundled binary (the counter is outside the plugin, so it
+reads the same on the build before the fix and the build after): a burst of 27 tasks queued while the queue was being
+worked spawned the engine three times for `--version` before, and none in the window afterwards — the whole run costs
+one. The resolved path is no longer stat-ed and re-`chmod`-ed per call either: it is checked once a second.
+
+**S7 — the settings file was stat-ed for every queued task, and the extraction cache re-read for every job on every
+pass.** The settings file is the source of truth (a hand-edited change has to be noticed), but it was noticed by a
+storage round trip on *every* call, and the enqueue path asks for the settings several times per task — the enqueue
+itself, the worker count, the extraction lanes' width. Measured on the rig on one build, with the window turned off
+(`SUBSYNC_SETTINGS_STAT_MS=0`, the pre-fix behaviour) and on: **484 storage probes for 27 queued tasks, ~18 per task**,
+against **one or two for the same burst with the default 250 ms window** (0.0 per task). A save through the settings
+API does not wait for the window at all: it resets the cache outright. The scheduler also asked "is this track out of
+the file yet?" of the extraction cache for every queued job on every pass; a *miss* is now remembered for two seconds,
+which is safe because the lane's hand-over marks the track ready first and that is checked before it.
+
+The measurement needed fixing before it could be trusted, and that is part of the fix. A burst of 27 tasks queued
+under load — 4 to 16 jobs of another batch running — now costs a **median of 4 ms, a p95 of 7 ms and a worst of 8 ms
+per task**, with the `queueLock` phase at 0 ms and no critical section held longer than 3 ms, against the ~212 ms the
+row reported from the field. Three corrections to the instrument got there, and all three are in the tree: the
+`enqueue slow:` line now separates the settings read (`settingsRead=`) from Jellyfin's own log write (`jellyfinLog=`)
+and from the duplicate check's wait on the queue lock (`duplicateCheck=`), because a lock wait sitting inside the
+`settings` phase had been reading as "a storage read cost 185 ms"; whatever that phase measures beyond its two calls is
+reported as `settingsUnaccounted=`, since it is time the thread was not running rather than plugin work; and a scenario
+that selected its log lines by line offset counted lines from runs before it — the plugin log is appended and rotates —
+so it selects them by timestamp and by the burst's own stream indices now, which is where the earlier "27 tasks, 216
+lines" readings came from.
+
+**B3 — the scheduler's per-file checks and the queue lock (verified, and now guarded).** The claim was that the
+scheduler touches the media share while holding the queue lock. Read against the code and measured: it does not. The
+planner (including `MediaVolume.Of`, `SpeechIsCached` and `ExtractionReady`), the reference store's directory work and
+the extractor's file scan all run outside the lock, and the rig's worst enqueue reported `queueLock=0 ms` while the
+longest lock hold in a 27-task burst was under 50 ms. What was missing was anything keeping it that way, so the suite
+now audits the source mechanically: every `lock (_queueLock)` block is found by matching braces and fails the checks if
+its body calls a filesystem or process API (B3) or writes a log line (B15).
+
+**B15 — a log line was written while the queue lock was held.** The duplicate-queue path wrote its line inside the
+critical section. Jellyfin's own log sink and the plugin's log serialise every writer, so a line written there makes
+the enqueue path — the thing this lock exists to keep short — wait for another thread's disk write. The line is written
+after the lock is released, and the audit above keeps the rest out.
+
 ## 2.0.53 (beta)
 
 Hygiene: the things this plugin leaves behind, and the numbers it reads.

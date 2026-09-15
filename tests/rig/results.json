@@ -4092,5 +4092,489 @@
       "2026-09-15 20:52:22.146Z INFO  startup: removed 5 orphaned job scratch director(ies)"
     ],
     "seconds": 11.5
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:13:00",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "BEFORE: pre-fix build, spawn counting + burst under load",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "7 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "54 line(s) for 27 task(s), queued by the API in 1170 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": false,
+        "detail": "worst queueLock=0 ms of worst total=194 ms; median total=6 ms, p95=21 ms; phases: item=0 sources=8 settings=185 log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": false,
+        "detail": "3 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": false,
+        "detail": "settingsStats=absent (delta over the burst unknown)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 54 enqueues: total=194 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 1 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 7 job(s) running when the burst was queued"
+    ],
+    "batch": "e5e4cd96c66847ddbc3670401ef327f4",
+    "seconds": 43.7
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:15:03",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "AFTER(a): same build, stat TTL forced to 0 = pre-fix behaviour",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "16 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "108 line(s) for 27 task(s), queued by the API in 2787 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": false,
+        "detail": "worst queueLock=0 ms of worst total=194 ms; median total=7 ms, p95=64 ms; phases: item=0 sources=8 settings=185 log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": false,
+        "detail": "settingsStats=487 (delta over the burst 484)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 108 enqueues: total=194 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 1 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 16 job(s) running when the burst was queued"
+    ],
+    "batch": "af384e01fc104b8c96f1f84d1952c70b",
+    "seconds": 39.7
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:15:42",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "AFTER(b): stat TTL 250 ms default",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "5 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "162 line(s) for 27 task(s), queued by the API in 971 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": false,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; median total=7 ms, p95=64 ms; phases: item=0 sources=12 settings=270 log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": false,
+        "detail": "settingsStats=13 (delta over the burst 10)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 162 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 1 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 5 job(s) running when the burst was queued"
+    ],
+    "batch": "7d817dd6ae024c28b4c4898d27e099d4",
+    "seconds": 42.5
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:16:39",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "AFTER(c): default 250ms window, phase attribution split out",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "4 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "216 line(s) for 27 task(s), queued by the API in 508 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": false,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; longest lock hold=590 ms by pump-plan-outside-lock; median total=6 ms, p95=42 ms; phases: item=0 sources=12 settings=270 (read=0 ms, jellyfinLog=24 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=12 (delta 9 over 27 task(s) = 0.3 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 216 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 1 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 4 job(s) running when the burst was queued"
+    ],
+    "batch": "b83bf389e7094ceb95a226b2a19bd5f3",
+    "seconds": 37.4
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:17:54",
+    "plugin": "SubSync_2.0.54.0",
+    "shim": null,
+    "note": "AFTER(d): honest phase attribution",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "4 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "270 line(s) for 27 task(s), queued by the API in 595 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": true,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; longest critical-section hold=7 ms (pump-snapshot); the planner ran 590 ms outside the lock; median total=5 ms, p95=42 ms; phases: item=0 sources=12 settings=270 (read=0 ms, jellyfinLog=24 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=12 (delta 9 over 27 task(s) = 0.3 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 270 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 0 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 4 job(s) running when the burst was queued"
+    ],
+    "batch": "79872a980f224795a08afc2dff3c4a2a",
+    "log_tail": [
+      "2026-09-15 21:18:31.784Z INFO  extract plan: The Helicopter Heist S01E01.mkv cue-indexed expected 1.76 MB/1448 read(s) (6.2 ms), actual 1.76 MB/1448 read(s) (6.2 ms) - bytes 1.00x, reads 1.00x"
+    ],
+    "seconds": 38.2
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:20:06",
+    "plugin": "SubSync_2.0.54.0",
+    "shim": null,
+    "note": "AFTER(e): phases split: settings read, jellyfin log, duplicate-check lock wait",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "1 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "324 line(s) for 27 task(s), queued by the API in 607 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": true,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; longest critical-section hold=7 ms (pump-snapshot); the planner ran 590 ms outside the lock; median total=5 ms, p95=36 ms; phases: item=0 sources=12 settings=270 (read=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=4 (delta 1 over 27 task(s) = 0.0 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 324 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 0 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 1 job(s) running when the burst was queued"
+    ],
+    "batch": "59473699c1e442d48d643dcca8ad0aa7",
+    "log_tail": [
+      "2026-09-15 21:20:40.522Z INFO  [e5282310226446d782b59d91c2973c79] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b6bcc185d999df54/51756767c86deff9ee0e9f02b64562c8.ref.srt -i /opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.SYNCED.ukr.srt -o /opt/data/jf12test/cache/subsync/e5282310226446d782b59d91c2973c79/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/e5282310226446d782b59d91c2973c79",
+      "2026-09-15 21:20:40.522Z INFO  [e5282310226446d782b59d91c2973c79] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's"
+    ],
+    "seconds": 35.7
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:24:56",
+    "plugin": "SubSync_2.0.54.0",
+    "shim": null,
+    "note": "FINAL: phases + unaccounted time named",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "1 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "378 line(s) for 27 task(s), queued by the API in 506 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": true,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; longest critical-section hold=7 ms (pump-snapshot); the planner ran 590 ms outside the lock; median total=5 ms, p95=34 ms; phases: item=0 sources=12 settings=270 (read=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, not-our-code=0 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=3 (delta 0 over 27 task(s) = 0.0 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 378 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=5 ms, settings=3 ms, log=2 ms, total=11 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=5 ms stream=7 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=8 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 0 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 1 job(s) running when the burst was queued"
+    ],
+    "batch": "49cd42e4c7c34878aca212b6a761d91a",
+    "seconds": 36.1
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:30:18",
+    "plugin": "SubSync_2.0.54.0",
+    "shim": null,
+    "note": "FINAL: burst lines selected by stream id",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "1 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "216 line(s) for 27 task(s), queued by the API in 422 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": true,
+        "detail": "worst queueLock=0 ms of worst total=283 ms; longest critical-section hold=12 ms (pump-snapshot); the planner ran 590 ms outside the lock; median total=8 ms, p95=55 ms; phases: item=0 sources=12 settings=270 (read=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, not-our-code=0 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=3 (delta -328 over 27 task(s) = -12.1 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 216 enqueues: total=283 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=8 ms, settings=0 ms, log=0 ms, total=8 ms stream=30 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=12 ms, settings=0 ms, log=0 ms, total=12 ms stream=31 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=7 ms, settings=0 ms, log=0 ms, total=7 ms stream=32 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=13 ms, settings=0 ms, log=0 ms, total=13 ms stream=33 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=7 ms, settings=0 ms, log=0 ms, total=7 ms stream=34 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=35 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 0 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 1 job(s) running when the burst was queued"
+    ],
+    "batch": "222c8b4f6d304b6e8196f248cfae01ca",
+    "seconds": 35.2
+  },
+  {
+    "scenario": "s7-queue-load",
+    "when": "2026-09-15 21:31:33",
+    "plugin": "SubSync_2.0.54.0",
+    "shim": null,
+    "note": "FINAL: burst window by time + stream",
+    "repo_head": "95b7601",
+    "assertions": [
+      {
+        "check": "the burst is queued while the queue is being worked",
+        "passed": true,
+        "detail": "1 job(s) running at the moment the burst was posted; 27 task(s) in the first batch"
+      },
+      {
+        "check": "every task in the burst reports its phase breakdown",
+        "passed": true,
+        "detail": "27 line(s) for 27 task(s), queued by the API in 374 ms"
+      },
+      {
+        "check": "a queued task does not spend its time waiting for the queue lock",
+        "passed": true,
+        "detail": "worst queueLock=0 ms of worst total=8 ms; longest critical-section hold=3 ms (pump-snapshot); the planner ran 55 ms outside the lock; median total=4 ms, p95=7 ms; phases: item=0 sources=8 settings=0 (read=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, not-our-code=0 ms) log=0 ms"
+      },
+      {
+        "check": "the engine version is resolved once for the burst, not once per task",
+        "passed": true,
+        "detail": "0 `ffsubsync --version` spawn(s) for 27 queued task(s)"
+      },
+      {
+        "check": "the settings file is not re-probed from storage for every queued task",
+        "passed": true,
+        "detail": "settingsStats=3 (delta 1 over 27 task(s) = 0.0 storage probe(s) per queued task; one per call before the fix was ~18)"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "worst of 27 enqueues: total=8 ms, log=0 ms, state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=6 ms stream=30 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=2 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=0 ms, total=5 ms stream=31 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=32 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=33 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=7 ms, settings=0 ms, log=0 ms, total=7 ms stream=34 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=0 ms, total=4 ms stream=35 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms, settingsRead=0 ms, jellyfinLog=0 ms, duplicateCheck=0 ms, settingsUnaccounted=0 ms settingsStats=2 settingsReads=1 video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "bundled engine wrapper: 0 bundled engine(s) wrapped for counting",
+      "bundled engine wrapper: 1 job(s) running when the burst was queued"
+    ],
+    "batch": "9dbafa7a07524710bca43a17e54267e6",
+    "seconds": 36.0
   }
 ]
