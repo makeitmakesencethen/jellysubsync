@@ -1,3 +1,41 @@
+## 2.0.40 (beta)
+
+The audio is now read as audio, everywhere it is used as an independent signal - not just in the cross-check
+2.0.39 added.
+
+**Why.** The default VAD (`subs_then_webrtc`) lets ffsubsync take the video's own **embedded subtitle tracks** as
+its speech signal, and the reference this plugin hands the engine for "the audio" is the video itself. So on any
+file that carries subtitles - in this library, every file checked but one, one episode carrying 50 tracks - "the
+audio path" could be a subtitle path, and *which* track is the engine's choice rather than the plugin's, bypassing
+the plugin's own reference checks (cue count, signs-track detection, span against the file). The engine says so
+itself: with `subs_then_webrtc` it logs `extracting speech segments from subtitles` instead of extracting speech
+from the reference audio. Measured on the fixture used for 2.0.39's cross-check: the same job shape returned the
+wrong track's own +24,170 s with the default VAD and the film's -5,080 s once the audio VAD was forced.
+
+**What changed.** The plugin decides, the engine does not. Every run where the plugin intends the audio to be the
+reference - the ordinary no-usable-sibling run, the over-ceiling fallback, the wide-window retries and the
+verification run, as well as 2.0.39's cross-check - is now given `--vad webrtc`, and the run states in the log that
+it overrode the configuration and why. Where the plugin supplied a subtitle reference it has already vetted, the
+configured method stands. The speech-cache key now names the VAD the engine is actually given rather than the
+configured one it is not given, so two different analyses can no longer share a key.
+
+**Verified.**
+
+    python3 tests/rig/run_scenario.py --scenario s43-audio-is-audio
+
+| build | what the log says about the signal | the engine's answer | result |
+|---|---|---|---|
+| 2.0.39 | nothing | -30,08 s | FAILED 1 of 3 |
+| 2.0.40 | the override and the reason | -30,08 s | PASSED 3 of 3 |
+
+The fixture is a file whose only subtitle track is 30 s out of sync, so the audio is the only usable reference.
+Suite: 645 checks green, four of them new (the rule, its reach into every call site, the speech key, the log line).
+Honestly: on this fixture 2.0.39 also answered correctly - the engine did not take the subtitle route there - so
+what this release adds there is the guarantee and the log line; the divergence it removes is the one measured above
+on the wrong-cut fixture, shipped for the cross-check in 2.0.39.
+
+Rollback: 2.0.39's zip remains downloadable at its URL.
+
 # Changelog
 
 All notable changes to this plugin are documented here. Versions follow
