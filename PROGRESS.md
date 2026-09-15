@@ -1,6 +1,13 @@
 # PROGRESS — where the register work stands
 
+
 Goal: `FINISH_EVERYTHING_GOAL_PROMPT.md` — close `knowledge/FIX_PLAN.md` without the user running anything.
+
+> **HELD, UNPUSHED - say so when the user asks what to fix next.** The S40 instrumentation (`629d95c`) and the
+> lock-scope changes (`1a2a4bc`) are committed locally and deliberately not pushed: pushing rebuilds the published
+> 2.0.41 under the same version, so the md5 verified against the catalog stops matching. They ship once a field run
+> has named the queue-lock holder (`queue lock slow: holder=…` / `enqueue slow: … breakdown:`), which is the one
+> step that needs the user's server. The user asked to be reminded of this when they next ask what to fix.
 Updated as work happens. The last item is the only one anyone needs to read to continue.
 
 ## Item 0 — the harness (done, commit `eed433a`)
@@ -71,7 +78,7 @@ holding it. Neither is claimed as a measured speedup; the field run that reads `
 alongside the enqueue breakdown is what names the 8-21 s. Held unpushed until measured.
 
 
-## D3 + F10 - one validation path for the settings, and argv reads only validated numbers (held for the ship call)
+## D3 + F10 - one validation path for the settings, and argv reads only validated numbers (shipped in 2.0.41)
 
 `Configuration/SettingsValidation.cs` is the single place a setting is checked: `Apply` runs wherever a
 configuration is stored (through `Plugin.UpdateConfiguration`, so both surfaces and any API pass through it) and
@@ -81,10 +88,10 @@ hand-edited config.xml cannot put an out-of-range ceiling into the engine's comm
 
 Proof: `python3 tests/rig/run_scenario.py --scenario d3-settings` - the released 2.0.40 fails 11 of 12 (every
 hostile value stored as typed, the response silent), the tree passes 12 of 12, notes quoted in the results file.
-Suite: 664 checks green, 20 of them new. Not shipped - awaiting the ship call.
+Suite: 664 checks green, 20 of them new. Shipped in 2.0.41.
 
 
-## S43 - the audio path is given a VAD that reads audio (implemented, held for the ship call)
+## S43 - the audio path is given a VAD that reads audio (shipped in 2.0.40)
 
 The plugin decides and the engine does not: wherever the plugin intends the audio to be the reference it is given
 `--vad webrtc`, and the run says so in the log with the reason; where the plugin supplied a subtitle reference it
@@ -98,7 +105,7 @@ divergence this removes was measured on the S31 fixture: the same job shape retu
 new pins. Not shipped - awaiting the ship call.
 
 
-## Item 3 - S31 (the two mechanisms are in and proved; the row stays open for the decision it recorded)
+## Item 3 - S31 (shipped in 2.0.39; the two mechanisms are in and proved)
 
 Reproduced, implemented, and proved in both directions on the rig. Nothing shipped (held as instructed).
 

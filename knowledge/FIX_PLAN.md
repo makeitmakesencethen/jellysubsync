@@ -652,7 +652,7 @@ Fix: give refusals their own terminal state or badge ("not written - unverified"
 its own line, not as FAIL. The plugin log already distinguishes them (`UNVERIFIED:` / `REFUSED:`), so this is
 presentation only.
 
-### S31 - a reference subtitle is trusted on plausibility, never on correctness (high, open: score captured, the refusal this row proposed refuted by measurement)
+### S31 - a reference subtitle is trusted on plausibility, never on correctness (high, shipped in 2.0.39; the refusal this row proposed was refuted by measurement and replaced by the cross-check)
 
 Question that produced this row: when the plugin checks a sync against a sibling subtitle, how do we know that
 sibling is right? **We do not.** There is no ground truth inside the plugin; what exists is four plausibility
@@ -1214,7 +1214,7 @@ gained `ThrashTierMinReads = 2`, so a figure a *single* read produced is held at
 *"but that is one read and one read is not a steady state, so it is held at 2 until the volume has been read
 again"*. Four checks pin it (629 in the suite, green before the release commit).
 
-### S40 - the enqueue itself is the slow part of a batch's start (high, open, from the field)
+### S40 - the enqueue itself is the slow part of a batch's start (high, open: instrumented, the fix in the tree and held unpushed until a field run names the lock holder)
 
 Measured on 2026-09-14 while a 55-task batch was being queued, one line per item that took longer than it should:
 
@@ -1322,7 +1322,7 @@ measure the extraction pass's own reads instead), and that is a decision for its
 Until then, any walk-based ceiling on a run whose speech was already cached is suspect, and the tests/rig S39
 scenario clears the caches before the walk it needs for exactly this reason.
 
-### S43 - "the audio ruler" is whatever the VAD picks, and the default VAD reads subtitles (high, in the tree)
+### S43 - "the audio ruler" is whatever the VAD picks, and the default VAD reads subtitles (high, shipped in 2.0.40)
 
 Found while proving S31 part 2, 2026-09-15, measured rather than reasoned. The plugin hands ffsubsync the media
 file as the audio reference with `--vad subs_then_webrtc` (the default, `AllowedVadMethods`), and that VAD takes
@@ -1368,7 +1368,7 @@ speech cache already pays once, and the measured precision trade above (1,79 s o
 sample before it is claimed as general. A rig scenario follows the fix: a file whose *only* reference is the audio,
 with a subtitle in the container that contradicts it, asserting the answer matches the film rather than the track.
 
-**Implemented** (in the working tree, suite green at 645 checks, held for the ship call). The rule is one
+**Implemented and shipped in 2.0.40** (suite green; the rig pair below is the proof, and the artifact was verified in the catalogue: 2.0.40.0, md5 matching the manifest, the rule present in the published DLL). The rule is one
 function and one constant, so a check can disagree with it:
 
 ```csharp
