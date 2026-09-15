@@ -18,6 +18,18 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how the subtitles were located.</summary>
     public string Method { get; set; } = "unknown";
 
+    /// <summary>
+    /// Gets the requested tracks this pass could not produce (B2).
+    /// </summary>
+    /// <remarks>
+    /// A shared pass returns success while an individual track is missing from its results, and nothing in the
+    /// return said which one: on the mixed-index fixture one of two tracks was absent while the call reported
+    /// true with an empty reason, so reading the log could not tell whether the missing track was the language
+    /// someone was waiting for. The ordinals are listed here, the lane line names them, and the caller can say
+    /// so in the job's own note.
+    /// </remarks>
+    public List<int> MissedTracks { get; } = new();
+
     /// <summary>Gets or sets how many byte ranges the pass fetched up front.</summary>
     public int PrefetchedRanges { get; set; }
 
@@ -429,12 +441,31 @@ public static class MkvSubtitleExtractor
 
         if (results.Count == 0)
         {
+            stats.MissedTracks.AddRange(subtitleOrdinals);
             return false;
+        }
+
+        // Every requested track that is not in the results is named (B2), whether the pass failed for it or
+        // simply never produced it: success with a silent gap is the shape this row is about.
+        foreach (var requested in subtitleOrdinals)
+        {
+            if (!results.TryGetValue(requested, out var text) || string.IsNullOrEmpty(text))
+            {
+                stats.MissedTracks.Add(requested);
+            }
         }
 
         if (!ok)
         {
             reason = $"track {primary} failed ({reason}); {results.Count} other track(s) extracted";
+        }
+
+        if (stats.MissedTracks.Count > 0)
+        {
+            var missed = string.Join(", ", stats.MissedTracks);
+            reason = string.IsNullOrEmpty(reason)
+                ? $"no subtitle for track(s) {missed}"
+                : $"{reason}; no subtitle for track(s) {missed}";
         }
 
         return true;
@@ -1118,6 +1149,13 @@ public static class MkvSubtitleExtractor
                     // it; the walk below then costs parsing, not further reads.
                     reader.SetWindow(policy.ClusterWindow(extraDataEnd - extraDataStart));
 
+                    // A cancelled pass must not start a fresh 16 MB read (B7): the largest single read the
+                    // extractor makes is exactly the one worth refusing when the user has asked it to stop.
+                    if (cancellationToken.IsCancellationRequested)
+                    {
+                        break;
+                    }
+
                     // And the walk runs forward through the file, so bring in a whole chunk at once: the
                     // clusters after this one are inside it, which turns a round trip per cluster into a
                     // round trip per chunk.
@@ -1746,9 +1784,14 @@ public static class MkvSubtitleExtractor
             {
                 visited++;
                 stats.ClustersVisited++;
-                if ((visited & 0x3F) == 0 && cancellationToken.IsCancellationRequested)
+
+                // Per cluster, not every 64th (B7): the button the user pressed has to stop the pass at the
+                // next cluster boundary, and a boundary is a place where nothing is half-read. The old
+                // sampling meant up to 64 clusters - minutes on the user's share - of a walk nobody wanted
+                // any more. The caller turns this into a cancellation.
+                if (cancellationToken.IsCancellationRequested)
                 {
-                    return false; // the caller turns this into a cancellation
+                    return false;
                 }
                 if (progress is not null && visited % ProgressEveryClusters == 0)
                 {

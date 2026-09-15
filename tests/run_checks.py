@@ -3373,6 +3373,164 @@ Check("F13: the lane width is half the worker count, capped at the documented th
     && p4Service.ConfiguredLaneLimit == 2,
     $"{p4Service.ConfiguredLaneLimit} of {SubSyncService.DefaultParallelWorkers} workers");
 
+
+// ---------------- B-series: progress that is measured, deletes that are bounded, kills that stop ----------------
+
+// B19: ffmpeg prints the same moment three ways, and out_time_ms is microseconds despite its name. Measured
+// with ffmpeg 7.1 on this project's fixture: out_time_us=33000000, out_time_ms=33000000,
+// out_time=00:00:33.000000. The middle one used to be divided by 1000, so a pass alternated between the true
+// fraction and "100 % of the file read" once per progress block.
+Check("B19: the three progress fields agree on the same moment (33 s)",
+    Math.Abs(SubSyncService.ParseFfmpegProgressSeconds("out_time_us=33000000") - 33.0) < 0.001
+    && Math.Abs(SubSyncService.ParseFfmpegProgressSeconds("out_time_ms=33000000") - 33.0) < 0.001
+    && Math.Abs(SubSyncService.ParseFfmpegProgressSeconds("out_time=00:00:33.000000") - 33.0) < 0.001,
+    $"us={SubSyncService.ParseFfmpegProgressSeconds("out_time_us=33000000")} "
+    + $"ms={SubSyncService.ParseFfmpegProgressSeconds("out_time_ms=33000000")} "
+    + $"hms={SubSyncService.ParseFfmpegProgressSeconds("out_time=00:00:33.000000")}");
+Check("B19: a fraction built from either field is the same fraction, never a full bar early",
+    Math.Min(1.0, SubSyncService.ParseFfmpegProgressSeconds("out_time_ms=33000000") / 60.0) < 1.0
+    && Math.Abs(SubSyncService.ParseFfmpegProgressSeconds("out_time_ms=30000000") - 30.0) < 0.001,
+    $"30 s at 60 s duration -> {Math.Min(1.0, SubSyncService.ParseFfmpegProgressSeconds("out_time_ms=30000000") / 60.0):0.00}");
+Check("B19: a line that is not a progress line is still -1, and the human form still parses",
+    SubSyncService.ParseFfmpegProgressSeconds("frame=12") < 0
+    && SubSyncService.ParseFfmpegProgressSeconds("out_time=01:02:03.500000") > 3723.4
+    && SubSyncService.ParseFfmpegProgressSeconds("out_time=01:02:03.500000") < 3723.6);
+
+// B23: only a directory named exactly after a job may be deleted recursively, and only inside the scratch root.
+Check("B23: a job id is recognised as scratch and nothing else is",
+    SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc2")
+    && !SubSyncService.IsJobScratchDirectory("ref")
+    && !SubSyncService.IsJobScratchDirectory("shared")
+    && !SubSyncService.IsJobScratchDirectory("logs")
+    && !SubSyncService.IsJobScratchDirectory("E6F5A69A4CCA4AD0A00065BDA510CCC2")   // job ids are lowercase
+    && !SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc")    // 31 characters
+    && !SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510cccz")   // not hex
+    && !SubSyncService.IsJobScratchDirectory(".."));
+Check("B23: a path outside the root is refused, one inside is allowed",
+    SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync/e6f5a69a4cca4ad0a00065bda510ccc2")
+    && !SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync-evil/x")
+    && !SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync/../media")
+    && !SubSyncService.IsInsideRoot("/cache/subsync", "/media/films"));
+
+// B16: the kill report counts processes that really exited, not tokens that were cancelled.
+var b16StoppedProcess = System.Diagnostics.Process.Start(
+    new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60") { UseShellExecute = false })!;
+Thread.Sleep(150);
+b16StoppedProcess.Kill();
+var b16Counted = SubSyncService.CountExited(new[] { b16StoppedProcess }, 3000);
+var b16Alive = System.Diagnostics.Process.Start(
+    new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60") { UseShellExecute = false })!;
+Thread.Sleep(150);
+var b16StillRunning = SubSyncService.CountExited(new[] { b16Alive }, 300);
+b16Alive.Kill();
+b16Alive.WaitForExit(3000);
+b16StoppedProcess.Dispose();
+b16Alive.Dispose();
+Check("B16: a killed process is counted as stopped", b16Counted == 1, $"counted={b16Counted}");
+Check("B16: a process that did not exit is not counted as stopped", b16StillRunning == 0,
+    $"counted={b16StillRunning} (a process still running must not be folded into a success figure)");
+
+// B17: finished jobs are kept for an hour, and a batch of 60 does not lose its own history.
+SyncJob B17Job(string id, DateTime finished) => new()
+{
+    Id = id,
+    Status = SyncJobStatus.Completed,
+    FinishedAtUtc = finished
+};
+var b17Now = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
+var b17Jobs = new Dictionary<string, SyncJob>();
+for (var i = 0; i < 60; i++)
+{
+    b17Jobs[$"job{i:00}"] = B17Job($"job{i:00}", b17Now.AddMinutes(-2));
+}
+
+b17Jobs["old"] = B17Job("old", b17Now.AddHours(-2));
+var b17Evicted = SubSyncService.JobsToEvict(b17Jobs, b17Now, TimeSpan.FromHours(1), 10000, _ => false);
+Check("B17: 60 fresh completed jobs survive a cleanup pass (the old rule dropped them past 50)",
+    !b17Evicted.Contains("job00") && !b17Evicted.Contains("job59") && b17Evicted.SequenceEqual(new[] { "old" }),
+    string.Join(",", b17Evicted));
+var b17Big = new Dictionary<string, SyncJob>();
+for (var i = 0; i < 12; i++)
+{
+    b17Big[$"b{i:00}"] = B17Job($"b{i:00}", b17Now.AddMinutes(-1 - i));
+}
+
+var b17Capped = SubSyncService.JobsToEvict(b17Big, b17Now, TimeSpan.FromHours(1), 10, _ => false);
+Check("B17: past the backstop the oldest rows go first, and the newest are kept",
+    b17Capped.Count == 2 && !b17Capped.Contains("b00") && b17Capped.Contains("b11"),
+    string.Join(",", b17Capped));
+var b17History = new Dictionary<string, SyncJob> { ["restored"] = B17Job("restored", b17Now.AddDays(-5)) };
+Check("B17: a restored history row is not judged as a job",
+    SubSyncService.JobsToEvict(b17History, b17Now, TimeSpan.FromHours(1), 10, id => id == "restored").Count == 0);
+
+// B7: the walk honours the token at the next cluster boundary, and a cancelled pass stops.
+var b7Fixture = Environment.GetEnvironmentVariable("MKV_FIX_WALK");
+var b7Mixed = Environment.GetEnvironmentVariable("MKV_FIX_MIXED");
+if (string.IsNullOrEmpty(b7Fixture))
+{
+    Console.WriteLine("SKIP  B7 cancellation (no fixtures)");
+}
+else
+{
+    using var b7PreCancelled = new CancellationTokenSource();
+    b7PreCancelled.Cancel();
+    var b7Ok = MkvSubtitleExtractor.TryExtract(
+        b7Fixture, 0, out _, out var b7Reason, null, out var b7Stats, null, null, b7PreCancelled.Token);
+    Check("B7: a pass started with a cancelled token stops at once, and says it was cancelled",
+        !b7Ok && b7Reason == "cancelled" && b7Stats.Method == "cancelled",
+        $"ok={b7Ok} reason={b7Reason} method={b7Stats.Method}");
+
+    // Cancel from the first progress line of a long walk: the pass is then cancelled *while it reads*, which
+    // is the case the Kill button on the page creates. It has to come back with the cancellation, and it has
+    // to stop where it is - not after walking the rest of the file, which is what "the button does nothing"
+    // felt like.
+    var b7Long = Environment.GetEnvironmentVariable("MKV_FIX_WALKCANCEL");
+    if (string.IsNullOrEmpty(b7Long))
+    {
+        Console.WriteLine("SKIP  B7 mid-walk cancellation (no long fixture)");
+    }
+    else
+    {
+        using var b7MidPass = new CancellationTokenSource();
+        var b7Lines = 0;
+        var b7Watch = System.Diagnostics.Stopwatch.StartNew();
+        var b7MidOk = MkvSubtitleExtractor.TryExtract(
+            b7Long, 0, out var b7Text, out var b7MidReason,
+            _ => { if (Interlocked.Increment(ref b7Lines) == 1) b7MidPass.Cancel(); },
+            out var b7MidStats, null, null, b7MidPass.Token);
+        b7Watch.Stop();
+        Check("B7: a walk cancelled mid-read returns the cancellation instead of a partial subtitle",
+            !b7MidOk && b7MidReason == "cancelled" && b7MidStats.Method == "cancelled" && b7Text.Length == 0,
+            $"ok={b7MidOk} reason={b7MidReason} method={b7MidStats.Method} chars={b7Text.Length} "
+            + $"after {b7Watch.ElapsedMilliseconds} ms in {b7Lines} progress line(s)");
+        Check("B7: the walk stopped at a cluster boundary instead of reading the rest of the file",
+            b7MidStats.ClustersVisited < 1200 && b7Watch.ElapsedMilliseconds < 5000,
+            $"walked {b7MidStats.ClustersVisited} of 1200 cluster(s) in {b7Watch.ElapsedMilliseconds} ms");
+    }
+}
+
+// B2: a shared pass names the tracks it could not produce.
+var b2Fixture = Environment.GetEnvironmentVariable("MKV_FIX_MULTI");
+var b2Grouped = Environment.GetEnvironmentVariable("MKV_FIX_GROUPED");
+if (string.IsNullOrEmpty(b2Fixture))
+{
+    Console.WriteLine("SKIP  B2 missing-track naming (no fixtures)");
+}
+else
+{
+    var b2Ok = MkvSubtitleExtractor.TryExtractMany(
+        b2Grouped ?? b2Fixture, new[] { 0, 1 }, out var b2Many, out var b2Reason, out var b2Stats);
+    Check("B2: a pass that serves every requested track reports no missing one",
+        b2Ok && b2Many.Count == 2 && b2Stats.MissedTracks.Count == 0,
+        $"served={b2Many.Count} missed=[{string.Join(",", b2Stats.MissedTracks)}] reason='{b2Reason}'");
+
+    var b2GapOk = MkvSubtitleExtractor.TryExtractMany(
+        b2Grouped ?? b2Fixture, new[] { 0, 9 }, out var b2GapMany, out var b2GapReason, out var b2GapStats);
+    Check("B2: a track the pass could not produce is named in the stats and in the reason",
+        b2GapStats.MissedTracks.Contains(9) && b2GapReason.Contains("track(s) 9"),
+        $"missed=[{string.Join(",", b2GapStats.MissedTracks)}] reason='{b2GapReason}' served={b2GapMany.Count}");
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4420,7 +4578,11 @@ def run_page_checks():
            and 'private void RestoreBatchHistory()' in service
            and 'RestoreBatchHistory();' in service
            and 'MaybePersistBatchHistory();' in service
-           and '_historyOnlyJobs.Contains(kvp.Key)' in service
+           # B17 replaced the ".Where(kvp => !_historyOnlyJobs.Contains(kvp.Key))" clause with the eviction
+           # policy, so this check asserts the same rule in the form the code now states it: history rows are
+           # excluded from eviction, and the cleanup pass asks the policy rather than an inline query.
+           and 'JobsToEvict(' in service
+           and 'id => _historyOnlyJobs.Contains(id)' in service
            and 'interrupted by a plugin restart' in service
            and 'BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());' in service)
 
@@ -4529,6 +4691,35 @@ def run_page_checks():
            and 'public int ConfiguredLaneLimit' in service
            and 'Services.SettingsSource.Current()?.ParallelWorkers ?? DefaultParallelWorkers' in service
            and 'Plugin.Instance?.Configuration?.ParallelWorkers' not in service)
+
+    # B-series: the walk checks the token at a cluster boundary, the kill path counts exits, and the scratch
+    # clear is guarded (B2/B7/B16/B17/B23).
+    extractor_path = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'MkvSubtitleExtractor.cs')
+    extractor_source = open(extractor_path, encoding='utf-8').read()
+    report('B7: the walk checks cancellation at every cluster, not every 64th',
+           'visited & 0x3F' not in extractor_source
+           and 'Per cluster, not every 64th (B7)' in extractor_source
+           and extractor_source.count('if (cancellationToken.IsCancellationRequested)') >= 5
+           and 'must not start a fresh 16 MB read' in extractor_source)
+    report('B16: the kill path waits on process handles and returns the measured count',
+           'CountExited(toKill, KillWaitMs)' in service
+           and 'process.WaitForExit(waitMs)' in service
+           and 'Math.Max(processesKilled, runningKilled)' not in service
+           and 'Thread.Sleep(100)' not in service)
+    report('B23: the scratch clear only deletes job-id directories inside the root',
+           'IsJobScratchDirectory(name)' in service
+           and 'IsInsideRoot(rootFull, directory)' in service
+           and 'refused to delete {directory} (outside' in service)
+    report('B17: finished jobs are kept by age with a backstop a real batch cannot reach',
+           'JobsToEvict(' in service and '_jobs.Count > 50' not in service
+           and 'private const int MaxTrackedJobs = 10000' in service)
+    report('B2: the shared pass names the tracks it could not produce',
+           'missedTracks={string.Join(",", manyStats.MissedTracks)}' in service
+           and 'produced no subtitle for track(s)' in service
+           and 'public List<int> MissedTracks { get; } = new();' in extractor_source)
+    report('B19: out_time_ms is read as microseconds',
+           'return microsFromMs / 1_000_000.0;' in service
+           and 'out_time_ms</c> is <b>microseconds</b> despite its name' in service)
     return failures
 
 
@@ -4655,6 +4846,15 @@ def main():
         return 1
     env['MKV_FIX_MIXED'] = mixed_path
     env['MKV_FIX_MIXED_EXPECT'] = str(expected)
+
+    # B7: a file long enough that a cancellation issued while the pass reads lands at a cluster boundary
+    # rather than after the last one. 1 200 clusters with no subtitle cue index, so the pass walks cluster
+    # headers from the start (the route the Kill button could not interrupt); progress lines come every 400
+    # clusters, so cancelling on the first one leaves 800 clusters unread.
+    walk_cancel = os.path.join(fixtures, 'walkcancel.mkv')
+    subprocess.run(['python3', generator, walk_cancel, '--clusters', '1200', '--payload', '1',
+                    '--sub-every', '3', '--no-sub-cues'], check=True, capture_output=True)
+    env['MKV_FIX_WALKCANCEL'] = walk_cancel
 
     # One file with three subtitle tracks, for the multi-track pass.
     multi_path = os.path.join(fixtures, 'multi.mkv')

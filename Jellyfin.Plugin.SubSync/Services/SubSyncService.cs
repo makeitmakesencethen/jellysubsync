@@ -1632,7 +1632,8 @@ public class SubSyncService : IDisposable
             // Shutdown already took it.
         }
 
-        var processesKilled = 0;
+        var processesAskedToStop = 0;
+        var toKill = new List<Process>();
         foreach (var process in _liveProcesses.Values.ToList())
         {
             try
@@ -1640,7 +1641,8 @@ public class SubSyncService : IDisposable
                 if (!process.HasExited)
                 {
                     process.Kill(entireProcessTree: true);
-                    processesKilled++;
+                    processesAskedToStop++;
+                    toKill.Add(process);
                 }
             }
             catch (Exception ex)
@@ -1649,17 +1651,15 @@ public class SubSyncService : IDisposable
             }
         }
 
-        // Give the kernel a moment, then report what is left instead of claiming success.
-        var deadline = DateTime.UtcNow.AddSeconds(3);
-        while (DateTime.UtcNow < deadline && _liveProcesses.Values.Any(p => !SafeHasExited(p)))
-        {
-            Thread.Sleep(100);
-        }
-
+        // What is reported is what actually exited, not what was asked to (B16): the count used to be the
+        // larger of "process trees killed" and "run tokens cancelled", which is a number nobody measured - the
+        // interface said "N stopped" for processes that were still alive. Each killed process is awaited on its
+        // own handle with a deadline, so this is a wait rather than a poll.
+        var processesStopped = CountExited(toKill, KillWaitMs);
         var survivors = _liveProcesses.Values.Count(p => !SafeHasExited(p));
         _logger.LogInformation(
             "Kill requested: {Queued} queued task(s) cancelled, {Running} run token(s) cancelled, {Killed} process tree(s) killed, {Survivors} still alive",
-            queuedCancelled, runningKilled, processesKilled, survivors);
+            queuedCancelled, runningKilled, processesStopped, survivors);
 
         // The plugin's own log, so a kill is verifiable from the one file that gets handed over for
         // debugging. Which phases the jobs were in matters: a job killed while extracting a subtitle
@@ -1670,10 +1670,12 @@ public class SubSyncService : IDisposable
             .ToList();
         PluginLog.Info(
             $"KILL requested: {queuedCancelled} queued cancelled, {runningKilled} run token(s), "
-            + $"{processesKilled} process tree(s) killed, {survivors} survivor(s)"
+            + $"{processesStopped} of {processesAskedToStop} process tree(s) stopped, {survivors} survivor(s)"
             + (runningPhases.Count == 0 ? string.Empty : " \u00b7 still reporting: " + string.Join(", ", runningPhases)));
 
-        return (queuedCancelled, processesKilled > 0 ? Math.Max(processesKilled, runningKilled) : runningKilled);
+        // The second number is processes that really exited - measured, not estimated from the tokens that
+        // were cancelled or the trees that were signalled (B16).
+        return (queuedCancelled, processesStopped);
     }
 
     /// <summary>True when a process has exited, without throwing when it is gone.</summary>
@@ -1879,13 +1881,25 @@ public class SubSyncService : IDisposable
         }
 
         var removed = 0;
+        var rootFull = Path.GetFullPath(root);
         foreach (var directory in Directory.EnumerateDirectories(root))
         {
             var name = Path.GetFileName(directory);
 
-            // The reference tree has its own owner and its own lifetime.
-            if (name.Equals("ref", StringComparison.OrdinalIgnoreCase) || _jobs.ContainsKey(name))
+            // Only a directory that is named after a job - the shape this plugin creates for a job's scratch
+            // space - may be deleted (B23). Anything else in the cache directory (the reference tree, the
+            // shared extraction directories, a log or state directory, or a directory somebody else put
+            // there) is not this method's to remove, and a recursive delete of a misconfigured root used to
+            // take files outside the plugin's own scratch with it.
+            if (!IsJobScratchDirectory(name) || _jobs.ContainsKey(name))
             {
+                continue;
+            }
+
+            // Belt and braces: the recursive delete only ever runs on a path that resolved inside the root.
+            if (!IsInsideRoot(rootFull, directory))
+            {
+                PluginLog.Warn($"clear scratch: refused to delete {directory} (outside {rootFull})");
                 continue;
             }
 
@@ -6489,6 +6503,134 @@ public class SubSyncService : IDisposable
         }
     }
 
+    /// <summary>How long a finished job's row stays in the interface.</summary>
+    private static readonly TimeSpan JobRetention = TimeSpan.FromHours(1);
+
+    /// <summary>
+    /// Most finished jobs kept before the oldest are dropped, however young they are.
+    /// </summary>
+    /// <remarks>
+    /// A backstop against an unbounded dictionary, and it has to sit above what a real run produces: the
+    /// previous rule dropped every completed job as soon as the store passed 50 entries, so a 2 497-task batch
+    /// lost the beginning of its own history while the user was watching it (B17). 10 000 rows cost a few
+    /// megabytes and no realistic batch reaches them.
+    /// </remarks>
+    private const int MaxTrackedJobs = 10000;
+
+    /// <summary>
+    /// Picks the finished jobs a cleanup pass removes: everything past <paramref name="maxAge"/>, plus the
+    /// oldest beyond <paramref name="maxJobs"/> when a run really has produced that many (B17).
+    /// </summary>
+    /// <param name="jobs">Every tracked job.</param>
+    /// <param name="now">The current time.</param>
+    /// <param name="maxAge">How long a finished job is kept.</param>
+    /// <param name="maxJobs">Most finished jobs to keep at all.</param>
+    /// <param name="isHistoryOnly">Answers whether a row is a restored history entry rather than a job.</param>
+    /// <returns>Keys to remove.</returns>
+    internal static List<string> JobsToEvict(
+        IReadOnlyDictionary<string, SyncJob> jobs,
+        DateTime now,
+        TimeSpan maxAge,
+        int maxJobs,
+        Func<string, bool> isHistoryOnly)
+    {
+        var finished = jobs
+            .Where(pair => !isHistoryOnly(pair.Key))
+            .Where(pair => pair.Value.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled)
+            .OrderBy(pair => pair.Value.FinishedAtUtc ?? pair.Value.CreatedAtUtc)
+            .ToList();
+
+        var cutoff = now - maxAge;
+        var toRemove = finished
+            .Where(pair => (pair.Value.FinishedAtUtc ?? pair.Value.CreatedAtUtc) < cutoff)
+            .Select(pair => pair.Key)
+            .ToList();
+
+        var kept = finished.Count - toRemove.Count;
+        if (kept > maxJobs)
+        {
+            var over = kept - maxJobs;
+            toRemove.AddRange(finished
+                .Where(pair => !toRemove.Contains(pair.Key))
+                .Take(over)
+                .Select(pair => pair.Key));
+        }
+
+        return toRemove;
+    }
+
+    /// <summary>How long a killed process is given to actually exit before it is reported as a survivor.</summary>
+    private const int KillWaitMs = 3000;
+
+    /// <summary>
+    /// Waits for processes to exit and reports how many really did (B16).
+    /// </summary>
+    /// <remarks>
+    /// `WaitForExit` on each handle, not a sleep-and-sample loop: the caller wants a count that was measured,
+    /// and a process that ignored SIGKILL for longer than the deadline has to be reported as still alive
+    /// rather than folded into a success figure.
+    /// </remarks>
+    /// <param name="processes">Processes that were asked to stop.</param>
+    /// <param name="waitMs">How long each one may take.</param>
+    /// <returns>How many of them exited.</returns>
+    internal static int CountExited(IEnumerable<Process> processes, int waitMs)
+    {
+        var exited = 0;
+        foreach (var process in processes)
+        {
+            try
+            {
+                if (process.WaitForExit(waitMs) && process.HasExited)
+                {
+                    exited++;
+                }
+            }
+            catch (Exception)
+            {
+                // A process that cannot be waited on is not counted as stopped.
+            }
+        }
+
+        return exited;
+    }
+
+    /// <summary>
+    /// Asks whether a directory name is one this plugin creates for a job's scratch space (B23).
+    /// </summary>
+    /// <remarks>
+    /// Job ids are <c>Guid.NewGuid().ToString("N")</c> - 32 lowercase hex characters and nothing else - so the
+    /// test is exact rather than a prefix or a "looks like an id" match. That is what keeps a recursive delete
+    /// away from every other directory that can live beside them.
+    /// </remarks>
+    /// <param name="name">Directory name.</param>
+    /// <returns>True when the name is a job id.</returns>
+    internal static bool IsJobScratchDirectory(string? name)
+        => !string.IsNullOrEmpty(name)
+           && name.Length == 32
+           && name.All(character => (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'));
+
+    /// <summary>
+    /// Asks whether a path is inside a root directory, resolved (B23).
+    /// </summary>
+    /// <param name="rootFull">Fully resolved root.</param>
+    /// <param name="path">Path to test.</param>
+    /// <returns>True when the path is the root itself or below it.</returns>
+    internal static bool IsInsideRoot(string rootFull, string path)
+    {
+        try
+        {
+            var candidate = Path.GetFullPath(path);
+            var prefix = rootFull.EndsWith(Path.DirectorySeparatorChar)
+                ? rootFull
+                : rootFull + Path.DirectorySeparatorChar;
+            return candidate.StartsWith(prefix, StringComparison.Ordinal);
+        }
+        catch (Exception)
+        {
+            return false;
+        }
+    }
+
     /// <summary>
     /// Safely replaces an external subtitle file with the synced version.
     /// Creates a backup first, then atomically renames the new file into place.
@@ -6825,15 +6967,8 @@ public class SubSyncService : IDisposable
                     _refreshGate.SuppressedCount);
             }
 
-            var cutoff = DateTime.UtcNow.AddHours(-1);
-            var toRemove = _jobs
-                .Where(kvp => !_historyOnlyJobs.Contains(kvp.Key))
-                .Where(kvp => kvp.Value.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled)
-                .Where(kvp => kvp.Value.Status != SyncJobStatus.Completed ||
-                              (kvp.Value.FinishedAtUtc is not null && kvp.Value.FinishedAtUtc < cutoff) ||
-                              (_jobs.Count > 50))
-                .Select(kvp => kvp.Key)
-                .ToList();
+            var toRemove = JobsToEvict(
+                _jobs, DateTime.UtcNow, JobRetention, MaxTrackedJobs, id => _historyOnlyJobs.Contains(id));
 
             foreach (var key in toRemove)
             {
@@ -7299,10 +7434,26 @@ public class SubSyncService : IDisposable
                     + $"clusters={manyStats.ClustersVisited} blocks={manyStats.SubtitleBlocks} alsoBlocks={manyStats.AlsoBlocks} "
                     + $"blockOffsets={manyStats.BlockOffsets} "
                     + $"plan={manyStats.Route} expected={manyStats.PlanExpectedBytes} expectedCalls={manyStats.PlanExpectedCalls} "
-                    + $"missed={manyStats.PlanMissed} bytesTwice={manyStats.BytesReadTwice} "
+                    + $"missed={manyStats.PlanMissed} missedTracks={string.Join(",", manyStats.MissedTracks)} "
+                    + $"bytesTwice={manyStats.BytesReadTwice} "
                     + $"prefetched={manyStats.PrefetchedRanges} unusedPrefetch={manyStats.PrefetchedUnusedRanges} "
                     + $"memoryReads={manyStats.MemoryServedReads} msPerRead={manyStats.MeasuredMsPerRead:0.00} "
                     + $"mbPerSecond={manyStats.MeasuredMbPerSecond:0.0} ok={manyOk} reason={manyReason} file={videoPath}");
+
+                // Which track a shared pass could not produce is something the log has to say (B2): the call
+                // succeeds with a gap in it otherwise, and the gap may be the language someone is waiting for.
+                if (manyStats.MissedTracks.Count > 0)
+                {
+                    PluginLog.Warn(
+                        $"extract: shared pass produced no subtitle for track(s) "
+                        + $"{string.Join(", ", manyStats.MissedTracks)} of {string.Join(", ", wanted)} "
+                        + $"(served {many.Count}/{wanted.Count}) file={videoPath}");
+                    _logger.LogWarning(
+                        "The pass that read {Video} produced no subtitle for track(s) {Missed} of {Wanted}",
+                        videoPath, string.Join(", ", manyStats.MissedTracks), string.Join(", ", wanted));
+                    job.ExtractionNote = (job.ExtractionNote is null ? string.Empty : job.ExtractionNote + "; ")
+                        + $"no subtitle for track(s) {string.Join(", ", manyStats.MissedTracks)}";
+                }
 
                 if (manyOk && many.TryGetValue(subtitleOrdinal, out var sharedText) && sharedText.Length > 0)
                 {
@@ -7566,9 +7717,17 @@ public class SubSyncService : IDisposable
     /// Reads the processed timestamp from one line of ffmpeg's <c>-progress</c> output
     /// (<c>out_time_us=…</c>), falling back to the human-readable <c>out_time=HH:MM:SS</c>.
     /// </summary>
+    /// <remarks>
+    /// <c>out_time_ms</c> is <b>microseconds</b> despite its name (B19): measured with ffmpeg 7.1 on this
+    /// project's fixture, the same moment is printed as <c>out_time_us=33000000</c>,
+    /// <c>out_time_ms=33000000</c> and <c>out_time=00:00:33.000000</c>. Dividing that field by 1 000 turned
+    /// 33 seconds into 33 000, which the extraction window clamps to "100 % of the file read" - so a pass
+    /// alternated between the true fraction and a full bar once per progress block, and the phase text a user
+    /// reads could be the wrong one.
+    /// </remarks>
     /// <param name="line">One progress line.</param>
     /// <returns>Seconds processed, or -1 when the line is not a progress line.</returns>
-    private static double ParseFfmpegProgressSeconds(string line)
+    internal static double ParseFfmpegProgressSeconds(string line)
     {
         var trimmed = line.Trim();
 
@@ -7578,10 +7737,11 @@ public class SubSyncService : IDisposable
             return micros / 1_000_000.0;
         }
 
+        // Misnamed by ffmpeg and microseconds in fact; see the remarks above for the measurement.
         if (trimmed.StartsWith("out_time_ms=", StringComparison.Ordinal)
-            && long.TryParse(trimmed[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var millis))
+            && long.TryParse(trimmed[12..], NumberStyles.Integer, CultureInfo.InvariantCulture, out var microsFromMs))
         {
-            return millis / 1000.0;
+            return microsFromMs / 1_000_000.0;
         }
 
         if (trimmed.StartsWith("out_time=", StringComparison.Ordinal))

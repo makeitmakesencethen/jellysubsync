@@ -1,3 +1,45 @@
+## 2.0.48 (beta)
+
+Six fixes from the B series, where the plugin either said something it had not measured or did nothing when asked.
+
+**B19 — the progress bar no longer lies about how far it has read.** ffmpeg prints the same moment three ways, and
+`out_time_ms` is *microseconds* despite its name — measured with ffmpeg 7.1 on this project's own fixture:
+`out_time_us=33000000`, `out_time_ms=33000000`, `out_time=00:00:33.000000`. Dividing the middle field by 1000
+turned 33 seconds into 33 000, which the extraction window clamps to "100 % of the file read", so a pass
+alternated between the true fraction and a full bar once per progress block. It is read as microseconds now.
+
+**B23 — the scratch clear only deletes job scratch.** `ClearStaleJobDirectories` recursively deleted every
+directory in the cache root that was not named `ref` and not a tracked job, i.e. anything else that lived there;
+with a misconfigured root that is data loss outside the plugin's own scratch. It now deletes only a directory
+whose name is exactly a job id (32 lowercase hex characters) and only when the resolved path is inside the
+resolved root, and it logs the refusal when it declines.
+
+**B16 — the kill report counts processes that exited.** The number returned, logged and shown was
+`Math.Max(processesKilled, runningKilled)` — the larger of two unrelated figures, neither of them an exit — so
+"N stopped" was reported for processes still alive, after a `Thread.Sleep` poll loop. Each tree is now awaited on
+its own handle with a deadline and the count is what actually exited, with survivors reported separately.
+
+**B7 — Kill interrupts a Matroska walk.** The cue-indexed loop and the shared pass already checked the token per
+cue point; the metadata walk checked it only every 64th cluster and read a fresh 16 MB chunk without asking. Both
+now check at every cluster boundary. Measured on a purpose-built 1 200-cluster fixture: a pass cancelled from its
+first progress line returns `reason=cancelled` with no text, having walked **401 of 1 200 clusters in 7 ms**.
+
+**B17 — a run keeps its own history.** Completed jobs were evicted the moment the store passed 50 entries, so a
+batch's beginning vanished while the user watched it (their own run was 2 497 tasks). Retention is age-bound
+(an hour) with a 10 000-row backstop that drops the oldest first, and the rule is a testable policy
+(`JobsToEvict`) rather than an inline query.
+
+**B2 — a shared pass names the tracks it could not produce.** `MkvExtractionStats.MissedTracks` lists every
+requested ordinal the pass did not produce, the reason names them (`no subtitle for track(s) 9`), the lane's log
+line carries `missedTracks=…`, and the job's extraction note says so — a gap in a pass can no longer be read as a
+track that was simply never queued for.
+
+Verification: `python3 tests/run_checks.py` passes (802 checks, 0 failures) with 22 new ones — the three measured
+progress fields and their fraction, the scratch-name and root-containment guards, a killed process counted as
+stopped and a running one not, 60 fresh completed jobs surviving a cleanup pass plus the backstop, all three
+cancellation cases (pre-cancelled, cancelled mid-walk, and that it stopped at a cluster boundary), and the
+missing-track naming in both stats and reason — plus 6 source checks pinning the wiring.
+
 ## 2.0.47 (beta)
 
 Four small things in the settings, all of the same shape: a control that said something the server did not do.
