@@ -2391,5 +2391,206 @@
     ],
     "batch": "21f99fa018414b87b712b3243798f042",
     "seconds": 284.1
+  },
+  {
+    "scenario": "smoke",
+    "when": "2026-09-15 17:50:32",
+    "plugin": "SubSync_2.0.43.0",
+    "shim": null,
+    "note": "",
+    "repo_head": "378e572",
+    "assertions": [
+      {
+        "check": "the rig lists items at all",
+        "passed": true,
+        "detail": "40 item(s)"
+      },
+      {
+        "check": "the shimmed volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the fast volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /dev/shm/s39-fast (shm)"
+      },
+      {
+        "check": "the two volumes are different volumes",
+        "passed": true,
+        "detail": "/dev/nvme0n1p2 vs shm"
+      },
+      {
+        "check": "the plugin log is where the plugin writes",
+        "passed": true,
+        "detail": "/opt/data/jf12test/data/data/subsync/logs/subsync.log"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "slow volume key: /dev/nvme0n1p2",
+      "fast volume key: shm"
+    ],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 12:43:23.836Z INFO  [4debe028b7354304a9e86ec49c03177f] cross-check exit=0, output=/opt/data/jf12test/cache/subsync/4debe028b7354304a9e86ec49c03177f/audio-cross-check.srt exists=True",
+      "2026-09-15 12:43:23.851Z INFO  [4debe028b7354304a9e86ec49c03177f] the reference subtitle s:1 and the film's own audio disagree (24170 ms against -5080 ms, over the 3 s they are allowed to differ) \u2014 that track is not this film's timeline, so it is discarded as a ruler and the audio's answer is written, file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:43:23.851Z INFO  [4debe028b7354304a9e86ec49c03177f] reference: method=audio why=the reference subtitle and the film's own audio disagreed by 29250 ms",
+      "2026-09-15 12:43:23.853Z INFO  job 4debe028b7354304a9e86ec49c03177f UNVERIFIED: the audio was the only ruler (-5080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:47:06.562Z INFO  extract lane: stopped",
+      "2026-09-15 12:47:09.318Z INFO  startup: version=2.0.42.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.42.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 12:47:10.847Z INFO  batch history: restored 20 batch(es), 405 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 12:47:50.532Z INFO  queued: job=dab3e5e9807f4ad6a116849b9a346a97 item=6a8be955-ac7c-62b9-0cc7-3db3cadc9a8d stream=4 ordinal=0 mode=auto batch=21f99fa018414b87b712b3243798f042 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:47:50.536Z INFO  batch 21f99fa018414b87b712b3243798f042 queued: tasks=1 mode=auto label='rig-s31' totalMs=20 slowestTaskMs=20 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=2 ms, total=7 ms)",
+      "2026-09-15 12:47:50.558Z INFO  extract lane: started",
+      "2026-09-15 12:47:50.558Z INFO  extract lane: started",
+      "2026-09-15 12:47:50.558Z INFO  extract lane: started",
+      "2026-09-15 12:47:50.584Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane currently on: S31 Episode (2026).mkv, 0 min elapsed on it",
+      "2026-09-15 12:47:50.672Z INFO  extract plan: cue-indexed, window 14.4 KB, 1560 planned read(s), expects 1.91 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 12 KB)",
+      "2026-09-15 12:47:50.709Z INFO  extract plan: S31 Episode (2026).mkv cue-indexed expected 1.91 MB/1560 read(s) (16.5 ms), actual 1.91 MB/1560 read(s) (16.5 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 12:47:50.734Z INFO  extract plan: shared-pass, window 3.3 KB, 1561 planned read(s), expects 1.89 MB (one pass serves 1 more track(s) over 759 cluster(s); 803 located block(s), 0 cluster(s) walked (0.0 MB))",
+      "2026-09-15 12:47:50.801Z INFO  extract plan: S31 Episode (2026).mkv shared-pass expected 1.89 MB/1561 read(s) (16.5 ms), actual 1.80 MB/1203 read(s) (13.0 ms) - bytes 0.95x, reads 0.77x (served from this pass's fetch: 1799624 read(s) of its own)",
+      "2026-09-15 12:47:50.806Z INFO  extract profile: S31 Episode (2026).mkv: storage 0.01 ms per read and 1315.5 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 12 KB",
+      "2026-09-15 12:47:50.823Z INFO  extract lane: S31 Episode (2026).mkv -> 2/2 subtitle(s), 3.8 MB, 2771 reads, 232 ms, ok=True, reason= prefetched=2763 ranges/3.7 MB unused=0 ranges/3.5 MB bytesTwice=0.00 MB memoryReads=15891 plan=cue-indexed expected=3.80 MB/3121 reads missed=0 storage=0.01 ms/read 1315.5 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 12:47:50.848Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 21f99fa018414b87b712b3243798f042",
+      "2026-09-15 12:47:50.942Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 12:47:51.049Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 12:47:51.103Z INFO  reference: method=cache cues=803 file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv stream=1",
+      "2026-09-15 12:47:51.106Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:47:51.112Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/49620f9e7763eade/2aa77fbb780ba6894a643d058ec1c01a.ref.srt -i /opt/data/jf12test/cache/subsync/shared/52fc71214c0b2683/subtitle_4.srt -o /opt/data/jf12test/cache/subsync/dab3e5e9807f4ad6a116849b9a346a97/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/dab3e5e9807f4ad6a116849b9a346a97",
+      "2026-09-15 12:47:51.115Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 12:47:51.734Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] ffsubsync exit=0 after 619 ms",
+      "2026-09-15 12:47:51.737Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] ffsubsync alignment: score=287443 offset=25.000 s against reference subtitle s:1",
+      "2026-09-15 12:47:51.747Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] note: aligned to the reference subtitle s:1 at 25000 ms - check the result; a shift this size usually means that track is not the same cut",
+      "2026-09-15 12:47:52.029Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] ruler shape: quality=0.833 peak=803 at +25000 ms covering 100% of the cues (threshold 0.75) \u2014 context only; the audio cross-check runs either way",
+      "2026-09-15 12:47:52.036Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] reference: method=audio why=the reference subtitle asked for a shift worth checking (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 12:47:52.037Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] cross-check run: reference=/opt/data/jf12test/data/data/subsync/state/speech-cache/50eb91721dd82db8b19eeba303e5537b.mkv input=/opt/data/jf12test/cache/subsync/shared/52fc71214c0b2683/subtitle_4.srt args=/opt/data/jf12test/data/data/subsync/state/speech-cache/50eb91721dd82db8b19eeba303e5537b.mkv -i /opt/data/jf12test/cache/subsync/shared/52fc71214c0b2683/subtitle_4.srt -o /opt/data/jf12test/cache/subsync/dab3e5e9807f4ad6a116849b9a346a97/audio-cross-check.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/dab3e5e9807f4ad6a116849b9a346a97",
+      "2026-09-15 12:48:07.966Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] ffsubsync alignment: score=46805 offset=-0.080 s against the audio (cross-check of a subtitle ruler)",
+      "2026-09-15 12:48:07.966Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] cross-check exit=0, output=/opt/data/jf12test/cache/subsync/dab3e5e9807f4ad6a116849b9a346a97/audio-cross-check.srt exists=True",
+      "2026-09-15 12:48:07.981Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] the reference subtitle s:1 and the film's own audio disagree (25000 ms against -80 ms, over the 3 s they are allowed to differ) \u2014 that track is not this film's timeline, so it is discarded as a ruler and the audio's answer is written, file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:48:07.981Z INFO  [dab3e5e9807f4ad6a116849b9a346a97] reference: method=audio why=the reference subtitle and the film's own audio disagreed by 25080 ms",
+      "2026-09-15 12:48:07.983Z INFO  job dab3e5e9807f4ad6a116849b9a346a97 UNVERIFIED: the audio was the only ruler (-80 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).mkv",
+      "2026-09-15 12:51:50.736Z INFO  extract lane: stopped",
+      "2026-09-15 15:50:34.952Z INFO  startup: version=2.0.43.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.43.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 15:50:36.475Z INFO  batch history: restored 20 batch(es), 405 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 11.7
+  },
+  {
+    "scenario": "s41-steady",
+    "when": "2026-09-15 17:54:44",
+    "plugin": "SubSync_2.0.43.0",
+    "shim": {
+      "MS_PER_CALL": 10.0,
+      "MS_PER_16K": 1.46
+    },
+    "note": "",
+    "repo_head": "378e572",
+    "assertions": [
+      {
+        "check": "both volumes have the scenario fixture",
+        "passed": true,
+        "detail": "slow=1 fast=1 after a library refresh"
+      },
+      {
+        "check": "both volumes were probed in one run",
+        "passed": true,
+        "detail": "probed ['/dev/nvme0n1p2', 'shm'] in 3.0s (wanted ['/dev/nvme0n1p2', 'shm'])"
+      },
+      {
+        "check": "the slow volume's verdict names how many reads it stands on",
+        "passed": true,
+        "detail": "S41 defect when the line says \"read once\" -> 2026-09-15 15:54:55.665Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 11.85 ms (slowest 11.89 ms) - the ceiling for that volume is 2 (this volume measured 11.8 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "a verdict does not rest on a single read",
+        "passed": true,
+        "detail": "samples=3 (one cold read decides at 1), median=11.85 ms, verdict=2 (this volume measured 11.8 ms per read, over 3 read(s), which is storage-bound)"
+      },
+      {
+        "check": "the fast volume gets no ceiling",
+        "passed": true,
+        "detail": "2026-09-15 15:54:55.647Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.34 ms (slowest 0.50 ms) - the ceiling for that volume is none (this volume measured 0.34 ms per read, over 3 read(s), which is fast)"
+      },
+      {
+        "check": "the shimmed volume is allowed the walks its own state says (2)",
+        "passed": true,
+        "detail": "ceiling=2 because this volume measured 11.8 ms per read, over 3 read(s), which is storage-bound"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-15 15:54:55.647Z INFO  volume shm had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.34 ms (slowest 0.50 ms) - the ceiling for that volume is none (this volume measured 0.34 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 15:54:55.665Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 11.85 ms (slowest 11.89 ms) - the ceiling for that volume is 2 (this volume measured 11.8 ms per read, over 3 read(s), which is storage-bound)"
+    ],
+    "batch": "4a24cd0bb60a47d3a20ab4d1f21fb12e",
+    "seconds": 14.6
+  },
+  {
+    "scenario": "s39-ratio",
+    "when": "2026-09-15 17:54:58",
+    "plugin": "SubSync_2.0.43.0",
+    "shim": {
+      "MS_PER_CALL": 0.0,
+      "MS_PER_16K": 12.8
+    },
+    "note": "",
+    "repo_head": "378e572",
+    "assertions": [
+      {
+        "check": "the walk volume holds the reference fixtures",
+        "passed": true,
+        "detail": "12 of 12 on /tmp/s39-fast (overlay)"
+      },
+      {
+        "check": "the judged volume holds its single-track files",
+        "passed": true,
+        "detail": "3 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the reference volume measured itself with at least 8 walk(s)",
+        "passed": true,
+        "detail": "12 walk line(s) | [0c45f883a647428397dda10b7814dfeb] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 1.9 s = 43.7"
+      },
+      {
+        "check": "the judged volume walked, so it has a walk of its own to be judged by",
+        "passed": true,
+        "detail": "[a390f9cd62cc4781b89976883fe901aa] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 70.2 s = 1.2 MB/s - the ceiling for that volume i | caches cleared first: Cleared 13 cached audio analysis files, 18 extracted subtitles, the reference subtitles of"
+      },
+      {
+        "check": "a walk was held on the judged volume, so the ceiling was stated",
+        "passed": true,
+        "detail": "walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.2 MB/s against the best 41.7 MB/s this machine has measured (0.03x), which is storage-bou"
+      },
+      {
+        "check": "the hold quotes both numbers this machine measured, not a constant",
+        "passed": true,
+        "detail": "numbers: ['1.2', '41.7']"
+      },
+      {
+        "check": "the ceiling it chose is the storage-bound one (2), not none and not one",
+        "passed": true,
+        "detail": "cap in the line: 2"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-15 15:55:12.834Z INFO  [0c45f883a647428397dda10b7814dfeb] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 03 (2026).mkv in 1.9 s = 43.7 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 46.2 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:12.835Z INFO  [66534a6990d940a599ec7c821969da8a] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 01 (2026).mkv in 2.1 s = 43.7 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 43.7 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:12.906Z INFO  [42c3cc12283f4b23bf9fd4b04d14523f] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 02 (2026).mkv in 2.0 s = 43.7 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 43.7 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:13.580Z INFO  [323da1f78d814d77bbf7331be4e7a794] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 04 (2026).mkv in 2.3 s = 42.3 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 42.3 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:14.131Z INFO  [2c69ddf2c5174c469594117fa20fc8de] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 05 (2026).mkv in 2.4 s = 42.3 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 42.3 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:14.664Z INFO  [9f1dd7392cb149ab95604bbd6f7dc3cf] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 06 (2026).mkv in 2.5 s = 41.0 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 41.0 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:15.151Z INFO  [1b44b134ec1242f0a78cb4aa580568bd] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 07 (2026).mkv in 2.6 s = 39.9 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 39.9 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:15.359Z INFO  [ca77c2d25526468ab6b3e9f7182bddcc] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 09 (2026).mkv in 2.1 s = 40.2 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 40.2 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:15.432Z INFO  [c3770af6bf314ca89ba6c40a04283eaa] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 08 (2026).mkv in 2.5 s = 39.4 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 39.4 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:15.897Z INFO  [7e3bf915394b449a99dc9e9736506b65] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 10 (2026).mkv in 2.2 s = 40.1 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 40.1 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:15.911Z INFO  [e98471bd02d5488599a2c872b42ae678] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 11 (2026).mkv in 1.8 s = 40.9 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 40.9 MB/s, which is storage-bound)",
+      "2026-09-15 15:55:16.265Z INFO  [f040926c74dc449c9af6c3d69630162b] this walk moved 83.6 MB of /tmp/s39-fast/Walk Reference 12 (2026).mkv in 1.7 s = 41.7 MB/s - the ceiling for that volume is 2 (this volume's last walk moved 41.7 MB/s, which is storage-bound)",
+      "2026-09-15 15:56:30.899Z INFO  [a390f9cd62cc4781b89976883fe901aa] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 01 (2026).mkv in 70.2 s = 1.2 MB/s - the ceiling for that volume is 2 (this volume measured 13.6 ms per read, which is storage-bound)",
+      "2026-09-15 15:56:35.541Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.2 MB/s against the best 41.7 MB/s this machine has measured (0.03x), which is storage-bound"
+    ],
+    "batch": null,
+    "seconds": 102.0
   }
 ]

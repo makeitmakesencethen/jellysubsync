@@ -1,3 +1,45 @@
+## 2.0.44 (beta)
+
+One fix, on the layer that reads the file, and two counters that make it visible.
+
+**A located subtitle block is read where the index says it is, instead of being walked to.** The Matroska
+index usually records both the cluster a subtitle block sits in and the block's offset inside it, and the
+plugin fetches exactly that block. On a live pass (`Sunes Sommar 1993 WEB-DL 1080p.mkv`) the plan was
+right - the index located all 663 cue points and the plan priced 1,57 MB over 1 319 reads - and the pass
+still read **133,45 MB over 33 516 reads, 85,09x its planned bytes and 25,41x its planned reads**:
+~50 block headers and ~200 KB of container per block the index had located exactly.
+
+The cause, reproduced cold on a fixture (`tests/backend/s26_probe.py`): a cluster whose size the file does
+not state - the EBML unknown-size marker a streamed or partially remuxed file carries - was refused by the
+located read, so every cue point fell back to walking its own cluster, once per cue point. Clusters whose
+size is stated were never affected, which is why the fixture family this project tests with never caught
+it. The located read now bounds such a cluster (by the next cluster the index mentions, or the end of the
+file) and, because that bound is not the cluster's own end, keeps the block only when it is the cue
+point's own - its time has to agree with the cue point's, so a stale index cannot hand a subtitle another
+subtitle's text. The pass also makes the located attempt once instead of twice, and a cluster it walks is
+walked once for every cue point that names it, not once each.
+
+Measured on the repro, same file with and without the unknown-size marker, byte-identical subtitles out:
+
+* before: 4 169 733 bytes / 2 007 reads = **44,02x** the planned bytes, **25,09x** the planned reads
+* after: 114 765 bytes / 87 reads = **1,21x** / **1,09x**, 2,2 reads per cue point instead of 50,2
+
+Both read-ledger rules (bytes read after the pass had already fetched them, bytes fetched over ranges it
+had already read) are 0 B on the repro and on every fixture.
+
+**The log says when a pass falls back to walking.** The extraction line now carries `indexedMisses=` (cue
+points whose index entry could not be used) and `walked=` (clusters actually walked). A pass that walks
+because of a damaged or foreign index now says so, instead of looking like a plan that held.
+
+**Two log and text corrections.** The extraction note in the dashboard called a subtitle-cache hit "read
+through the container index", which is what an indexed read does and not what happened; and the phase text
+had no way to name `subtitle-cache` at all. Both now say what actually happened.
+
+Verification: the check suite passes (696 checks, 0 failures) including four new ones that fail without
+this fix - the cost invariant on the repro, the counters, the byte-identical output and the ledger - and
+the rig's storage scenarios (`s41-steady` at fabji's measured 10 ms/read, `s39-ratio` across a fast and a
+slow volume) pass on this build.
+
 ## 2.0.43 (beta)
 
 Three things: a setting that lets the offset change across a file that is not one continuous cut, a sweep
