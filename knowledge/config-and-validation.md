@@ -16,6 +16,9 @@ Source: `Jellyfin.Plugin.SubSync/Configuration/PluginConfiguration.cs`
 | `OverwriteExisting` → `SyncModeCopy` | `bool` | `true` | — | true = write new `-SYNCED` sidecar copy (original untouched); false = replace the original in place (backup + rollback) |
 | `SweepFailStreakLimit` | `int` | `3` | — | Library sweep: consecutive execution failures before a subtitle stops being retried; content change resets the streak |
 | `SweepMaxItemsPerRun` | `int` | `500` | — | Library sweep: max subtitle tracks queued per run |
+| `ExtractionTimeoutMinutes` | `int` | `20` | — | How long one embedded-subtitle extraction may take before it is aborted with a clear error; clamps to 1-240 |
+| `StuckJobTimeoutMinutes` | `int` | `15` | — | How long a running job may show no activity at all while no process of its own is running before it is stopped so its run can continue; clamps to 2-240 (B6) |
+| `WedgedProcessTimeoutMinutes` | `int` | `60` | — | How long a process that is still running for a job may print nothing before that job is treated as wedged; clamps to 5-1440 (B6) |
 
 ## C# Allow-Lists (Argument Injection Prevention)
 
@@ -118,6 +121,73 @@ The cleanup timer fires every 30 minutes. Actual eviction behavior (from `Cleanu
 Jobs live only in memory (`_jobs`), so everything is lost on a Jellyfin restart; the
 cleanup rules only bound the lifetime of an otherwise unbounded in-memory list.
 
+
+## Stopping jobs that stop making progress (B6)
+
+Source: `Services/StuckJobPolicy.cs`, `Services/JobProcessRegistry.cs`, `SubSyncService.ReapStuckJobs()`
+
+A job left in `Running` holds its worker slot and keeps its batch unfinished, so nothing else can finish and the
+only way out was a restart. Two independent halves close it:
+
+- **Every exit settles the job.** `RunSyncJobWithContext` calls `StuckJobPolicy.Settle` in a `finally`, so a job
+  that returns - or throws, including the throw that used to happen before the job's own error handling was
+  reached - is failed with the reason and the last phase it reported rather than left `Running`.
+- **A watchdog stops jobs that stop making progress.** `ReapStuckJobs()` runs on every scheduler pass and from the
+  30-minute cleanup timer (so recovery does not depend on the pump being alive), throttled to one look every 20
+  seconds. It judges each `Running` job from what was observed, never from a constant:
+
+  * **no child process of its own and no activity for `StuckJobTimeoutMinutes`** → stopped. This is a wait that
+    was never released, a reader on a share that stopped answering, or a task that returned without settling;
+  * **a live child process that has printed nothing for `WedgedProcessTimeoutMinutes`** → stopped. A live process
+    is *never* judged by the job's own clock: a demux of a large episode over a share, or a feature film's audio
+    analysis (measured 91 minutes), is real work with quiet stretches - the bundled engine printed a line every
+    ~0,5 s while it worked (47 lines in a 17,7 s run), against 5 minutes of engine silence inside a real
+    6,7-minute run on this server's log;
+  * **a job waiting on another subtitle of the same file** (the file's audio is analysed once; the rest wait on its
+    gate) is spared for as long as that job is working - by its own activity or by having a live process.
+
+  `JobProcessRegistry` is what makes the first two distinguishable: it ref-counts the child processes started for
+  each job and dates each job's silence from the last stderr line a process produced, or from the process's own
+  start when it has never printed one.
+
+A stopped job is failed with the measured numbers (`Stopped because nothing has been running for it and it has
+shown no activity for 16 min (Extracting subtitle…). Nothing was written for this subtitle; the rest of the run
+continues.`), its token is cancelled so whatever it was waiting in unwinds and its slot comes back, and the
+cancellation handler leaves it alone - a stop is not a user cancellation and is never relabelled as one. The
+audio-analysis gate is awaited with the job's token for the same reason: a job parked there has to be reachable by
+the user's Kill as well as by the watchdog.
+
+Residual, deliberate: a job whose engine or extraction process is alive *and* printing is never stopped, so a
+legitimate long analysis cannot be broken. A job whose task ignores cancellation keeps its slot, but its state is
+terminal, so its batch and the interface are no longer waiting for it.
+
+## Judging an extraction before it is used (B8)
+
+Source: `Services/ExtractionOutputGuard.cs`, `SubSyncService.ExtractSubtitleWithProgressAsync()`
+
+The ffmpeg fallback is the last resort for a track no index reader could produce, and its output is what gets
+synced, so a partial extraction is silently wrong in the way that matters (cues missing, the tail of the film
+untimed) and the engine cannot tell it from a complete one. The rule this replaced accepted a failed run whenever
+a file existed at the output path; the more dangerous shape does not fail at all:
+
+    ffmpeg reading a container cut short to 57 %: exit 0, 17 of 30 cues, a well-formed SRT that ends at a cue
+    boundary, and the truncation on stderr only - "File ended prematurely"
+
+So every extraction is judged on four things, and a refusal fails the job with the measured reason *and* deletes
+the partial:
+
+1. the exit code is 0;
+2. ffmpeg's own log carries no container-level truncation marker (`ended prematurely`, `Truncating packet`,
+   `Packet corrupt`, `Invalid data found when processing input`, `Error opening input`);
+3. the file exists and is non-empty;
+4. it is a structurally complete SRT: every block is a cue (number, timing line, at least one text line), at least
+   one cue exists, and the file ends at a cue boundary - ffmpeg's SRT muxer always writes a blank line after a cue,
+   so a file that stops inside one is a prefix, which is what a kill leaves.
+
+Video-decode complaints (`error while decoding`, `corrupt decoded frame`) are deliberately not refusals: they
+cannot lose subtitle cues and failing a job over one hands the user a problem they cannot act on. An extraction
+that was stopped (kill, cancellation, `ExtractionTimeoutMinutes`) deletes what it wrote before it unwinds, so a
+partial cannot sit in the file's shared extraction directory for a later job to read.
 
 ## SyncLanguages (global subtitle language filter)
 
