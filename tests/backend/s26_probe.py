@@ -35,6 +35,9 @@ FIXTURES = WORK / 's26-fixtures'
 # subtitle tracks so the shared pass is exercised too.
 SHAPE = ['--clusters', '120', '--payload', '1', '--sub-every', '3', '--sub-tracks', '2',
          '--sub-position', 'late']
+# A real cluster carries a subtitle block behind dozens of frames; the field file read ~50 block headers
+# per cue point. Density is the variable that turns the same defect from free into 86x.
+DENSE = SHAPE + ['--blocks-per-cluster', '48', '--frame-payload', '24']
 
 PROGRAM = r"""
 using Jellyfin.Plugin.SubSync.Services;
@@ -59,6 +62,12 @@ if (stats.PlanExpectedBytes > 0)
 {
     Console.WriteLine($"PROBE ratio: bytes={(double)stats.BytesRead / stats.PlanExpectedBytes:0.00}x "
         + $"reads={(double)stats.ReadCalls / Math.Max(1, stats.PlanExpectedCalls):0.00}x");
+}
+if (cues > 0)
+{
+    // The field file: 663 cues, 33 525 reads, 133.6 MB -> ~50 reads and ~200 KB per cue point.
+    Console.WriteLine($"PROBE per cue: reads={(double)stats.ReadCalls / cues:0.0} "
+        + $"bytes={stats.BytesRead / cues} B");
 }
 """
 
@@ -134,36 +143,21 @@ def unknown_size_variant(source: pathlib.Path, target: pathlib.Path) -> int:
 def main():
     dll = harness()
     FIXTURES.mkdir(parents=True, exist_ok=True)
-    plain = FIXTURES / 'shape.mkv'
-    if not plain.exists():
-        subprocess.run(['python3', str(GENERATOR), str(plain), *SHAPE], check=True, capture_output=True)
 
-    unknown = FIXTURES / 'shape-unknown-size.mkv'
-    if not unknown.exists():
-        count = unknown_size_variant(plain, unknown)
-        print(f'== fixture: {count} cluster size(s) rewritten as unknown size')
-    print(f'== fixture: {plain.name} (as the generator writes it)')
-    print('  ' + run(dll, plain))
-    print()
-    print(f'== fixture: {unknown.name} (every cluster size marked unknown)')
-    print('  ' + run(dll, unknown))
-    # Is the cost per *cluster* or per *cue point*? The same clusters, six subtitle tracks instead of
-    # two: six times the cue points over the same clusters. If the cost follows the cue points, the walk
-    # is repeating a cluster it has already walked - which is the shape the field file shows (663 cues,
-    # ~50 block headers read per cue).
-    for tracks in ('2', '6'):
-        dense = FIXTURES / f'shape-unknown-size-{tracks}t.mkv'
-        if not dense.exists():
-            base = FIXTURES / f'shape-{tracks}t.mkv'
-            subprocess.run(['python3', str(GENERATOR), str(base),
-                            '--clusters', '120', '--payload', '1', '--sub-every', '3',
-                            '--sub-tracks', tracks, '--sub-position', 'late'], check=True,
-                           capture_output=True)
-            unknown_size_variant(base, dense)
+    for label, shape in (('sparse (as the generator wrote it until now)', SHAPE),
+                         ('dense (48 frames of 24 KB payload per cluster)', DENSE)):
+        plain = FIXTURES / ('shape.mkv' if shape is SHAPE else 'shape-dense.mkv')
+        if not plain.exists():
+            subprocess.run(['python3', str(GENERATOR), str(plain), *shape], check=True, capture_output=True)
+        unknown = FIXTURES / (plain.stem + '-unknown-size.mkv')
+        if not unknown.exists():
+            count = unknown_size_variant(plain, unknown)
+            print(f'== {label}: {count} cluster size(s) rewritten as unknown')
+        print(f'== {label}: {plain.name} (clusters with a known size)')
+        print('  ' + run(dll, plain))
+        print(f'== {label}: {unknown.name} (every cluster size marked unknown)')
+        print('  ' + run(dll, unknown))
         print()
-        print(f'== fixture: {dense.name} (unknown-size clusters, {tracks} subtitle track(s) = '
-              f'{int(tracks) * 40} cue points over the same 120 clusters)')
-        print('  ' + run(dll, dense, 0 if tracks == '2' else 5))
 
     if '--keep' not in sys.argv:
         shutil.rmtree(FIXTURES, ignore_errors=True)

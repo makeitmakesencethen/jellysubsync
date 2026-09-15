@@ -97,8 +97,10 @@ def simple_block(track, timecode, payload, keyframe=True):
 
 
 def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True, cues=True,
-          rel_pos=True, sub_tracks=1, sub_position='early', grouped_cues=False):
+          rel_pos=True, sub_tracks=1, sub_position='early', grouped_cues=False, blocks_per_cluster=0,
+          frame_payload_kb=0):
     payload = payload_mb * 1024 * 1024
+    frame_payload = frame_payload_kb * 1024
     sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
                  for i in range(1, clusters // sub_every + 2)]
     # Extra subtitle tracks carry recognisably different text, so a pass that shares one read of the
@@ -174,9 +176,21 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
         sub_index = 0
         for i in range(clusters):
             cluster_time = i * 1000
-            inner = element(TIMECODE, uint_bytes(cluster_time))
-            inner += simple_block(VIDEO, 0, b'V' * 16)
-            inner += simple_block(AUDIO, 0, b'A' * 8)
+            # A real cluster carries a subtitle block behind dozens of frames whose pay loads dominate the
+            # cluster, so their headers sit far apart (a 1080p frame is tens of KB). Each extra frame is
+            # written as a header plus a sparse hole, in the order its own size claims, so a walk to the
+            # subtitle block has to read through them - the shape that made a field pass read ~50 block
+            # headers and ~200 KB per cue point (S26).
+            head = element(TIMECODE, uint_bytes(cluster_time))
+            head += simple_block(VIDEO, 0, b'V' * 16)
+            head += simple_block(AUDIO, 0, b'A' * 8)
+            segments = [(head, 0)]
+            for extra in range(blocks_per_cluster):
+                segments.append((simple_block(AUDIO, 0, b'F' * 24 + bytes([extra % 251])), 0))
+                if frame_payload:
+                    segments.append((SIMPLE_BLOCK + vint_size(frame_payload + 4)
+                                     + vint_size(AUDIO) + struct.pack('>h', 0) + b'\x80', frame_payload))
+            apparent = sum(len(body) + hole for body, hole in segments)  # where the next element starts
             write_sub = (i % sub_every == 0)
             sub_rels = []
             tail = b''
@@ -188,8 +202,10 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
 
             if write_sub and sub_position == 'early':
                 for k in range(len(sub_track_numbers)):
-                    sub_rels.append(len(inner))  # block offset inside the cluster data
-                    inner += sub_block(k)
+                    sub_rels.append(apparent)  # block offset inside the cluster data
+                    block = sub_block(k)
+                    segments.append((block, 0))
+                    apparent += len(block)
                 sub_index += 1
             # big video block: header written here, payload left as a sparse hole
             big_header = SIMPLE_BLOCK + vint_size(payload + 4) + vint_size(VIDEO) + struct.pack('>h', 0) + b'\x80'
@@ -198,16 +214,20 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
                 # most of the cluster - which is the shape of a real remux measured on fabji's server
                 # (ranges of ~1 MB per cue, read for a block a few hundred bytes long).
                 for k in range(len(sub_track_numbers)):
-                    sub_rels.append(len(inner) + len(big_header) + payload)
+                    sub_rels.append(apparent + len(big_header) + payload)
                     tail += sub_block(k)
                 sub_index += 1
-            inner_len = len(inner) + len(big_header) + payload + len(tail)
+            segments.append((big_header, payload))
+            if tail:
+                segments.append((tail, 0))
+            inner_len = sum(len(body) + hole for body, hole in segments)
 
             cluster_start = f.tell()
-            f.write(CLUSTER + vint_size(inner_len) + inner + big_header)
-            f.seek(payload, os.SEEK_CUR)
-            if tail:
-                f.write(tail)
+            f.write(CLUSTER + vint_size(inner_len))
+            for body, hole in segments:
+                f.write(body)
+                if hole:
+                    f.seek(hole, os.SEEK_CUR)
             video_offsets.append(cluster_start - segment_start)
             if write_sub:
                 sub_marks.append((cluster_start - segment_start, sub_rels))
@@ -285,6 +305,12 @@ if __name__ == '__main__':
                     help="one CuePoint per timestamp holding every track's position (mkvmerge's shape)")
     ap.add_argument('--no-rel-pos', action='store_true', help='omit CueRelativePosition (forces the block walk)')
     ap.add_argument('--sub-tracks', type=int, default=1, help='how many text subtitle tracks to write')
+    ap.add_argument('--frame-payload', type=int, default=0,
+                    help='KB of (sparse) payload per extra frame, so their headers sit far apart in the '
+                         'cluster the way a real video stream spreads them')
+    ap.add_argument('--blocks-per-cluster', type=int, default=0,
+                    help='extra small blocks per cluster, in front of the signature video block: '
+                         'a real cluster carries a subtitle block behind dozens of frames')
     ap.add_argument('--sub-position', choices=('early', 'late'), default='early',
                     help="where the subtitle block sits in its cluster: early = first blocks, "
                          "late = after the video payload (a real remux's shape)")
@@ -292,4 +318,5 @@ if __name__ == '__main__':
     build(args.out, args.clusters, args.payload, args.sub_every, sub_tracks=args.sub_tracks,
           sub_cues=not args.no_sub_cues, video_cues=not args.no_video_cues, cues=not args.no_cues,
           rel_pos=not args.no_rel_pos, sub_position=args.sub_position,
-          grouped_cues=args.grouped_cues)
+          grouped_cues=args.grouped_cues, blocks_per_cluster=args.blocks_per_cluster,
+          frame_payload_kb=args.frame_payload)
