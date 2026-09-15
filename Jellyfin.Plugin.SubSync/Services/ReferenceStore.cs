@@ -23,9 +23,27 @@ namespace Jellyfin.Plugin.SubSync.Services;
 /// </summary>
 public static class ReferenceStore
 {
+    /// <summary>
+    /// Largest number of per-file entries this run may hold (B12).
+    /// </summary>
+    /// <remarks>
+    /// An entry is created when a file's reference is reserved and removed when that file's last job ends, so
+    /// the count follows the run's width - except for the two ways a job can end without reaching that call: a
+    /// task that never unwinds (killed, or stopped by the stall watchdog) and a job context evicted while its
+    /// reference was still reserved. Each of those left an entry, and its directory on disk, until the next
+    /// startup. The bound is a backstop; <see cref="SweepOrphans"/> is what removes them during a run.
+    /// </remarks>
+    public const int MaxEntries = 512;
+
     private sealed class Entry
     {
         public required string Directory { get; init; }
+
+        /// <summary>The media file this reference was reserved for, so orphan-hood can be decided.</summary>
+        public required string VideoPath { get; init; }
+
+        /// <summary>When the entry was reserved; the oldest is dropped first by the backstop.</summary>
+        public long ReservedTicks;
 
         public bool Ready { get; set; }
     }
@@ -67,10 +85,27 @@ public static class ReferenceStore
             directory,
             SpeechCache.KeyFor(videoPath, "reference-subtitle|" + streamSpec, engineIdentity) + ".ref.srt");
 
+        var entry = new Entry { Directory = directory, VideoPath = videoPath };
+        Interlocked.Exchange(ref entry.ReservedTicks, DateTime.UtcNow.Ticks);
         Entries.AddOrUpdate(
             key,
-            _ => new Entry { Directory = directory },
+            _ => entry,
             (_, existing) => existing);
+
+        // A backstop, not the normal path: SweepOrphans removes what a run leaves behind.
+        while (Entries.Count > MaxEntries)
+        {
+            var oldestKey = Entries
+                .OrderBy(pair => Interlocked.Read(ref pair.Value.ReservedTicks))
+                .Select(pair => pair.Key)
+                .FirstOrDefault();
+            if (oldestKey is null || !Entries.TryRemove(oldestKey, out var dropped))
+            {
+                break;
+            }
+
+            DeleteDirectory(dropped.Directory);
+        }
 
         return file;
     }
@@ -164,6 +199,40 @@ public static class ReferenceStore
         {
             Entries.Clear();
             DeleteDirectory(Root);
+        }
+    }
+
+    /// <summary>
+    /// Removes the entries - and the directories - of files no run is working on any more (B12).
+    /// </summary>
+    /// <remarks>
+    /// A reference is removed when the last job of its file ends, which is the only thing that normally
+    /// removes it. A job whose task never unwound, or whose context was evicted, ends without that call, and
+    /// both the entry and the per-file directory then stayed until the next plugin start. Called from the same
+    /// periodic pass as the stall watchdog, so a long run cleans up after itself instead of at shutdown.
+    /// </remarks>
+    /// <param name="isLive">Answers whether a media file still has a queued or running job.</param>
+    /// <returns>How many entries were removed.</returns>
+    public static int SweepOrphans(Func<string, bool> isLive)
+    {
+        lock (Gate)
+        {
+            var dropped = 0;
+            foreach (var pair in Entries.ToList())
+            {
+                if (isLive(pair.Value.VideoPath) && Directory.Exists(pair.Value.Directory))
+                {
+                    continue;
+                }
+
+                if (Entries.TryRemove(pair.Key, out var entry))
+                {
+                    DeleteDirectory(entry.Directory);
+                    dropped++;
+                }
+            }
+
+            return dropped;
         }
     }
 

@@ -1,3 +1,55 @@
+## 2.0.46 (beta)
+
+One measurement and one set of bounds, both in the family of "what does a long run hold".
+
+**B13 measured at remux scale, and closed: the row's figure was a code bound, not a measurement.** The
+register claimed "4 MB window + up to 384 MB of prefetched ranges; with a worker pool that is gigabytes of
+prefetch on a batch, an out-of-memory kill in the middle of a run", and nothing had ever measured it at the
+scale it is about (the triage's fixture was a 300-cluster file). `tests/backend/b13_probe.py` now does:
+30 GB sparse remux fixtures (6 000 clusters, two subtitle tracks, 4 000 cues, blocks sitting late in their
+cluster behind a dozen frames), the real extractor, and `GC.GetTotalMemory` sampled every 10 ms while the
+passes run - at 1 lane and 8, on local disk and under the rig's slow-storage shim (10 ms per read).
+
+    route                    lanes  peak managed heap   per lane   wall
+    cue-indexed (index)          1        12,4 MB        12,0 MB   0,4 s
+    cue-indexed (index)          8        86,8 MB        10,8 MB   1,3 s
+    cue-indexed, 10 ms/read      8        79,6 MB         9,9 MB   21,7 s
+    cluster walk (no index)      1        10,3 MB        10,2 MB  13,7 s
+    cluster walk (no index)      8        59,4 MB         7,4 MB   ~14 s
+    shared multi-track pass      8        86,9 MB        10,9 MB   1,9 s
+
+So a remux-scale pass holds ~10-12 MB of managed heap, eight at once hold 59-87 MB (the register's claim was
+384 MB *per reader*), and the bytes a reader keeps are exactly the ones its own plan priced (3 999 ranges /
+4 735 744 B against a 4 736 000 B plan) inside the policy's existing 64 MiB merged-fetch ceiling. Slow
+storage changes the wall clock, not the memory, and after the passes the heap is back at its 0,1 MB baseline -
+nothing is retained between passes. **No cap was added**, because there is no measured improvement to buy:
+the ceiling that bounds the fetch is `ReadPolicy.MaxPrefetchBytes`, and the worst case derived from it is
+~84 MB per lane (64 MiB fetch + 4 MB window + 16 MB walk chunk).
+
+**B12: the four stores that outlive a job are bounded, evicted and swept.** Three of the four were real.
+`SubtitleCache.Memory` held the *text* of every subtitle the server had ever extracted - `Prune()` pruned the
+disk layer only and `Clear()` emptied it wholesale - so a long-lived server accumulated hundreds of megabytes
+for a hit the disk layer answers in a millisecond; it is now bounded on both axes (512 entries, 16 M
+characters ~ 32 MB of text) with least-recently-used eviction, its size is in the settings summary, and an
+evicted entry is still served from disk. `ReferenceStore.Entries` and `SharedExtractionStore.Consumers` were
+removed only by the job that created them, so a job that ended without reaching that call (a task that never
+unwound after a kill or a stall stop, a job context evicted while its reference was reserved) left an entry
+*and a directory on disk* until the next plugin start: the reference store now has `SweepOrphans(isLive)` and
+a 512-entry backstop, the shared store's existing `Cleanup` is called during a run, and both are swept by
+`SweepLongLivedStores()` from the scheduler's pass *and* the 30-minute cleanup timer (throttled to a directory
+walk every five minutes, liveness read from the job table so a reference is never removed from under a running
+ffsubsync). `SweepState` was bounded only when its file was read back, so a sweep of a library larger than
+5 000 files grew the in-memory dictionary past its own bound; it now trims the least recently touched records
+as they arrive.
+
+Verification: `python3 tests/run_checks.py` passes (765 checks, 0 failures) with 20 new ones - 7 from the
+memory probe (the ceilings above, asserted through it, and that no lane fetches more than its plan prices) and
+10 for the stores (the entry bound with the newest entry surviving, the character bound under 4 x 6 MB
+subtitles, the disk prune dropping the memory entry whose file went, an orphaned reference entry and its
+directory removed while a live one is kept, an orphaned shared directory removed and its consumer count
+cleared, the sweep state inside its bound while 5 060 records arrive), plus 3 source checks pinning the sweep's
+call sites.
+
 ## 2.0.45 (beta)
 
 Two fixes, for the two ways a batch goes wrong without saying so: a subtitle that was only partly read, and a

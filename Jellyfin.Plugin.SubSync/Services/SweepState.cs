@@ -172,11 +172,50 @@ public class SweepState
             entry.LastTouchedUtc = DateTime.UtcNow;
             _pendingWrites++;
 
-            // Written in batches, not per record: the file holds the whole dictionary, so saving every
-            // record makes a long run quadratic in the number of records it makes.
-            if (_pendingWrites >= SaveBatchSize || DateTime.UtcNow - _lastSaveUtc >= SaveInterval)
+            // The bound is enforced as records arrive, not only when the file is read back (B12): a sweep of
+            // a library larger than the bound used to grow the in-memory dictionary past it and only come back
+            // inside it after a restart, so peak memory was set by the library's size rather than by the bound.
+            if (_entries.Count > MaxEntries || _pendingWrites >= SaveBatchSize
+                || DateTime.UtcNow - _lastSaveUtc >= SaveInterval)
             {
+                TrimLocked();
                 SaveLocked();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Drops the least recently touched records until the dictionary is inside <see cref="MaxEntries"/>.
+    /// </summary>
+    /// <returns>How many records were dropped.</returns>
+    private int TrimLocked()
+    {
+        var dropped = 0;
+        while (_entries.Count > MaxEntries)
+        {
+            var oldest = _entries
+                .OrderBy(pair => pair.Value.LastTouchedUtc)
+                .Select(pair => pair.Key)
+                .FirstOrDefault();
+            if (oldest is null || !_entries.Remove(oldest))
+            {
+                break;
+            }
+
+            dropped++;
+        }
+
+        return dropped;
+    }
+
+    /// <summary>Gets how many records the state is holding, for the interface and the checks.</summary>
+    public int Count
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _entries.Count;
             }
         }
     }

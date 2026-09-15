@@ -3203,6 +3203,115 @@ Check("B6: a finished job's entry is dropped, so nothing accumulates",
     !JobProcessRegistry.IsAlive("reg-2") && JobProcessRegistry.SilentSinceUtc("reg-2") is null
     && JobProcessRegistry.LiveProcesses == 0);
 
+
+// ---------------- B12: the stores that outlive a job are bounded ----------------
+//
+// Four stores grow with what a run has touched, and each used to be removed only by the job that created it
+// (or only when the whole cache was cleared): the extracted-subtitle cache's memory layer, the reference
+// store's per-file entries, the shared extraction directories, and the sweep state's records. What is checked
+// here is the bound each one now has, and that eviction never loses the data behind it.
+var b12Dir = Path.Combine(Path.GetTempPath(), "b12-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(b12Dir);
+string B12Path(string name) => Path.Combine(b12Dir, name);
+
+// 1. The subtitle cache's memory layer: bounded by count, keeps the newest, and the disk layer still answers
+//    for what was evicted - the point of a cache is that dropping an entry costs a file read, not the data.
+var b12Keys = new List<string>();
+for (var i = 0; i < SubtitleCache.MaxMemoryEntries + 64; i++)
+{
+    var track = "b12-track-" + i.ToString("0000");
+    b12Keys.Add(track);
+    SubtitleCache.Store(B12Path("b12.mkv"), track, $"1\n00:00:01,000 --> 00:00:02,000\nline {i}\n\n");
+}
+
+Check("B12: the subtitle cache's memory layer stays inside its entry bound",
+    SubtitleCache.MemoryCount <= SubtitleCache.MaxMemoryEntries,
+    $"holding {SubtitleCache.MemoryCount} entries, bound {SubtitleCache.MaxMemoryEntries}");
+Check("B12: the newest entry is the one that survives eviction",
+    SubtitleCache.TryGet(B12Path("b12.mkv"), b12Keys[^1], out var newest) && newest.Contains("line " + (b12Keys.Count - 1)),
+    newest.Length > 0 ? newest.Split('\n')[2] : "nothing");
+Check("B12: an evicted entry is still answered from the disk layer",
+    SubtitleCache.TryGet(B12Path("b12.mkv"), b12Keys[0], out var oldest) && oldest.Contains("line 0"),
+    oldest.Length > 0 ? oldest.Split('\n')[2] : "nothing");
+
+// 2. The character bound, which is the one that follows memory rather than entry count.
+var beforeChars = SubtitleCache.MemoryChars;
+var big = new string('x', 6 * 1024 * 1024);
+for (var i = 0; i < 4; i++)
+{
+    SubtitleCache.Store(B12Path("b12-big.mkv"), "big-" + i, $"{i}\n00:00:0{i + 1},000 --> 00:00:0{i + 2},000\n{big}\n\n");
+}
+
+Check("B12: the memory layer stays inside its character bound as large subtitles arrive",
+    SubtitleCache.MemoryChars <= SubtitleCache.MaxMemoryChars,
+    $"holding {SubtitleCache.MemoryChars} chars, bound {SubtitleCache.MaxMemoryChars}");
+
+// 3. Pruning the disk layer also drops the memory entries it removed, and an entry whose file has gone is not
+//    held for nothing.
+var b12Gone = SubtitleCache.KeyFor(B12Path("b12-gone.mkv"), "gone");
+SubtitleCache.Store(B12Path("b12-gone.mkv"), "gone", "1\n00:00:01,000 --> 00:00:02,000\nvanished\n\n");
+var b12File = Path.Combine(SubtitleCache.Root, b12Gone + ".srt");
+var b12Deleted = false;
+try
+{
+    File.Delete(b12File);
+    b12Deleted = true;
+}
+catch (IOException)
+{
+    // Left in place; the check below then only asserts the prune ran.
+}
+
+var b12Pruned = SubtitleCache.Prune();
+Check("B12: pruning the disk layer drops the memory entry whose file is gone",
+    !b12Deleted || (!SubtitleCache.HasInMemory(B12Path("b12-gone.mkv"), "gone") && b12Pruned >= 1),
+    $"pruned {b12Pruned}, deleted={b12Deleted}, still in memory={SubtitleCache.HasInMemory(B12Path("b12-gone.mkv"), "gone")}");
+
+// 4. The reference store: entries and their directories go when no job of that file is left, and stay while
+//    one is - a reference read by a running ffsubsync must never be removed from under it.
+var b12LiveFile = B12Path("live.mkv");
+var b12DeadFile = B12Path("dead.mkv");
+var b12LiveReference = ReferenceStore.Reserve(b12LiveFile, "s:1", "engine-b12");
+var b12DeadReference = ReferenceStore.Reserve(b12DeadFile, "s:1", "engine-b12");
+var b12LiveDirectory = Path.GetDirectoryName(b12LiveReference)!;
+var b12DeadDirectory = Path.GetDirectoryName(b12DeadReference)!;
+var b12Swept = ReferenceStore.SweepOrphans(path => string.Equals(path, b12LiveFile, StringComparison.Ordinal));
+Check("B12: an orphaned reference entry and its directory are removed, a live one is kept",
+    b12Swept == 1 && Directory.Exists(b12LiveDirectory) && !Directory.Exists(b12DeadDirectory),
+    $"swept {b12Swept}, live kept={Directory.Exists(b12LiveDirectory)}, dead gone={!Directory.Exists(b12DeadDirectory)}");
+ReferenceStore.SweepOrphans(_ => false);
+
+// 5. The shared extraction directories: a directory whose jobs are gone is removed, and the store stops
+//    counting its consumers.
+var b12SharedA = SharedExtractionStore.Acquire(B12Path("shared-a.mkv"), "b12-job-a");
+var b12SharedB = SharedExtractionStore.Acquire(B12Path("shared-b.mkv"), "b12-job-b");
+File.WriteAllText(Path.Combine(b12SharedB, "subtitle_0.srt"), "1\n00:00:01,000 --> 00:00:02,000\nx\n\n");
+var b12SharedRemoved = SharedExtractionStore.Cleanup(id => id == "b12-job-a");
+Check("B12: a shared extraction directory whose job is gone is removed, the live one kept",
+    b12SharedRemoved >= 1 && Directory.Exists(b12SharedA) && !Directory.Exists(b12SharedB),
+    $"removed {b12SharedRemoved}, live kept={Directory.Exists(b12SharedA)}");
+Check("B12: the removed directory no longer counts a consumer",
+    SharedExtractionStore.ConsumerCount(B12Path("shared-b.mkv")) == 0);
+SharedExtractionStore.Release(B12Path("shared-a.mkv"), "b12-job-a");
+
+// 6. The sweep state: bounded as records arrive, not only when the file is read back, and the oldest records
+//    are the ones dropped.
+var b12State = new SweepState(B12Path("sweep-cache.json"));
+for (var i = 0; i < SweepState.MaxEntries + 60; i++)
+{
+    var source = B12Path($"sweep-{i:0000}.srt");
+    File.WriteAllText(source, "1\n00:00:01,000 --> 00:00:02,000\nx\n\n");
+    b12State.Record(source, true, source + ".out", null);
+}
+
+Check("B12: the sweep state stays inside its bound while records arrive",
+    b12State.Count <= SweepState.MaxEntries,
+    $"holding {b12State.Count} records, bound {SweepState.MaxEntries}");
+Check("B12: the newest sweep record survives the trim",
+    b12State.Get(B12Path($"sweep-{SweepState.MaxEntries + 59:0000}.srt")) is not null);
+
+Directory.Delete(b12Dir, recursive: true);
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4284,7 +4393,64 @@ def run_page_checks():
            and 'StuckJobTimeoutMinutesMin' in open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
                                                                 'SettingsValidation.cs'), encoding='utf-8').read())
 
+    # B12: the stores that outlive a job are bounded here, and swept during a run rather than only at the
+    # next plugin start. The sweep runs from the pump and from the cleanup timer, like the stall watchdog.
+    report('the stores that outlive a job are bounded and swept during a run (B12)',
+           'SweepLongLivedStores()' in service
+           and service.count('SweepLongLivedStores()') == 3        # the method and its two call sites
+           and 'ReferenceStore.SweepOrphans(' in service
+           and 'SharedExtractionStore.Cleanup(' in service
+           and 'SubtitleCache.Prune()' in service
+           and 'SubtitleCache.MemoryCount' in service)
+
+    subtitle_cache = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SubtitleCache.cs'),
+                          encoding='utf-8').read()
+    reference_store = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'ReferenceStore.cs'),
+                           encoding='utf-8').read()
+    sweep_state = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SweepState.cs'),
+                       encoding='utf-8').read()
+    report('the in-memory subtitle cache has a bound and drops the least recently used entry (B12)',
+           'public const int MaxMemoryEntries' in subtitle_cache
+           and 'public const long MaxMemoryChars' in subtitle_cache
+           and 'TrimMemory()' in subtitle_cache
+           and 'Interlocked.Add(ref _memoryChars, -' in subtitle_cache)
+    report('the reference store has a bound and an orphan sweep (B12)',
+           'public const int MaxEntries = 512' in reference_store
+           and 'public static int SweepOrphans(' in reference_store
+           and 'VideoPath { get; init; }' in reference_store)
+    report('the sweep state trims as records arrive, not only when the file is read back (B12)',
+           'private int TrimLocked()' in sweep_state
+           and '_entries.Count > MaxEntries || _pendingWrites >= SaveBatchSize' in sweep_state)
+
     return failures
+
+
+def run_b13_memory_checks():
+    """B13: measure what a remux-scale extraction pass actually holds, at 1 and 8 lanes.
+
+    The register's row claims "4 MB window + up to 384 MB of prefetched ranges ... gigabytes of prefetch on a
+    batch". Nothing had ever measured it at remux scale, so this runs the real extractor against 30 GB sparse
+    remux fixtures and asserts what the process may hold. The probe is tests/backend/b13_probe.py; its manual
+    form additionally runs the cluster-walk shape, the shared multi-track pass and the slow-storage profile.
+    """
+    import sys
+
+    print()
+    probe_path = os.path.join(REPO, 'tests', 'backend', 'b13_probe.py')
+    try:
+        proc = subprocess.run([sys.executable, probe_path, '--check'], capture_output=True, text=True,
+                              timeout=3600, env=ENV)
+    except subprocess.TimeoutExpired:
+        print('FAIL  the B13 memory probe ran at all (b13)   [timed out]')
+        return 1
+    lines = [line for line in proc.stdout.splitlines() if line.startswith(('PASS', 'FAIL'))]
+    for line in lines:
+        print(line)
+    if not lines:
+        tail = (proc.stderr or proc.stdout).strip().splitlines()
+        print(f'FAIL  the B13 memory probe ran at all (b13)   [{tail[-1] if tail else "no output"}]')
+        return 1
+    return sum(1 for line in lines if line.startswith('FAIL'))
 
 
 def run_s26_cost_checks():
@@ -4421,7 +4587,8 @@ def main():
     page_failures = run_page_checks()
     source_failures = run_gate_source_checks()
     cost_failures = run_s26_cost_checks()
-    total_failures = page_failures + source_failures + cost_failures + b8_fixture_failures
+    memory_failures = run_b13_memory_checks()
+    total_failures = page_failures + source_failures + cost_failures + b8_fixture_failures + memory_failures
     if total_failures:
         print(f'{total_failures} FAILURE(S)')
     return run.returncode or (1 if total_failures else 0)

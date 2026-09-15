@@ -462,6 +462,15 @@ public class SubSyncService : IDisposable
     /// </summary>
     private const int ReapIntervalSeconds = 20;
 
+    /// <summary>When the long-lived stores were last swept; ticks, so both callers can read it.</summary>
+    private long _lastStoreSweepTicks;
+
+    /// <summary>
+    /// How often the stores that outlive a job are swept, in minutes. Slower than the watchdog on purpose:
+    /// this one walks the cache directory, and none of what it removes costs anything while it waits (B12).
+    /// </summary>
+    private const int StoreSweepMinutes = 5;
+
     // Subtitle text extracted from a file while it was being read for another subtitle of the same
     // file. Each entry is a few kilobytes of text; the queue keeps the oldest ones out.
     private readonly ConcurrentDictionary<string, string> _extractedText = new(StringComparer.Ordinal);
@@ -3578,6 +3587,10 @@ public class SubSyncService : IDisposable
             // runs on the scheduler's own thread and is throttled inside, so this is a cheap call per pass.
             ReapStuckJobs();
 
+            // Recovery for the stores a run leaves behind (B12), throttled to a directory walk every few
+            // minutes - and, like the watchdog, run from the cleanup timer as well as from here.
+            SweepLongLivedStores();
+
             // The lock now covers bookkeeping and a snapshot, and nothing else.
             //
             // Planning inside it is what the enqueue path waits on: the enqueue takes this same lock to add its
@@ -6620,6 +6633,74 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Sweeps the stores that outlive a job, so a long run cannot accumulate them (B12).
+    /// </summary>
+    /// <remarks>
+    /// Four stores grow with what a run has touched: the extracted-subtitle cache (bounded in memory since
+    /// B12), the reference store's per-file entries, the shared extraction directories, and the sweep state's
+    /// records. Each is removed by the job that created it - the last job of a file releases its reference and
+    /// its shared directory - and each is left behind by a job that ends without reaching that call: a task
+    /// that never unwound after a kill or a stall stop, a job context evicted while its reference was
+    /// reserved, a subtitle file replaced between two runs. Nothing removed those until the next plugin start,
+    /// which on a server left running for weeks is not a bound at all.
+    /// <para>
+    /// Liveness is read from the job table, not from the stores: a file is still being worked on when any of
+    /// its jobs is queued or running, and ffsubsync reading a reference happens inside a running job, so a
+    /// reference is never removed from under the engine.
+    /// </para>
+    /// </remarks>
+    private void SweepLongLivedStores()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var last = new DateTime(Interlocked.Read(ref _lastStoreSweepTicks), DateTimeKind.Utc);
+            if (now - last < TimeSpan.FromMinutes(StoreSweepMinutes))
+            {
+                return;
+            }
+
+            Interlocked.Exchange(ref _lastStoreSweepTicks, now.Ticks);
+
+            var liveFiles = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var job in _jobs.Values)
+            {
+                if (job.Status is not (SyncJobStatus.Queued or SyncJobStatus.Running))
+                {
+                    continue;
+                }
+
+                if (_jobContexts.TryGetValue(job.Id, out var ctx) && ctx.Video?.Path is { } path)
+                {
+                    liveFiles.Add(path);
+                }
+            }
+
+            var agedSubtitles = SubtitleCache.Prune();
+            var orphanedReferences = ReferenceStore.SweepOrphans(liveFiles.Contains);
+            var orphanedShared = SharedExtractionStore.Cleanup(
+                id => _jobs.TryGetValue(id, out var live)
+                    && live.Status is SyncJobStatus.Queued or SyncJobStatus.Running);
+
+            if (agedSubtitles > 0 || orphanedReferences > 0 || orphanedShared > 0)
+            {
+                PluginLog.Info(
+                    $"stores: subtitleCache dropped={agedSubtitles} cached={SubtitleCache.MemoryCount} entries/"
+                    + $"{SubtitleCache.MemoryChars} chars kept, references={orphanedReferences} orphan(s) removed, "
+                    + $"sharedDirs={orphanedShared} orphan(s) removed, liveFiles={liveFiles.Count}");
+                _logger.LogInformation(
+                    "Store sweep: {Subtitles} subtitle-cache entries dropped, {References} orphaned references and "
+                    + "{Shared} shared extraction directories removed",
+                    agedSubtitles, orphanedReferences, orphanedShared);
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error while sweeping the long-lived stores");
+        }
+    }
+
+    /// <summary>
     /// Stops jobs that have held their worker slot without making progress, so a run can finish (B6).
     /// </summary>
     /// <remarks>
@@ -6707,6 +6788,7 @@ public class SubSyncService : IDisposable
             // Recovery, not just housekeeping: this timer runs whether or not the scheduler is working, so a
             // job that stopped making progress is stopped even if the pump itself is wedged (B6, B31).
             ReapStuckJobs();
+            SweepLongLivedStores();
 
             // Bound the refresh gate as well: entries whose window has passed are useless, and the
             // gate must not grow with the size of the library.

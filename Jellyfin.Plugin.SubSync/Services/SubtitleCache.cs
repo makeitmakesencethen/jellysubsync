@@ -32,8 +32,38 @@ public static class SubtitleCache
     /// <summary>Largest total size the cache may reach before the oldest entries are dropped.</summary>
     public const long MaxBytes = 512L * 1024 * 1024;
 
+    /// <summary>
+    /// Largest number of extracted subtitles kept in memory (B12).
+    /// </summary>
+    /// <remarks>
+    /// The disk cache is bounded by <see cref="MaxBytes"/> and pruned; the memory layer used to be bounded
+    /// by nothing at all and pruned by nothing, so a long-lived server accumulated the text of every subtitle
+    /// it had ever extracted - the entry a re-encode creates under a new key included. A subtitle is a few
+    /// hundred kilobytes, so a few thousand tracks is hundreds of megabytes held for a hit that the disk
+    /// layer answers in a millisecond anyway.
+    /// </remarks>
+    public const int MaxMemoryEntries = 512;
+
+    /// <summary>
+    /// Largest total text the in-memory layer may hold, counted in characters (about two bytes each), because
+    /// entry count alone does not bound memory: 512 full-length film subtitles are more than 512 short ones.
+    /// </summary>
+    public const long MaxMemoryChars = 16L * 1024 * 1024;
+
     private static readonly object Gate = new();
-    private static readonly ConcurrentDictionary<string, string> Memory = new(StringComparer.Ordinal);
+
+    private sealed class MemoryEntry
+    {
+        public required string Text { get; init; }
+
+        /// <summary>When this entry was last stored or read; the oldest one is dropped first.</summary>
+        public long UsedTicks;
+    }
+
+    private static readonly ConcurrentDictionary<string, MemoryEntry> Memory = new(StringComparer.Ordinal);
+
+    /// <summary>Characters currently held in memory, so the bound is a number the cache can enforce.</summary>
+    private static long _memoryChars;
 
     /// <summary>Gets the directory holding the cached subtitles.</summary>
     public static string Root
@@ -84,8 +114,10 @@ public static class SubtitleCache
     public static bool TryGet(string videoPath, string track, out string text)
     {
         var key = KeyFor(videoPath, track);
-        if (Memory.TryGetValue(key, out text!))
+        if (Memory.TryGetValue(key, out var memoryEntry))
         {
+            Interlocked.Exchange(ref memoryEntry.UsedTicks, DateTime.UtcNow.Ticks);
+            text = memoryEntry.Text;
             return text.Length > 0;
         }
 
@@ -106,7 +138,7 @@ public static class SubtitleCache
 
             // Touch it so Prune keeps what is actually being used.
             File.SetLastAccessTimeUtc(path, DateTime.UtcNow);
-            Memory[key] = text;
+            Remember(key, text);
             return true;
         }
         catch (IOException)
@@ -133,7 +165,7 @@ public static class SubtitleCache
         }
 
         var key = KeyFor(videoPath, track);
-        Memory[key] = text;
+        Remember(key, text);
 
         try
         {
@@ -154,13 +186,85 @@ public static class SubtitleCache
         }
     }
 
+    /// <summary>Gets how many extracted subtitles are held in memory (B12).</summary>
+    public static int MemoryCount => Memory.Count;
+
+    /// <summary>Gets how many characters the in-memory layer is holding (B12).</summary>
+    public static long MemoryChars => Interlocked.Read(ref _memoryChars);
+
+    /// <summary>
+    /// Asks whether a track is in the memory layer right now.
+    /// </summary>
+    /// <param name="videoPath">Path of the media file.</param>
+    /// <param name="track">Subtitle track ordinal.</param>
+    /// <returns>True when the text is in memory, whatever the disk layer holds.</returns>
+    public static bool HasInMemory(string videoPath, string track) => Memory.ContainsKey(KeyFor(videoPath, track));
+
+    /// <summary>
+    /// Puts one subtitle in the memory layer, dropping the least recently used ones until it fits.
+    /// </summary>
+    /// <param name="key">Cache key of the track.</param>
+    /// <param name="text">The subtitle text.</param>
+    private static void Remember(string key, string text)
+    {
+        var entry = new MemoryEntry { Text = text };
+        Interlocked.Exchange(ref entry.UsedTicks, DateTime.UtcNow.Ticks);
+        if (Memory.TryGetValue(key, out var previous))
+        {
+            Interlocked.Add(ref _memoryChars, text.Length - previous.Text.Length);
+            Memory[key] = entry;
+        }
+        else
+        {
+            Memory[key] = entry;
+            Interlocked.Add(ref _memoryChars, text.Length);
+        }
+
+        TrimMemory();
+    }
+
+    /// <summary>
+    /// Drops the least recently used entries until the memory layer is inside both of its bounds.
+    /// </summary>
+    /// <returns>How many entries were dropped.</returns>
+    private static int TrimMemory()
+    {
+        var dropped = 0;
+        while (Memory.Count > MaxMemoryEntries || Interlocked.Read(ref _memoryChars) > MaxMemoryChars)
+        {
+            string? oldestKey = null;
+            var oldest = long.MaxValue;
+            foreach (var pair in Memory)
+            {
+                var used = Interlocked.Read(ref pair.Value.UsedTicks);
+                if (used < oldest)
+                {
+                    oldest = used;
+                    oldestKey = pair.Key;
+                }
+            }
+
+            if (oldestKey is null || !Memory.TryRemove(oldestKey, out var removed))
+            {
+                break;
+            }
+
+            Interlocked.Add(ref _memoryChars, -removed.Text.Length);
+            dropped++;
+        }
+
+        return dropped;
+    }
+
     /// <summary>How many tracks are cached, in memory or on disk.</summary>
     /// <returns>Entry count.</returns>
     public static int Count()
     {
         try
         {
-            return Directory.Exists(Root) ? Directory.GetFiles(Root, "*.srt").Length : 0;
+            return Directory.Exists(Root)
+                ? Math.Max(Directory.GetFiles(Root, "*.srt").Length, Memory.Count)
+                : Memory.Count;
         }
         catch (IOException)
         {
@@ -233,6 +337,23 @@ public static class SubtitleCache
             // Same.
         }
 
+        // The memory layer is pruned with the disk layer (B12): an entry whose file has gone, and one whose
+        // last use is older than the cache's own age limit, are both held for nothing.
+        var memoryCutoff = DateTime.UtcNow - MaxAge;
+        foreach (var pair in Memory)
+        {
+            var used = new DateTime(Interlocked.Read(ref pair.Value.UsedTicks), DateTimeKind.Utc);
+            var path = Path.Combine(Root, pair.Key + ".srt");
+            if (used < memoryCutoff || !File.Exists(path))
+            {
+                if (Memory.TryRemove(pair.Key, out var dropped))
+                {
+                    Interlocked.Add(ref _memoryChars, -dropped.Text.Length);
+                    removed++;
+                }
+            }
+        }
+
         return removed;
     }
 
@@ -269,6 +390,7 @@ public static class SubtitleCache
         }
 
         Memory.Clear();
+        Interlocked.Exchange(ref _memoryChars, 0);
         return removed;
     }
 
@@ -285,7 +407,10 @@ public static class SubtitleCache
 
             var files = new DirectoryInfo(Root).GetFiles("*.srt");
             var mb = files.Sum(f => f.Length) / 1e6;
-            return string.Create(CultureInfo.InvariantCulture, $"{files.Length} subtitles, {mb:0.0} MB");
+            var inMemory = Interlocked.Read(ref _memoryChars) * 2 / 1e6;
+            return string.Create(
+                CultureInfo.InvariantCulture,
+                $"{files.Length} subtitles, {mb:0.0} MB ({Memory.Count} in memory, {inMemory:0.0} MB)");
         }
         catch (IOException)
         {
