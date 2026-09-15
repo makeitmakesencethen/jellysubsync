@@ -472,13 +472,13 @@ public class SubSyncService : IDisposable
     /// </remarks>
     private const string AudioReferenceVad = "webrtc";
 
-    private static readonly HashSet<string> AllowedVadMethods = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> AllowedVadMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "subs", "webrtc", "subs_then_webrtc", "auditok", "subs_then_auditok", "subs_then_silero", "silero"
     };
 
     /// <summary>Allowed values for the --output-encoding config option.</summary>
-    private static readonly HashSet<string> AllowedOutputEncodings = new(StringComparer.OrdinalIgnoreCase)
+    internal static readonly HashSet<string> AllowedOutputEncodings = new(StringComparer.OrdinalIgnoreCase)
     {
         "utf-8", "ascii", "latin-1", "utf-8-sig", "utf-16"
     };
@@ -646,7 +646,10 @@ public class SubSyncService : IDisposable
     private string ResolveFfmpegPath()
     {
         var config = Services.SettingsSource.Current();
-        if (config is not null && !string.IsNullOrWhiteSpace(config.FfmpegPath))
+        // A configured path is only usable when it is there: a typo used to be handed to the engine as
+        // --ffmpeg-path, which then had nothing to read the file with (D3/F10).
+        if (config is not null && !string.IsNullOrWhiteSpace(config.FfmpegPath)
+            && Configuration.SettingsValidation.BinaryPathIsUsable(config.FfmpegPath))
         {
             return config.FfmpegPath;
         }
@@ -5256,7 +5259,7 @@ public class SubSyncService : IDisposable
             // file that comes out looks exactly like an ordinary success. AGENTS.md has documented
             // MaxSubtitleReferenceOffsetSeconds as a refusal since the reference path was added, so
             // this is that refusal — with the measured numbers, and without touching anything.
-            var referenceCeilingMs = Math.Max(1.0, config.MaxSubtitleReferenceOffsetSeconds) * 1000.0;
+            var referenceCeilingMs = Math.Max(1.0, Configuration.SettingsValidation.MaxSubtitleReferenceOffsetSecondsOf(config)) * 1000.0;
 
             // ...and a median is not enough to tell a ruler that fits from one that does not. Measured on
             // 2026-09-15: a subtitle aligned against the *same track from a 2 % longer cut* came out with a median
@@ -5373,10 +5376,10 @@ public class SubSyncService : IDisposable
             // accepted when it is *not* pinned to the wider window either. A definitive answer, then one alignment
             // against the film's audio as a last check: anything a wide window matched wrongly shows up there as a
             // large remaining shift, and the job refuses with both numbers instead of writing it.
-            var ceilingMs = config.MaxOffsetSeconds * 1000.0;
+            var ceilingMs = Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 1000.0;
             if (!wideAllowanceApplied && measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
             {
-                var wideSeconds = Math.Max(config.MaxOffsetSeconds * 2, 300);
+                var wideSeconds = Math.Max(Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 2, 300);
                 var wideLimitMs = wideSeconds * 1000.0;
                 var wideOutput = Path.Combine(tempDir, "wide-window.srt");
                 SafeDelete(wideOutput);
@@ -5389,10 +5392,10 @@ public class SubSyncService : IDisposable
                 _logger.LogInformation(
                     "Sync job {JobId}: the result reached the {Window} s search window - aligning again with {Wide} s",
                     job.Id,
-                    config.MaxOffsetSeconds,
+                    Configuration.SettingsValidation.MaxOffsetSecondsOf(config),
                     wideSeconds);
                 PluginLog.Info(
-                    $"[{job.Id}] offsets: the alignment reached the {config.MaxOffsetSeconds} s search window "
+                    $"[{job.Id}] offsets: the alignment reached the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search window "
                     + $"(it measured {onCeiling.ShiftMs} ms, which a window that size cannot be trusted to have found) "
                     + $"\u2014 aligning again with {wideSeconds} s and checking the result against the film's audio");
 
@@ -5429,7 +5432,7 @@ public class SubSyncService : IDisposable
                         VadForReference(referenceSpec));
                     // A check, not a search: the configured window and no rescaling.
                     verifyArgs[verifyArgs.IndexOf("--max-offset-seconds") + 1] =
-                        config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture);
+                        Configuration.SettingsValidation.MaxOffsetSecondsOf(config).ToString(CultureInfo.InvariantCulture);
                     foreach (var flag in FramerateArgs(false, false))
                     {
                         if (!verifyArgs.Contains(flag))
@@ -5474,11 +5477,11 @@ public class SubSyncService : IDisposable
                             why);
                         PluginLog.Info(
                             $"job {job.Id} REFUSED: this subtitle needed {onCeiling.ShiftMs} ms with a "
-                            + $"{config.MaxOffsetSeconds} s window and {wider.ShiftMs} ms with {wideSeconds} s, and {why}; "
+                            + $"{Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s window and {wider.ShiftMs} ms with {wideSeconds} s, and {why}; "
                             + $"nothing written, source untouched, file={video.Path}");
                         job.Status = SyncJobStatus.Failed;
                         job.Phase = "Refused";
-                        job.Error = $"refused: this subtitle is further out than the {config.MaxOffsetSeconds} s search "
+                        job.Error = $"refused: this subtitle is further out than the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search "
                             + $"window ({onCeiling.ShiftMs} ms reached it), the {wideSeconds} s window measured "
                             + $"{wider.ShiftMs} ms, and that did not hold up against the film's audio: {why}. Nothing "
                             + "was written.";
@@ -5526,7 +5529,7 @@ public class SubSyncService : IDisposable
             // is not a real framerate pair) means the engine moved the timeline, and the source
             // subtitle stays untouched while the job says exactly why.
             if (measured is { } scaled
-                && !IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, config.MaxOffsetSeconds, config.FixFramerate))
+                && !IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, Configuration.SettingsValidation.MaxOffsetSecondsOf(config), config.FixFramerate))
             {
                 var span = videoDuration > TimeSpan.Zero
                     ? videoDuration.TotalSeconds
@@ -6299,9 +6302,11 @@ public class SubSyncService : IDisposable
             : AllowedVadMethods.Contains(config.VadMethod)
                 ? config.VadMethod
                 : "subs_then_webrtc";
-        var outputEncoding = AllowedOutputEncodings.Contains(config.OutputEncoding)
-            ? config.OutputEncoding
-            : "utf-8";
+        // The values the engine is given are the validated ones, so a hand-edited config.xml cannot put a
+        // negative or absurd ceiling into argv (F10).
+        var outputEncoding = Configuration.SettingsValidation.OutputEncodingOf(config);
+        var maxOffsetSeconds = Configuration.SettingsValidation.MaxOffsetSecondsOf(config);
+        var maxSubtitleSeconds = Configuration.SettingsValidation.MaxSubtitleSecondsOf(config);
 
         // ArgumentList passes argv directly — no string-quoting layer, so paths
         // with spaces/unicode can never split into extra arguments.
@@ -6310,8 +6315,8 @@ public class SubSyncService : IDisposable
             videoPath,
             "-i", subtitleInput,
             "-o", subtitleOutput,
-            "--max-offset-seconds", config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture),
-            "--max-subtitle-seconds", config.MaxSubtitleSeconds.ToString(CultureInfo.InvariantCulture),
+            "--max-offset-seconds", maxOffsetSeconds.ToString(CultureInfo.InvariantCulture),
+            "--max-subtitle-seconds", maxSubtitleSeconds.ToString(CultureInfo.InvariantCulture),
             "--vad", vadMethod,
             "--output-encoding", outputEncoding,
             "--ffmpeg-path", ResolveFfmpegPath()
@@ -7174,10 +7179,13 @@ public class SubSyncService : IDisposable
             videoPath,
             "-i", stretchedInput,
             "-o", verifyOutput,
-            "--max-offset-seconds", config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture),
-            "--max-subtitle-seconds", config.MaxSubtitleSeconds.ToString(CultureInfo.InvariantCulture),
-            "--vad", AllowedVadMethods.Contains(config.VadMethod) ? config.VadMethod : "subs_then_webrtc",
-            "--output-encoding", AllowedOutputEncodings.Contains(config.OutputEncoding) ? config.OutputEncoding : "utf-8",
+            "--max-offset-seconds",
+            Configuration.SettingsValidation.MaxOffsetSecondsOf(config).ToString(CultureInfo.InvariantCulture),
+            "--max-subtitle-seconds",
+            Configuration.SettingsValidation.MaxSubtitleSecondsOf(config).ToString(CultureInfo.InvariantCulture),
+            // The reference of this run is the video, so this is an audio run: it is given the audio VAD (S43).
+            "--vad", AudioReferenceVad,
+            "--output-encoding", Configuration.SettingsValidation.OutputEncodingOf(config),
             "--ffmpeg-path", ResolveFfmpegPath(),
             "--no-fix-framerate",
             "--skip-infer-framerate-ratio",

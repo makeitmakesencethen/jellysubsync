@@ -1226,5 +1226,473 @@
     ],
     "batch": "9777e4d88072443386e7561cbd54ee46",
     "seconds": 55.8
+  },
+  {
+    "scenario": "d3-settings",
+    "when": "2026-09-15 04:00:19",
+    "plugin": "SubSync_2.0.40.0",
+    "shim": null,
+    "note": "D3/F10 before: released 2.0.40",
+    "repo_head": "d5e386a",
+    "assertions": [
+      {
+        "check": "ParallelWorkers = 99 is stored in 1-64, and the response says so",
+        "passed": false,
+        "detail": "ParallelWorkers=99 stored as 99 | the response said nothing about it"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 0 is stored in 1-240, and the response says so",
+        "passed": false,
+        "detail": "ExtractionTimeoutMinutes=0 stored as 0 | the response said nothing about it"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 100000 is stored in 1-240, and the response says so",
+        "passed": false,
+        "detail": "ExtractionTimeoutMinutes=100000 stored as 100000 | the response said nothing about it"
+      },
+      {
+        "check": "MaxOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxOffsetSeconds=-5 stored as -5 | the response said nothing about it"
+      },
+      {
+        "check": "MaxOffsetSeconds = 100000 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxOffsetSeconds=100000 stored as 100000 | the response said nothing about it"
+      },
+      {
+        "check": "MaxSubtitleReferenceOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxSubtitleReferenceOffsetSeconds=-5 stored as -5 | the response said nothing about it"
+      },
+      {
+        "check": "OutputEncoding = 'not-an-encoding' is stored as an encoding the engine accepts, and the response says so",
+        "passed": false,
+        "detail": "OutputEncoding='not-an-encoding' stored as 'not-an-encoding' | the response said nothing about it"
+      },
+      {
+        "check": "VadMethod = 'not-a-vad' is stored as a method the engine accepts, and the response says so",
+        "passed": false,
+        "detail": "VadMethod='not-a-vad' stored as 'not-a-vad' | the response said nothing about it"
+      },
+      {
+        "check": "SyncLanguages = ['qq', 'zz', '!!!@#'] is dropped, and the response says so",
+        "passed": false,
+        "detail": "SyncLanguages=['qq', 'zz', '!!!@#'] stored as ['qq', 'zz', '!!!@#'] | the response said nothing about it"
+      },
+      {
+        "check": "FfmpegPath = '/no/such/ffmpeg-xyz' is not stored, and the response says so",
+        "passed": false,
+        "detail": "FfmpegPath='/no/such/ffmpeg-xyz' stored as '/no/such/ffmpeg-xyz' | the response said nothing about it"
+      },
+      {
+        "check": "FfSubSyncPath = '/no/such/binary-xyz' is not stored, and the response says so",
+        "passed": false,
+        "detail": "FfSubSyncPath='/no/such/binary-xyz' stored as '/no/such/binary-xyz' | the response said nothing about it"
+      },
+      {
+        "check": "the settings the plugin shipped with are stored unchanged and without complaint",
+        "passed": true,
+        "detail": "0 note(s) for the unmodified configuration"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 01:47:26.519Z INFO  extract lane: started",
+      "2026-09-15 01:47:26.530Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:47:26.650Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:47:26.688Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (14.1 ms), actual 1.90 MB/1564 read(s) (14.1 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:47:26.693Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1243.6 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:47:26.718Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 152 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1243.6 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:47:26.744Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch c7d553a57b9a4e0099de1b9f77c91dcf",
+      "2026-09-15 01:47:26.843Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:47:26.923Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:47:26.959Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 10.4
+  },
+  {
+    "scenario": "d3-settings",
+    "when": "2026-09-15 04:00:29",
+    "plugin": "SubSync_2.0.40.0",
+    "shim": null,
+    "note": "D3/F10 after: one validation path for both",
+    "repo_head": "d5e386a",
+    "assertions": [
+      {
+        "check": "the scenario ran at all",
+        "passed": false,
+        "detail": "KeyError: 'ParallelWorkers'"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "log_tail": [
+      "2026-09-15 01:47:26.650Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:47:26.688Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (14.1 ms), actual 1.90 MB/1564 read(s) (14.1 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:47:26.693Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1243.6 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:47:26.718Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 152 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1243.6 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:47:26.744Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch c7d553a57b9a4e0099de1b9f77c91dcf",
+      "2026-09-15 01:47:26.843Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:47:26.923Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:47:26.959Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:00:32.510Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:34.047Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 9.9
+  },
+  {
+    "scenario": "d3-settings",
+    "when": "2026-09-15 04:05:16",
+    "plugin": "SubSync_2.0.40.0",
+    "shim": null,
+    "note": "D3/F10 before: released 2.0.40",
+    "repo_head": "d5e386a",
+    "assertions": [
+      {
+        "check": "the scenario ran at all",
+        "passed": false,
+        "detail": "HTTPError: HTTP Error 404: Not Found"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "log_tail": [
+      "2026-09-15 01:47:26.693Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1243.6 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:47:26.718Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 152 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1243.6 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:47:26.744Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch c7d553a57b9a4e0099de1b9f77c91dcf",
+      "2026-09-15 01:47:26.843Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:47:26.923Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:47:26.959Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:00:32.510Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:34.047Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:18.655Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:20.152Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 10.4
+  },
+  {
+    "scenario": "d3-settings",
+    "when": "2026-09-15 04:05:26",
+    "plugin": "SubSync_2.0.40.0",
+    "shim": null,
+    "note": "D3/F10 after: one validation path, notes reported",
+    "repo_head": "d5e386a",
+    "assertions": [
+      {
+        "check": "ParallelWorkers = 99 is stored in 1-64, and the response says so",
+        "passed": true,
+        "detail": "ParallelWorkers=99 stored as 64 | Parallel workers: 99 is outside 1-64; 64 is stored"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 0 is stored in 1-240, and the response says so",
+        "passed": true,
+        "detail": "ExtractionTimeoutMinutes=0 stored as 1 | Extraction timeout: 0 minutes is outside 1-240; 1 is stored"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 100000 is stored in 1-240, and the response says so",
+        "passed": true,
+        "detail": "ExtractionTimeoutMinutes=100000 stored as 240 | Extraction timeout: 100000 minutes is outside 1-240; 240 is stored"
+      },
+      {
+        "check": "MaxOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": true,
+        "detail": "MaxOffsetSeconds=-5 stored as 1 | Max offset seconds: -5 is outside 1-600; 1 is stored"
+      },
+      {
+        "check": "MaxOffsetSeconds = 100000 is stored in 1-600, and the response says so",
+        "passed": true,
+        "detail": "MaxOffsetSeconds=100000 stored as 600 | Max offset seconds: 100000 is outside 1-600; 600 is stored"
+      },
+      {
+        "check": "MaxSubtitleReferenceOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": true,
+        "detail": "MaxSubtitleReferenceOffsetSeconds=-5 stored as 1 | Max shift from a subtitle reference: -5 is outside 1-600; 1 is stored"
+      },
+      {
+        "check": "OutputEncoding = 'not-an-encoding' is stored as an encoding the engine accepts, and the response says so",
+        "passed": true,
+        "detail": "OutputEncoding='not-an-encoding' stored as 'utf-8' | Output encoding: 'not-an-encoding' is not one of ascii, latin-1, utf-16, utf-8, utf-8-sig; utf-8 is stored"
+      },
+      {
+        "check": "VadMethod = 'not-a-vad' is stored as a method the engine accepts, and the response says so",
+        "passed": true,
+        "detail": "VadMethod='not-a-vad' stored as 'subs_then_webrtc' | VAD method: 'not-a-vad' is not one of auditok, silero, subs, subs_then_auditok, subs_then_silero, subs_then_webrtc, webr"
+      },
+      {
+        "check": "SyncLanguages = ['qq', 'zz', '!!!@#'] is dropped, and the response says so",
+        "passed": true,
+        "detail": "SyncLanguages=['qq', 'zz', '!!!@#'] stored as [] | Only sync these languages: dropped 'qq', 'zz', '!!!@#', which are not language tags - with none left, every language is "
+      },
+      {
+        "check": "FfmpegPath = '/no/such/ffmpeg-xyz' is not stored, and the response says so",
+        "passed": true,
+        "detail": "FfmpegPath='/no/such/ffmpeg-xyz' stored as '' | ffmpeg path: '/no/such/ffmpeg-xyz' does not exist on this server; the server's own ffmpeg is used instead"
+      },
+      {
+        "check": "FfSubSyncPath = '/no/such/binary-xyz' is not stored, and the response says so",
+        "passed": true,
+        "detail": "FfSubSyncPath='/no/such/binary-xyz' stored as 'ffsubsync' | ffsubsync executable: '/no/such/binary-xyz' does not exist on this server; the bundled build is used instead"
+      },
+      {
+        "check": "the settings the plugin shipped with are stored unchanged and without complaint",
+        "passed": true,
+        "detail": "0 note(s) for the unmodified configuration"
+      }
+    ],
+    "passed": true,
+    "observations": [],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 01:47:26.744Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch c7d553a57b9a4e0099de1b9f77c91dcf",
+      "2026-09-15 01:47:26.843Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:47:26.923Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:47:26.959Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:00:32.510Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:34.047Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:18.655Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:20.152Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:29.172Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:30.669Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 10.6
+  },
+  {
+    "scenario": "d3-settings",
+    "when": "2026-09-15 04:09:44",
+    "plugin": "SubSync_2.0.40.0",
+    "shim": null,
+    "note": "D3/F10 before: released 2.0.40",
+    "repo_head": "d5e386a",
+    "assertions": [
+      {
+        "check": "ParallelWorkers = 99 is stored in 1-64, and the response says so",
+        "passed": false,
+        "detail": "ParallelWorkers=99 stored as 99 | the response said nothing about it"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 0 is stored in 1-240, and the response says so",
+        "passed": false,
+        "detail": "ExtractionTimeoutMinutes=0 stored as 0 | the response said nothing about it"
+      },
+      {
+        "check": "ExtractionTimeoutMinutes = 100000 is stored in 1-240, and the response says so",
+        "passed": false,
+        "detail": "ExtractionTimeoutMinutes=100000 stored as 100000 | the response said nothing about it"
+      },
+      {
+        "check": "MaxOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxOffsetSeconds=-5 stored as -5 | the response said nothing about it"
+      },
+      {
+        "check": "MaxOffsetSeconds = 100000 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxOffsetSeconds=100000 stored as 100000 | the response said nothing about it"
+      },
+      {
+        "check": "MaxSubtitleReferenceOffsetSeconds = -5 is stored in 1-600, and the response says so",
+        "passed": false,
+        "detail": "MaxSubtitleReferenceOffsetSeconds=-5 stored as -5 | the response said nothing about it"
+      },
+      {
+        "check": "OutputEncoding = 'not-an-encoding' is stored as an encoding the engine accepts, and the response says so",
+        "passed": false,
+        "detail": "OutputEncoding='not-an-encoding' stored as 'not-an-encoding' | the response said nothing about it"
+      },
+      {
+        "check": "VadMethod = 'not-a-vad' is stored as a method the engine accepts, and the response says so",
+        "passed": false,
+        "detail": "VadMethod='not-a-vad' stored as 'not-a-vad' | the response said nothing about it"
+      },
+      {
+        "check": "SyncLanguages = ['qq', 'zz', '!!!@#'] is dropped, and the response says so",
+        "passed": false,
+        "detail": "SyncLanguages=['qq', 'zz', '!!!@#'] stored as ['qq', 'zz', '!!!@#'] | the response said nothing about it"
+      },
+      {
+        "check": "FfmpegPath = '/no/such/ffmpeg-xyz' is not stored, and the response says so",
+        "passed": false,
+        "detail": "FfmpegPath='/no/such/ffmpeg-xyz' stored as '/no/such/ffmpeg-xyz' | the response said nothing about it"
+      },
+      {
+        "check": "FfSubSyncPath = '/no/such/binary-xyz' is not stored, and the response says so",
+        "passed": false,
+        "detail": "FfSubSyncPath='/no/such/binary-xyz' stored as '/no/such/binary-xyz' | the response said nothing about it"
+      },
+      {
+        "check": "the settings the plugin shipped with are stored unchanged and without complaint",
+        "passed": true,
+        "detail": "0 note(s) for the unmodified configuration"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 01:47:26.923Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:47:26.959Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:00:32.510Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:34.047Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:18.655Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:20.152Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:29.172Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:30.669Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:09:47.672Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:09:49.720Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 10.5
   }
 ]

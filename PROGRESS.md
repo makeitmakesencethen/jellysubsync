@@ -56,6 +56,19 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
+## D3 + F10 - one validation path for the settings, and argv reads only validated numbers (held for the ship call)
+
+`Configuration/SettingsValidation.cs` is the single place a setting is checked: `Apply` runs wherever a
+configuration is stored (through `Plugin.UpdateConfiguration`, so both surfaces and any API pass through it) and
+returns what it adjusted; `GET /SubSync/Settings/ValidationNotes` reports those adjustments and the settings page
+shows them after "Saved."; the `*Of` accessors are what argv and the plugin's own heuristics read, so a
+hand-edited config.xml cannot put an out-of-range ceiling into the engine's command line.
+
+Proof: `python3 tests/rig/run_scenario.py --scenario d3-settings` - the released 2.0.40 fails 11 of 12 (every
+hostile value stored as typed, the response silent), the tree passes 12 of 12, notes quoted in the results file.
+Suite: 664 checks green, 20 of them new. Not shipped - awaiting the ship call.
+
+
 ## S43 - the audio path is given a VAD that reads audio (implemented, held for the ship call)
 
 The plugin decides and the engine does not: wherever the plugin intends the audio to be the reference it is given

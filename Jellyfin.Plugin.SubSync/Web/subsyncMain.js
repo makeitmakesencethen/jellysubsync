@@ -392,6 +392,7 @@
     function saveConfig() {
         $('ss-save-status').textContent = 'Saving\u2026';
         var wantedWorkers = Math.min(workerCeiling, Math.max(1, parseInt($('ss-workers-input').value, 10) || 4));
+        var back = 0;   // what the server actually stored, filled in by the two steps below
         return api('SubSync/Configuration').then(function (c) {
             c.VadMethod = $('ss-vad').value;
             c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
@@ -410,14 +411,20 @@
         }).then(function (stored) {
             // The server answers with what it stored, which is the point of this step: "Saved." on its
             // own cannot distinguish a stored setting from one that was silently dropped.
-            var back = parseInt(stored && stored.ParallelWorkers, 10);
+            back = parseInt(stored && stored.ParallelWorkers, 10);
             var workerField = $('ss-workers-input');
             if (workerField && !isNaN(back)) {
                 workerField.value = back;
             }
+            return api('SubSync/Settings/ValidationNotes');
+        }).then(function (notes) {
+            // What the server adjusted, in its own words: a value the plugin brought into range or dropped
+            // used to be indistinguishable from a stored one (D3/F10).
+            var adjustments = (notes && notes.length) ? ' ' + notes.join('; ') : '';
             $('ss-save-status').textContent = (back === wantedWorkers)
-                ? 'Saved.'
-                : 'Saved, but the server stored ' + back + ' while ' + wantedWorkers + ' was asked for.';
+                ? 'Saved.' + adjustments
+                : 'Saved, but the server stored ' + back + ' while ' + wantedWorkers + ' was asked for.'
+                  + adjustments;
         }).catch(function (e) {
             $('ss-save-status').textContent = 'Save failed: ' + (e.message || e);
         });

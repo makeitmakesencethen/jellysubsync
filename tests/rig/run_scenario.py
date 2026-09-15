@@ -46,6 +46,7 @@ import pathlib
 import re
 import shutil
 import subprocess
+import urllib.error
 import sys
 import time
 
@@ -632,6 +633,91 @@ def scenario_s43_audio_is_audio(rig, args, ctx):
     ]
 
 
+# D3 + F10's fixture is not media: it is the settings themselves, driven through the same API the settings page
+# uses. The rows are the audit's ten hostile saves, one at a time.
+D3_ROWS = [
+    ('ParallelWorkers', 99, 'stored in 1-64, and the response says so',
+     lambda c: 1 <= c['ParallelWorkers'] <= 64, 'Parallel workers'),
+    ('ExtractionTimeoutMinutes', 0, 'stored in 1-240, and the response says so',
+     lambda c: 1 <= c['ExtractionTimeoutMinutes'] <= 240, 'Extraction timeout'),
+    ('ExtractionTimeoutMinutes', 100000, 'stored in 1-240, and the response says so',
+     lambda c: 1 <= c['ExtractionTimeoutMinutes'] <= 240, 'Extraction timeout'),
+    ('MaxOffsetSeconds', -5, 'stored in 1-600, and the response says so',
+     lambda c: 1 <= c['MaxOffsetSeconds'] <= 600, 'Max offset seconds'),
+    ('MaxOffsetSeconds', 100000, 'stored in 1-600, and the response says so',
+     lambda c: 1 <= c['MaxOffsetSeconds'] <= 600, 'Max offset seconds'),
+    ('MaxSubtitleReferenceOffsetSeconds', -5, 'stored in 1-600, and the response says so',
+     lambda c: 1 <= c['MaxSubtitleReferenceOffsetSeconds'] <= 600, 'Max shift from a subtitle reference'),
+    ('OutputEncoding', 'not-an-encoding', 'stored as an encoding the engine accepts, and the response says so',
+     lambda c: c['OutputEncoding'] in ('utf-8', 'utf-8-sig', 'utf-16', 'latin-1', 'windows-1252', 'cp1252'),
+     'Output encoding'),
+    ('VadMethod', 'not-a-vad', 'stored as a method the engine accepts, and the response says so',
+     lambda c: c['VadMethod'] in ('webrtc', 'subs_then_webrtc', 'auditok', 'silero'), 'VAD method'),
+    ('SyncLanguages', ['qq', 'zz', '!!!@#'], 'dropped, and the response says so',
+     lambda c: list(c['SyncLanguages']) == [], 'language'),
+    ('FfmpegPath', '/no/such/ffmpeg-xyz', 'not stored, and the response says so',
+     lambda c: c['FfmpegPath'] == '', 'ffmpeg path'),
+    ('FfSubSyncPath', '/no/such/binary-xyz', 'not stored, and the response says so',
+     lambda c: c['FfSubSyncPath'] in ('', 'ffsubsync'), 'ffsubsync executable'),
+]
+
+
+def scenario_d3_settings(rig, args, ctx):
+    """D3 + F10: every hostile save the audit drove through the page, driven through the API instead.
+
+    One field at a time: read the stored configuration, change that one field to the value the audit typed, save
+    it, read back what the server stored, and ask whether the answer said anything at all. Before the shared
+    validation path, an out-of-range ceiling, a typo'd encoding, a missing binary path and a language tag that
+    matches nothing were all stored exactly as typed, and the page answered "Saved." for every one of them.
+
+    Run against a build without the validation path and most of these fail.
+    """
+    original = rig.get('/SubSync/Configuration')
+    ctx['original'] = original
+    assertions = []
+
+    for field, value, label, ok, note_needle in D3_ROWS:
+        body = dict(original)
+        body[field] = value
+        refused = None
+        answered = None
+        try:
+            answered = rig.post('/SubSync/Configuration', body)
+        except urllib.error.HTTPError as error:      # a refusal is a fine outcome: nothing half-stored
+            refused = error.code
+
+        if refused is not None:
+            assertions.append((f'{field} = {value!r} is refused rather than stored as typed', 400 <= refused < 500,
+                               f'HTTP {refused}'))
+            continue
+
+        stored = answered or {}
+        # The save body stays exactly what it was; what was adjusted is reported on its own endpoint.
+        try:
+            notes = [str(n) for n in (rig.get('/SubSync/Settings/ValidationNotes') or [])]
+        except urllib.error.HTTPError:
+            notes = []
+        value_ok = bool(ok(stored))
+        note_ok = any(note_needle.lower() in n.lower() for n in notes)
+        shown = f"{field}={value!r} stored as {stored.get(field)!r}"
+        if note_ok:
+            shown += ' | ' + next(n for n in notes if note_needle.lower() in n.lower())[:120]
+        else:
+            shown += ' | the response said nothing about it'
+        assertions.append((f'{field} = {value!r} is {label}', value_ok and note_ok, shown))
+
+    # And the configuration is still a usable one: the page's own values go back in without a single note.
+    answered = rig.post('/SubSync/Configuration', original)
+    try:
+        notes = [str(n) for n in (rig.get('/SubSync/Settings/ValidationNotes') or [])]
+    except urllib.error.HTTPError:
+        notes = []
+    assertions.append(('the settings the plugin shipped with are stored unchanged and without complaint',
+                       not notes and answered.get('MaxOffsetSeconds') == original.get('MaxOffsetSeconds'),
+                       f'{len(notes)} note(s) for the unmodified configuration'))
+    return assertions
+
+
 def scenario_s39_ratio(rig, args, ctx):
     """S39: a ceiling chosen between two numbers this machine measured, not from a constant.
 
@@ -747,6 +833,8 @@ SCENARIOS = {
                           needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
     's31-wrong-ruler': dict(run=scenario_s31_wrong_ruler, storage='any',
                             needs='a sibling subtitle from a different cut: the ruler passes every check and is wrong'),
+    'd3-settings': dict(run=scenario_d3_settings, storage='any',
+                        needs='nothing: it drives the settings API, the same way the page does'),
     's43-audio-is-audio': dict(run=scenario_s43_audio_is_audio, storage='any',
                                needs='a file whose only subtitle track is out of sync: the audio is the only reference'),
     's39-ratio': dict(run=scenario_s39_ratio, storage='shim',

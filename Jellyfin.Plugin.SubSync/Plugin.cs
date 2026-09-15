@@ -75,12 +75,30 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
         }
     }
 
+    /// <summary>
+    /// Gets or sets what the last stored configuration had to be adjusted by.
+    /// </summary>
+    /// <remarks>
+    /// Held here because every path that stores a configuration passes through <see cref="UpdateConfiguration"/>,
+    /// so this is the one place that can report an adjustment whichever surface made it (D3/F10).
+    /// </remarks>
+    public static IReadOnlyList<string> LastSettingsNotes { get; set; } = Array.Empty<string>();
+
     /// <inheritdoc />
     public override void UpdateConfiguration(BasePluginConfiguration configuration)
     {
         if (configuration is PluginConfiguration pluginConfiguration)
         {
             Migrate(pluginConfiguration);
+
+            // Storing a configuration is the one place a setting can be checked for both surfaces, including
+            // numbers that a hand-edited config.xml would otherwise put straight into the engine's argv (D3/F10).
+            var notes = Jellyfin.Plugin.SubSync.Configuration.SettingsValidation.Apply(pluginConfiguration);
+            LastSettingsNotes = notes;
+            foreach (var note in notes)
+            {
+                _logger.LogInformation("SubSync settings adjusted: {Note}", note);
+            }
         }
 
         base.UpdateConfiguration(configuration);

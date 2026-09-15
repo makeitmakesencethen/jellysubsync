@@ -45,6 +45,7 @@ WORK = os.environ.get('TESTS_WORK') or os.path.join(REPO, '.tests-work')
 ENV = dict(os.environ, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
 
 PROGRAM = r"""
+using Jellyfin.Plugin.SubSync.Configuration;
 using Jellyfin.Plugin.SubSync.Services;
 
 int failures = 0;
@@ -642,6 +643,68 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         && Math.Abs(SubSyncService.SubtitleReferenceAudioAgreementFraction - 0.1) < 1e-9,
         $"fractions: {SubSyncService.SuspiciousReferenceShiftFraction}, "
         + $"{SubSyncService.SubtitleReferenceAudioAgreementFraction}");
+}
+
+// D3 + F10: the audit's hostile saves, driven through the one validation path instead of the page. Before this,
+// nine of ten values were stored exactly as typed and the page said "Saved." for all of them; a negative ceiling
+// also turned the plugin's own "was the engine clamped?" warning into a constant banner.
+{
+    var hostile = new PluginConfiguration
+    {
+        ParallelWorkers = 99,
+        ExtractionTimeoutMinutes = 100000,
+        MaxOffsetSeconds = -5,
+        MaxSubtitleSeconds = double.NaN,
+        MaxSubtitleReferenceOffsetSeconds = -5,
+        OutputEncoding = "not-an-encoding",
+        VadMethod = "not-a-vad",
+        SyncLanguages = new[] { "qq", "zz", "!!!@#", "eng", "swe" },
+        FfmpegPath = "/no/such/ffmpeg-xyz",
+        FfSubSyncPath = "/no/such/binary-xyz",
+        SweepFailStreakLimit = 0,
+        SweepMaxItemsPerRun = -1
+    };
+    var notes = SettingsValidation.Apply(hostile);
+
+    Check("99 parallel workers are stored as 64", hostile.ParallelWorkers == 64, $"{hostile.ParallelWorkers}");
+    Check("a 100000-minute timeout is stored as 240",
+        hostile.ExtractionTimeoutMinutes == 240, $"{hostile.ExtractionTimeoutMinutes}");
+    Check("a negative offset ceiling is stored as 1", hostile.MaxOffsetSeconds == 1, $"{hostile.MaxOffsetSeconds}");
+    Check("an offset ceiling of 100000 is stored as 600",
+        SettingsValidation.MaxOffsetSecondsOf(new PluginConfiguration { MaxOffsetSeconds = 100000 }) == 600,
+        $"{SettingsValidation.MaxOffsetSecondsOf(new PluginConfiguration { MaxOffsetSeconds = 100000 })}");
+    Check("a cue length that is not a number is stored as the default 10",
+        hostile.MaxSubtitleSeconds == 10, $"{hostile.MaxSubtitleSeconds}");
+    Check("an unknown encoding is stored as utf-8", hostile.OutputEncoding == "utf-8", hostile.OutputEncoding);
+    Check("an unknown VAD method is stored as the engine's default",
+        hostile.VadMethod == "subs_then_webrtc", hostile.VadMethod);
+    Check("unknown language tags are dropped, real ones kept and lowercased",
+        hostile.SyncLanguages.SequenceEqual(new[] { "eng", "swe" }), string.Join(",", hostile.SyncLanguages));
+    Check("a binary path that does not exist is not stored",
+        hostile.FfmpegPath.Length == 0 && hostile.FfSubSyncPath == "ffsubsync",
+        $"{hostile.FfmpegPath}|{hostile.FfSubSyncPath}");
+    Check("a sweep streak of 0 and -1 items are brought into range",
+        hostile.SweepFailStreakLimit == 1 && hostile.SweepMaxItemsPerRun == 1,
+        $"{hostile.SweepFailStreakLimit}/{hostile.SweepMaxItemsPerRun}");
+    Check("every adjustment is reported, so the page can say what it stored", notes.Count >= 9, $"{notes.Count}");
+    Check("the accessors are the ranges, not the stored numbers",
+        SettingsValidation.MaxSubtitleSecondsOf(new PluginConfiguration { MaxSubtitleSeconds = 1e9 }) == 60
+        && SettingsValidation.MaxSubtitleReferenceOffsetSecondsOf(new PluginConfiguration
+        {
+            MaxSubtitleReferenceOffsetSeconds = -100
+        }) == 1,
+        "60 s cue, 1 s reference floor");
+    Check("a language tag with a region is accepted and normalised",
+        SettingsValidation.IsKnownLanguageTag("pt-BR", out var pt) && pt == "pt-br", pt);
+    Check("a classic ISO 639-2/B tag is accepted", SettingsValidation.IsKnownLanguageTag("ger", out _), "ger");
+    Check("a tag that names no language is not accepted",
+        !SettingsValidation.IsKnownLanguageTag("qq", out _) && !SettingsValidation.IsKnownLanguageTag("!!!@#", out _),
+        "qq, !!!@#");
+    Check("a path with a separator is only usable when it is there",
+        SettingsValidation.BinaryPathIsUsable("ffmpeg") && !SettingsValidation.BinaryPathIsUsable("/no/such/ffmpeg-xyz"),
+        "bare name ok, missing path not");
+    Check("a configuration that is already in range is left alone",
+        SettingsValidation.Apply(new PluginConfiguration()).Count == 0, "the defaults are valid");
 }
 
 // S43: the "audio" reference is only audio if the engine is given a VAD that reads audio. With the configured
@@ -2910,6 +2973,51 @@ def run_page_checks():
            and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
 
+    validation_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                                           'SettingsValidation.cs'), encoding='utf-8').read()
+    plugin_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Plugin.cs'), encoding='utf-8').read()
+    main_js = main_html  # the page's script is checked with its markup, as everywhere else here
+
+    report('settings are validated wherever they are stored, and the page is told what changed',
+           'var notes = Configuration.SettingsValidation.Apply(wanted);' in controller_source
+           and 'Settings/ValidationNotes' in controller_source
+           and 'Plugin.LastSettingsNotes = notes;' in controller_source
+           and 'SettingsValidation.Apply(pluginConfiguration)' in plugin_source
+           and 'SubSync/Settings/ValidationNotes' in main_js
+           and 'SubSync settings adjusted' in plugin_source)
+
+    report('the engine and the plugin\'s own heuristics read the validated numbers, never the stored ones',
+           service_source.count('Configuration.SettingsValidation.MaxOffsetSecondsOf(config)') >= 8
+           and 'Configuration.SettingsValidation.MaxSubtitleSecondsOf(config)' in service_source
+           and 'Configuration.SettingsValidation.MaxSubtitleReferenceOffsetSecondsOf(config)' in service_source
+           and 'Configuration.SettingsValidation.OutputEncodingOf(config)' in service_source
+           and 'config.MaxOffsetSeconds' not in service_source
+           and 'config.MaxSubtitleSeconds' not in service_source)
+
+    report('a configured ffmpeg that is not there is not handed to the engine',
+           'Configuration.SettingsValidation.BinaryPathIsUsable(config.FfmpegPath)' in service_source)
+
+    def _bound(name):
+        found = re.search(rf'\b{name} = ([0-9.]+);', validation_source)
+        return float(found.group(1)) if found else None
+
+    settings_bounds = {
+        'ss-maxoffset': (_bound('MaxOffsetSecondsMin'), _bound('MaxOffsetSecondsMax')),
+        'ss-maxrefoffset': (_bound('MaxSubtitleReferenceOffsetSecondsMin'), _bound('MaxSubtitleReferenceOffsetSecondsMax')),
+        'ss-maxsub': (_bound('MaxSubtitleSecondsMin'), _bound('MaxSubtitleSecondsMax')),
+        'ss-workers-input': (_bound('ParallelWorkersMin'), _bound('ParallelWorkersMax')),
+    }
+    page_bounds = {}
+    for tag in re.findall(r'<input[^>]*>', raw_main_html):
+        hit = re.search(r'id="(ss-[^"]+)"', tag)
+        if hit and hit.group(1) in settings_bounds:
+            low = re.search(r'min="([0-9.]+)"', tag)
+            high = re.search(r'max="([0-9.]+)"', tag)
+            page_bounds[hit.group(1)] = (float(low.group(1)), float(high.group(1))) if low and high else None
+
+    report('the settings page offers the same bounds the server enforces',
+           page_bounds == settings_bounds, f'{page_bounds} vs {settings_bounds}')
+
     report('the audio path is given a VAD that reads audio, and says so',
            'private const string AudioReferenceVad = "webrtc";' in service_source
            and 'VadForReference(referenceSpec)' in service_source
@@ -3099,7 +3207,7 @@ def run_page_checks():
            and 'refusing a reference-derived shift' not in service)
     report('the offset window is a search range: a result on it is retried wider, and only a definitive answer is written',
            'public int MaxOffsetSeconds { get; set; } = 180;' in config_source
-           and 'Math.Max(config.MaxOffsetSeconds * 2, 300)' in service
+           and 'Math.Max(Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 2, 300)' in service
            and 'wide-window.srt' in service
            and 'wide-check.srt' in service
            and 'which a window that size cannot be trusted to have found' in service
@@ -3140,8 +3248,10 @@ def run_page_checks():
            # The two configuration endpoints joined the list on 2026-09-12: the plugin's settings are
            # administrator-only in Jellyfin, and the page now reads and writes them here instead of
            # through the web client's API object (which is what it used to depend on).
+           # Settings/ValidationNotes joined it with the settings validation: it reports what the plugin
+           # adjusted in an administrator's configuration, so it is administrator-only like the rest.
            sorted(elevated) == ['Configuration', 'Configuration', 'Install', 'Kill', 'Log',
-                                'SpeechCache/Clear']
+                                'Settings/ValidationNotes', 'SpeechCache/Clear']
            and 'RequiresElevation' in controller
            and all('\n    [HttpPost("%s")]' % r in controller or '\n    [HttpGet("%s")]' % r in controller
                    for r in item_scoped[:3])

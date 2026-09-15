@@ -630,9 +630,32 @@ public class SubSyncController : ControllerBase
             return BadRequest("No configuration in the body.");
         }
 
+        // One validation path for the settings: what cannot mean anything is brought into range here rather
+        // than stored as typed, and the response says what was adjusted so the page can report it instead of a
+        // bare "Saved." (D3/F10).
+        var notes = Configuration.SettingsValidation.Apply(wanted);
         Plugin.Instance!.UpdateConfiguration(wanted);
+
+        // The body stays exactly what it always was - the page reads these fields back and compares them - so
+        // what was adjusted is reported by SettingsValidationNotes instead (D3).
+        Plugin.LastSettingsNotes = notes;
         return Ok(Plugin.Instance.Configuration);
     }
+
+    /// <summary>
+    /// Reports what the last stored configuration had to be adjusted by, if anything.
+    /// </summary>
+    /// <remarks>
+    /// A setting that cannot mean anything is brought into range instead of stored as typed, and a setting that
+    /// was silently dropped used to look exactly like a stored one ("Saved." either way). The settings page reads
+    /// this right after a save and shows it (D3/F10).
+    /// </remarks>
+    /// <returns>One short line per adjustment, empty when the configuration was stored as sent.</returns>
+    [Authorize(Policy = RequiresElevationPolicy)]
+    [HttpGet("Settings/ValidationNotes")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IReadOnlyList<string>> SettingsValidationNotes()
+        => Ok(Plugin.LastSettingsNotes);
 
     /// <summary>
     /// The outcome of a job as the API reports it.
@@ -650,6 +673,12 @@ public class SubSyncController : ControllerBase
         => (job.Status == SyncJobStatus.Failed && string.Equals(job.Phase, "Refused", StringComparison.Ordinal))
             ? "Refused"
             : job.Status.ToString();
+
+    private static readonly JsonSerializerOptions JsonOptions = new JsonSerializerOptions
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.Never
+    };
 
     private static readonly JsonSerializerOptions CaseInsensitiveJson =
         new JsonSerializerOptions { PropertyNameCaseInsensitive = true };
