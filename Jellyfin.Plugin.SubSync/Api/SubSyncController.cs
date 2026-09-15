@@ -112,6 +112,35 @@ public class SubSyncController : ControllerBase
         User.Claims.Select(c => new KeyValuePair<string, string>(c.Type, c.Value)));
 
     /// <summary>
+    /// Says whether the calling account is an administrator, which decides how much of the run list it sees (F4).
+    /// </summary>
+    /// <returns>True only when Jellyfin says so.</returns>
+    private bool CallerIsAdmin() => CallerId() is Guid id && _syncService.IsAdministrator(id);
+
+    /// <summary>
+    /// Refuses a request naming an item that cannot be synced, in the same shape from every entry point (D8).
+    /// </summary>
+    /// <remarks>
+    /// The single-sync endpoint refused a series, season or folder; the batch endpoint accepted them and failed one
+    /// task at a time later. Both now ask the service the same question, so the same request gets the same answer
+    /// wherever it arrives.
+    /// </remarks>
+    /// <param name="itemId">The item the request named.</param>
+    /// <returns>The refusal, or null when the item can be synced.</returns>
+    private ObjectResult? RefuseUntargetable(Guid itemId)
+    {
+        var target = _syncService.InspectSyncTarget(itemId);
+        if (target.CanSync)
+        {
+            return null;
+        }
+
+        return target.Found
+            ? Fail(StatusCodes.Status400BadRequest, "Not a video", target.Refusal!)
+            : Fail(StatusCodes.Status404NotFound, "Item not found", target.Refusal!);
+    }
+
+    /// <summary>
     /// Lists subtitle tracks for a given video item.
     /// </summary>
     /// <param name="itemId">The Jellyfin item ID.</param>
@@ -151,14 +180,30 @@ public class SubSyncController : ControllerBase
             return Fail(404, "Item not found", "The item was not found or is not available to this account.");
         }
 
+        var untargetable = RefuseUntargetable(request.ItemId);
+        if (untargetable is not null)
+        {
+            return untargetable;
+        }
+
+        var isAdmin = CallerIsAdmin();
         try
         {
-            var job = _syncService.StartSync(request.ItemId, request.SubtitleIndex, request.Mode);
-            return Ok(job);
+            var job = _syncService.StartSync(request.ItemId, request.SubtitleIndex, request.Mode, CallerId());
+
+            // A job the caller did not create can still come back from the queue (D9's duplicate rule returns the job
+            // already queued for this track); the paths in it are the server's, so they are removed for anyone but an
+            // administrator.
+            return Ok(ItemAccess.ForViewer(job, isAdmin));
         }
         catch (FileNotFoundException ex)
         {
             return Fail(404, "Job not found", ex.Message);
+        }
+        catch (Services.SubSyncService.SyncQueueConflictException ex)
+        {
+            // Nothing about the request is wrong: the queue holds that work for another account (F4).
+            return Fail(StatusCodes.Status409Conflict, "Already queued", ex.Message);
         }
         catch (InvalidOperationException ex)
         {
@@ -182,7 +227,15 @@ public class SubSyncController : ControllerBase
             return Fail(404, "Job not found", "No job with that identifier.");
         }
 
-        return Ok(job);
+        // A job that is not the caller's is answered exactly like one that does not exist (F4): another account's run
+        // is not something to confirm the existence of.
+        var isAdmin = CallerIsAdmin();
+        if (!ItemAccess.MaySeeJob(job, CallerId(), isAdmin))
+        {
+            return Fail(404, "Job not found", "No job with that identifier.");
+        }
+
+        return Ok(ItemAccess.ForViewer(job, isAdmin));
     }
 
     /// <summary>
@@ -193,7 +246,12 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<IEnumerable<SyncJob>> GetAllJobs()
     {
-        return Ok(_syncService.GetAllJobs());
+        var isAdmin = CallerIsAdmin();
+        var visible = ItemAccess.VisibleJobs(_syncService.GetAllJobs(), CallerId(), isAdmin)
+            .Select(job => ItemAccess.ForViewer(job, isAdmin))
+            .ToList();
+
+        return Ok(visible);
     }
 
     /// <summary>
@@ -224,12 +282,31 @@ public class SubSyncController : ControllerBase
             return refused;
         }
 
+        // The same rule single sync applies (D8): a batch used to accept a series, season or folder and fail one task
+        // at a time later, which is the same refusal with a worse report and wasted engine work.
+        foreach (var task in request.Tasks)
+        {
+            var untargetable = RefuseUntargetable(task.ItemId);
+            if (untargetable is not null)
+            {
+                return untargetable;
+            }
+        }
+
         var tasks = request.Tasks
             .Select(t => (t.ItemId, t.SubtitleIndex, Title: t.Title))
             .ToList();
 
-        var created = _syncService.CreateBatch(request.Label ?? string.Empty, tasks, request.Mode);
-        return Ok(BuildCreatedBatchView(created.BatchId, created.AlreadyQueued.Count));
+        var created = _syncService.CreateBatch(request.Label ?? string.Empty, tasks, request.Mode, CallerId());
+        if (created.Jobs.Count == 0 && created.AlreadyQueued.Count == 0)
+        {
+            // Every task failed validation: the batch exists as failed rows only.
+            return Ok(BuildCreatedBatchView(created.BatchId, 0));
+        }
+
+        var createdView = BuildBatchViewForCaller(created.BatchId, created.AlreadyQueued.Count)
+            ?? BuildCreatedBatchView(created.BatchId, created.AlreadyQueued.Count);
+        return Ok(createdView);
     }
 
     /// <summary>
@@ -245,6 +322,40 @@ public class SubSyncController : ControllerBase
         => new(new ProblemDetails { Status = status, Title = title, Detail = detail }) { StatusCode = status };
 
     /// <summary>
+    /// Builds the view of a batch for the calling account, hiding what it may not see (F4).
+    /// </summary>
+    /// <remarks>
+    /// A batch belongs to the accounts whose tasks are in it. A viewer with none of them gets the same answer as for a
+    /// batch that does not exist, and a viewer who does own tasks in it does not get the server's paths for the tasks
+    /// that are someone else's.
+    /// </remarks>
+    /// <param name="batchId">Batch identifier.</param>
+    /// <param name="alreadyQueuedCount">How many tasks the queue already held, reported once on creation (D9).</param>
+    /// <returns>The view, or null when the caller may see none of it.</returns>
+    private BatchView? BuildBatchViewForCaller(string batchId, int alreadyQueuedCount = 0)
+    {
+        var isAdmin = CallerIsAdmin();
+        var callerId = CallerId();
+        if (!isAdmin && !_syncService.GetBatchJobs(batchId).Any(job => ItemAccess.MaySeeJob(job, callerId, false)))
+        {
+            return null;
+        }
+
+        var view = BuildBatchView(batchId, alreadyQueuedCount);
+        if (view is null || isAdmin)
+        {
+            return view;
+        }
+
+        foreach (var task in view.Tasks)
+        {
+            ItemAccess.HideServerPaths(task, false);
+        }
+
+        return view;
+    }
+
+    /// <summary>
     /// Gets the current view of a batch (tasks + aggregate progress).
     /// </summary>
     /// <param name="batchId">Batch identifier.</param>
@@ -254,8 +365,8 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<BatchView> GetBatch(string batchId)
     {
-        var view = BuildBatchView(batchId);
-        return view is null ? NotFound("Batch not found.") : Ok(view);
+        var view = BuildBatchViewForCaller(batchId);
+        return view is null ? Fail(404, "Batch not found", "No batch with that identifier.") : Ok(view);
     }
 
     /// <summary>
@@ -269,7 +380,7 @@ public class SubSyncController : ControllerBase
         var summaries = new List<BatchSummary>();
         foreach (var (batchId, _) in _syncService.GetBatchIds())
         {
-            var view = BuildBatchView(batchId);
+            var view = BuildBatchViewForCaller(batchId);
             if (view is not null)
             {
                 summaries.Add(new BatchSummary
@@ -301,9 +412,15 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public ActionResult<BatchView> CancelBatch(string batchId)
     {
+        // Refused before anything is cancelled: an account may not stop a run it cannot see (F4).
+        var view = BuildBatchViewForCaller(batchId);
+        if (view is null)
+        {
+            return Fail(404, "Batch not found", "No batch with that identifier.");
+        }
+
         _syncService.CancelBatch(batchId);
-        var view = BuildBatchView(batchId);
-        return view is null ? NotFound("Batch not found.") : Ok(view);
+        return Ok(BuildBatchViewForCaller(batchId)!);
     }
 
     /// <summary>

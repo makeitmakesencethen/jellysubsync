@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using Jellyfin.Plugin.SubSync.Api;
 
 namespace Jellyfin.Plugin.SubSync.Services;
 
@@ -29,6 +30,106 @@ internal static class ItemAccess
         "sub",
         "Jellyfin-UserId",
     };
+
+    /// <summary>
+    /// Decides which jobs an account may see, and what has to be hidden from it (F4).
+    /// </summary>
+    /// <remarks>
+    /// Every authenticated account used to see every job: `/SubSync/Jobs` and `/SubSync/Batches` are only protected by
+    /// the class-level `[Authorize]`, and a job carries the item id and the output path it wrote. So one account read
+    /// every other account's activity, and the server's absolute media paths with it. An administrator sees everything;
+    /// anyone else sees the jobs their own requests created and nothing more. A job with no owner - the scheduled
+    /// sweep's work, or a row restored from a history file written before jobs recorded one - is the administrator's,
+    /// because an unknown owner must not mean everybody.
+    /// </remarks>
+    /// <param name="jobs">Every tracked job.</param>
+    /// <param name="callerId">The calling account, when it could be resolved.</param>
+    /// <param name="isAdmin">Whether that account is an administrator.</param>
+    /// <returns>The jobs the caller may see, in the order they arrived.</returns>
+    internal static IEnumerable<SyncJob> VisibleJobs(IEnumerable<SyncJob> jobs, Guid? callerId, bool isAdmin)
+        => isAdmin
+            ? jobs
+            : jobs.Where(job => callerId is not null && job.OwnerId == callerId);
+
+    /// <summary>
+    /// Says whether an account may see one job (F4).
+    /// </summary>
+    /// <param name="job">The job, or null when no such job exists.</param>
+    /// <param name="callerId">The calling account, when it could be resolved.</param>
+    /// <param name="isAdmin">Whether that account is an administrator.</param>
+    /// <returns>True when the caller may see it.</returns>
+    internal static bool MaySeeJob(SyncJob? job, Guid? callerId, bool isAdmin)
+        => job is not null && (isAdmin || (callerId is not null && job.OwnerId == callerId));
+
+    /// <summary>
+    /// Removes the server's own paths from a job an administrator is not the one reading (F4).
+    /// </summary>
+    /// <remarks>
+    /// An account may see that its own run finished without being told where the server keeps its media: the folder
+    /// layout is the operator's, not the viewer's. The output path goes, and the free-text fields - a failure names the
+    /// file it could not open, a phase names the reference it read - have any absolute path inside them replaced.
+    /// </remarks>
+    /// <param name="job">The job about to be returned.</param>
+    /// <param name="isAdmin">Whether the caller is an administrator.</param>
+    /// <returns>
+    /// The job itself for an administrator, and a sanitised copy for anyone else: the tracked job is the server's own
+    /// record, and answering one viewer must not edit it (F4).
+    /// </returns>
+    internal static SyncJob ForViewer(SyncJob job, bool isAdmin)
+    {
+        if (isAdmin)
+        {
+            return job;
+        }
+
+        var viewer = job.CopyForViewer();
+        viewer.OutputPath = null;
+        viewer.Error = RedactPaths(viewer.Error);
+        viewer.Outcome = RedactPaths(viewer.Outcome);
+        viewer.ExtractionNote = RedactPaths(viewer.ExtractionNote);
+        return viewer;
+    }
+
+    /// <summary>
+    /// Replaces absolute paths inside a message with a placeholder (F4).
+    /// </summary>
+    /// <remarks>
+    /// Messages are written for whoever reads the log next, and they name files: "/media/Movies/X (2026).mkv" and the
+    /// reference audio beside it. The words are kept so the message still explains itself; only the locations go, and
+    /// the match runs to the end of the segment (a quote, a semicolon or the line's end) rather than stopping at the
+    /// first space: a path with a space in it is ordinary, and half a path still gives away the folder it lives in.
+    /// Over-redacting the tail of a sentence is the price, and it is the cheaper mistake.
+    /// </remarks>
+    /// <param name="text">The message, or null.</param>
+    /// <returns>The message with paths replaced, or null.</returns>
+    internal static string? RedactPaths(string? text)
+    {
+        if (string.IsNullOrEmpty(text))
+        {
+            return text;
+        }
+
+        var redacted = System.Text.RegularExpressions.Regex.Replace(text, @"[A-Za-z]:\\[^"";\r\n]*", Placeholder);
+        return System.Text.RegularExpressions.Regex.Replace(redacted, @"(/[^"";\r\n]*)", Placeholder);
+    }
+
+    /// <summary>The placeholder a redacted path is replaced with (F4).</summary>
+    internal const string Placeholder = "<path>";
+
+    /// <summary>
+    /// Removes the server's own paths from a batch task an administrator is not the one reading (F4).
+    /// </summary>
+    /// <param name="task">The batch task about to be returned.</param>
+    /// <param name="isAdmin">Whether the caller is an administrator.</param>
+    internal static void HideServerPaths(BatchTask task, bool isAdmin)
+    {
+        if (isAdmin || task is null)
+        {
+            return;
+        }
+
+        task.OutputPath = null;
+    }
 
     /// <summary>
     /// Gets the account id from a request's claims, or null when there is none to trust.

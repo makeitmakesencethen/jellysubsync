@@ -1,3 +1,41 @@
+## 2.0.51 (beta)
+
+Three fixes about access and truthfulness: who may see a run, which engine the status describes, and what a request is
+allowed to name.
+
+**F4 — a run belongs to the account that asked for it.** The run list, a single run, the batch list and a batch were
+protected only by "you are signed in", and a job carries the item id and the output path it wrote: any account could
+read every other account's activity and the server's absolute media paths with it. A job now records the account whose
+request created it, and an administrator sees everything while anyone else sees only their own runs — a run with no
+owner (the scheduled sweep's, or a row restored from an older history file) belongs to the administrator, because an
+unknown owner must not mean everybody. Asking for a run that is not yours answers exactly like one that does not exist.
+Paths are removed for non-administrators by returning a *copy*, so answering a viewer never edits the server's own
+record, and absolute paths inside error text become `<path>`.
+
+Measured with a second, non-administrator account on a real server: its run list holds none of the administrator's
+runs, the administrator's run id and batch id both answer 404, and the *same completed run* read by both accounts comes
+back as `OutputPath: null` for the second account where the administrator reads
+`/opt/data/jf12test/media/Helikopterrånet S01E01.swe.SYNCED.srt`. Writing that probe found a defect the fix itself
+exposed: asking for a track another account has already queued used to hand over that account's run id — an identifier
+the caller can never read. It now answers 409 "Already queued".
+
+**D2 — "installed" now describes the engine a job will run.** The status answered "is the plugin's own managed binary
+present" while a job executes whatever the resolver picks (configured path, then the bundled binary, then the managed
+one), so a user whose configured path had gone away read "installed", was never offered the installer, and watched
+every sync fail. The status now asks the resolver, fills in `ResolvedBinaryPath` (declared but never assigned until
+now) and, when the engine is missing, says which path it looked at. A bare `ffsubsync` name is looked up on `PATH`
+exactly as the shell would, and an empty `PATH` finds nothing.
+
+**D8 / F5 — a request that cannot be synced is refused wherever it arrives.** Single sync refused a series, season or
+folder; the batch endpoint accepted them and failed one task at a time later. Both now ask one question: a missing item
+is a 404, anything that is not a video is a 400 "Not a video" naming what it is and what to do instead, and a batch
+carrying one such task is refused whole before any job is created. F5's dedupe half was already closed by D9.
+
+Verification: `python3 tests/run_checks.py` passes (889 checks, 0 failures) with 21 new ones — the owner filter with an
+owner, an outsider and an unresolved caller, path redaction for POSIX and Windows paths, the copy property that keeps a
+read from editing the tracked job, the engine lookup on and off `PATH`, and the target classifier — plus
+`tests/backend/f4_d2_d8_probe.py` against a running Jellyfin with a second account (23 checks, ALL PASS).
+
 ## 2.0.50 (beta)
 
 Four lifecycle fixes, all exercised against real processes rather than reasoned about.

@@ -81,6 +81,28 @@ public class SyncJob
     /// <summary>Gets or sets a value indicating whether this job holds its file's audio-analysis gate.</summary>
     public bool HoldsSpeechGate { get; set; }
 
+    /// <summary>
+    /// Gets or sets the account whose request created this job, when one did (F4).
+    /// </summary>
+    /// <remarks>
+    /// Null means the plugin queued the work itself - the scheduled library sweep does - and also covers jobs restored
+    /// from a history file written before this field existed. The interface shows a job to its owner and to an
+    /// administrator, and to nobody else, so a null owner is visible to administrators only: an unknown owner must
+    /// not mean "everybody".
+    /// </remarks>
+    public Guid? OwnerId { get; set; }
+
+    /// <summary>
+    /// Returns a copy of this job, for answering a caller that must not see the server's own fields (F4).
+    /// </summary>
+    /// <remarks>
+    /// The tracked job is the server's record of the run: the sweep reads its output path to decide whether a file is
+    /// there, the history writes it out, and an administrator reads it. Sanitising the tracked object to answer one
+    /// viewer removed the path from the server's own record - so the copy exists to keep a read from being a write.
+    /// </remarks>
+    /// <returns>A shallow copy that can be edited without touching the tracked job.</returns>
+    public SyncJob CopyForViewer() => (SyncJob)MemberwiseClone();
+
     /// <summary>Gets or sets the Jellyfin item ID.</summary>
     public Guid ItemId { get; set; }
 
@@ -215,6 +237,15 @@ public class FfSubSyncInstallationStatus
 
     /// <summary>Gets or sets the resolved binary path that will be used (managed or custom).</summary>
     public string? ResolvedBinaryPath { get; set; }
+
+    /// <summary>
+    /// Gets or sets the explanation shown when the engine that would run could not be found (D2).
+    /// </summary>
+    /// <remarks>
+    /// Null when the engine is there. A user whose configured path is wrong needs to be told which path the plugin
+    /// looked at, or the badge just says "not installed" while the installer they are not being offered is irrelevant.
+    /// </remarks>
+    public string? EngineNote { get; set; }
 
     /// <summary>Gets or sets whether a system python3 was found.</summary>
     public bool PythonAvailable { get; set; }
@@ -740,11 +771,20 @@ public class SubSyncService : IDisposable
     /// <returns>Detailed installation status.</returns>
     public async Task<FfSubSyncInstallationStatus> GetInstallationStatusAsync()
     {
+        // Which engine a job will actually run, and whether it is there (D2). The managed binary is reported
+        // separately because the interface offers to install it, but "installed" has to describe the engine in use.
+        var enginePath = ResolveFfSubSyncPath();
+        var enginePresent = EngineIsInstalled();
+
         var status = new FfSubSyncInstallationStatus
         {
             VenvPath = Plugin.Instance?.VenvPath,
             ManagedBinaryPath = ManagedFfSubSyncPath,
-            IsInstalled = File.Exists(ManagedFfSubSyncPath),
+            ResolvedBinaryPath = enginePath,
+            IsInstalled = enginePresent,
+            EngineNote = enginePresent
+                ? null
+                : EngineMissingNote(enginePath),
 
             // Where the plugin was loaded from and which settings file it reads: two loaded copies
             // would each keep their own configuration, and the settings page would then write to
@@ -1037,12 +1077,21 @@ public class SubSyncService : IDisposable
     /// <param name="itemId">The Jellyfin item ID.</param>
     /// <param name="subtitleIndex">The subtitle stream index within the first media source.</param>
     /// <param name="mode">Multi-subtitle mode (normal | parallel | fast).</param>
+    /// <param name="ownerId">The account whose request this is, when one made it (F4).</param>
     /// <returns>The created sync job.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the video file is not found.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the subtitle stream is not found or ffsubsync is unavailable.</exception>
-    public SyncJob StartSync(Guid itemId, int subtitleIndex, string? mode = null)
+    public SyncJob StartSync(Guid itemId, int subtitleIndex, string? mode = null, Guid? ownerId = null)
     {
-        return EnqueueSync(itemId, subtitleIndex, label: null, batchId: null, batchLabel: null, batchIndex: -1, mode: mode);
+        return EnqueueSync(
+            itemId,
+            subtitleIndex,
+            label: null,
+            batchId: null,
+            batchLabel: null,
+            batchIndex: -1,
+            mode: mode,
+            ownerId: ownerId);
     }
 
     /// <summary>
@@ -1057,12 +1106,13 @@ public class SubSyncService : IDisposable
     /// <param name="batchLabel">Batch scope label, if any.</param>
     /// <param name="batchIndex">0-based position inside the batch.</param>
     /// <param name="mode">Multi-subtitle mode (normal | parallel | fast).</param>
+    /// <param name="ownerId">The account whose request this is, when one made it (F4).</param>
     /// <returns>The queued sync job.</returns>
     /// <exception cref="FileNotFoundException">Thrown when the video file is not found.</exception>
     /// <exception cref="InvalidOperationException">Thrown when the subtitle stream is not found.</exception>
-    public SyncJob EnqueueSync(Guid itemId, int subtitleIndex, string? label, string? batchId, string? batchLabel, int batchIndex, string? mode = null)
+    public SyncJob EnqueueSync(Guid itemId, int subtitleIndex, string? label, string? batchId, string? batchLabel, int batchIndex, string? mode = null, Guid? ownerId = null)
     {
-        return EnqueueSyncTimed(itemId, subtitleIndex, label, batchId, batchLabel, batchIndex, mode).Job;
+        return EnqueueSyncTimed(itemId, subtitleIndex, label, batchId, batchLabel, batchIndex, mode, ownerId).Job;
     }
 
     /// <summary>
@@ -1081,6 +1131,7 @@ public class SubSyncService : IDisposable
     /// <param name="batchLabel">Batch label.</param>
     /// <param name="batchIndex">Position within the batch.</param>
     /// <param name="mode">Requested mode.</param>
+    /// <param name="ownerId">The account whose request this is, when one made it (F4).</param>
     /// <returns>
     /// The queued job, the cost of each part, and whether the queue already held a job for this item and track
     /// (in which case that job is the one returned - D9).
@@ -1092,7 +1143,8 @@ public class SubSyncService : IDisposable
         string? batchId,
         string? batchLabel,
         int batchIndex,
-        string? mode = null)
+        string? mode = null,
+        Guid? ownerId = null)
     {
         var total = System.Diagnostics.Stopwatch.StartNew();
         var phase = System.Diagnostics.Stopwatch.StartNew();
@@ -1167,12 +1219,25 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"queue duplicate: item={itemId} stream={subtitleIndex} existing={alreadyQueued.Id} "
                     + $"status={alreadyQueued.Status} batch={alreadyQueued.BatchId ?? "(standalone)"}");
+
+                // A job another account queued is not this caller's to be handed (F4): returning it would give out an
+                // identifier its owner cannot read - the run list does not contain it and asking for it answers 404 - so
+                // the page would attach to a run it can never follow. Plugins queued by the plugin itself have no owner
+                // and are treated as everyone's, which is how a sweep's run is reported to whoever asks next.
+                if (alreadyQueued.OwnerId is not null && alreadyQueued.OwnerId != ownerId)
+                {
+                    throw new SyncQueueConflictException(
+                        $"That subtitle track is already queued by another account (run {alreadyQueued.Id}). It is "
+                        + "processed once; ask again when it has finished.");
+                }
+
                 return (alreadyQueued, $"totalMs={total.ElapsedMilliseconds} duplicate=1", true);
             }
         }
 
         var job = new SyncJob
         {
+            OwnerId = ownerId,
             ItemId = itemId,
             SubtitleIndex = subtitleIndex,
             BatchId = batchId,
@@ -1240,8 +1305,13 @@ public class SubSyncService : IDisposable
     /// <param name="label">Scope label shown in history (e.g. "Series · Season 2").</param>
     /// <param name="tasks">The task list (item, subtitle index, display title).</param>
     /// <param name="mode">Multi-subtitle mode for the whole batch (normal | parallel | fast).</param>
+    /// <param name="ownerId">The account whose request this is, when one made it (F4).</param>
     /// <returns>What the bulk enqueue created, and which requested tasks were already queued (D9).</returns>
-    public BatchCreation CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks, string? mode = null)
+    public BatchCreation CreateBatch(
+        string label,
+        IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks,
+        string? mode = null,
+        Guid? ownerId = null)
     {
         var batchId = Guid.NewGuid().ToString("N");
         var resolvedMode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode);
@@ -1263,7 +1333,15 @@ public class SubSyncService : IDisposable
             var detail = string.Empty;
             try
             {
-                var queued = EnqueueSyncTimed(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode);
+                var queued = EnqueueSyncTimed(
+                    task.ItemId,
+                    task.SubtitleIndex,
+                    task.Title,
+                    batchId,
+                    label,
+                    i,
+                    resolvedMode,
+                    ownerId);
                 detail = queued.Timing;
                 if (queued.Duplicate)
                 {
@@ -1281,6 +1359,7 @@ public class SubSyncService : IDisposable
                 _logger.LogWarning("Batch {BatchId} task {Index} failed validation: {Error}", batchId, i, ex.Message);
                 var failed = new SyncJob
                 {
+                    OwnerId = ownerId,
                     ItemId = task.ItemId,
                     SubtitleIndex = task.SubtitleIndex,
                     BatchId = batchId,
@@ -6666,7 +6745,173 @@ public class SubSyncService : IDisposable
             && job.SubtitleIndex == subtitleIndex
             && job.Status is SyncJobStatus.Queued or SyncJobStatus.Running);
 
-    /// <summary>How long teardown waits for the lanes and the pump to leave (B14).</summary>
+    /// <summary>
+    /// Thrown when the work a request asks for is already queued by a different account (F4).
+    /// </summary>
+    /// <remarks>
+    /// Distinct from a plain refusal so the endpoints can answer 409 rather than 400: nothing about the request is
+    /// wrong, the queue simply holds that work for somebody else.
+    /// </remarks>
+    public sealed class SyncQueueConflictException : InvalidOperationException
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SyncQueueConflictException"/> class.
+        /// </summary>
+        /// <param name="message">Why the request conflicts with the queue.</param>
+        public SyncQueueConflictException(string message)
+            : base(message)
+        {
+        }
+    }
+
+    /// <summary>
+    /// What a sync request's item is, and why it cannot be synced when it cannot (D8).
+    /// </summary>
+    /// <remarks>
+    /// Both entry points ask this one question, so a request naming a series, a season or a folder is refused the same
+    /// way whether it arrives at the single-sync endpoint or inside a batch. The batch used to accept whatever it was
+    /// handed and fail one task at a time later, which is the same work refused twice with a worse report.
+    /// </remarks>
+    public sealed class SyncTarget
+    {
+        /// <summary>Gets the item the request named.</summary>
+        public Guid ItemId { get; init; }
+
+        /// <summary>Gets a value indicating whether the item exists at all.</summary>
+        public bool Found { get; init; }
+
+        /// <summary>Gets a value indicating whether the item is a video.</summary>
+        public bool IsVideo { get; init; }
+
+        /// <summary>Gets the reason this item cannot be synced, or null when it can.</summary>
+        public string? Refusal { get; init; }
+
+        /// <summary>Gets a value indicating whether this target can be synced.</summary>
+        public bool CanSync => Refusal is null;
+    }
+
+    /// <summary>
+    /// Resolves what a sync request's item is, and why it is not a target when it is not (D8).
+    /// </summary>
+    /// <param name="itemId">The item the request named.</param>
+    /// <returns>The target, with the refusal filled in when it cannot be synced.</returns>
+    public SyncTarget InspectSyncTarget(Guid itemId)
+    {
+        var item = _libraryManager.GetItemById(itemId);
+        return ClassifySyncTarget(
+            itemId,
+            item?.GetType().Name,
+            item is Video);
+    }
+
+    /// <summary>
+    /// Decides whether a kind of item can be synced, and why not when it cannot (D8).
+    /// </summary>
+    /// <remarks>
+    /// Split from <see cref="InspectSyncTarget"/> so the rule - not the library lookup - is what the checks drive: a
+    /// missing item, a series, a season and a folder are each refused with their own sentence, and only a video passes.
+    /// </remarks>
+    /// <param name="itemId">The item the request named.</param>
+    /// <param name="itemKind">The item's type name, or null when it does not exist.</param>
+    /// <param name="isVideo">Whether the item is a video.</param>
+    /// <returns>The target, with the refusal filled in when it cannot be synced.</returns>
+    internal static SyncTarget ClassifySyncTarget(Guid itemId, string? itemKind, bool isVideo)
+    {
+        if (itemKind is null)
+        {
+            return new SyncTarget { ItemId = itemId, Refusal = "The item was not found or is not available to this account." };
+        }
+
+        if (!isVideo)
+        {
+            return new SyncTarget
+            {
+                ItemId = itemId,
+                Found = true,
+                Refusal = $"Item {itemId} is a {itemKind.ToLowerInvariant()}, not a video: pick the episodes themselves, "
+                    + "or use the library sweep. Single sync refuses the same request."
+            };
+        }
+
+        return new SyncTarget { ItemId = itemId, Found = true, IsVideo = true };
+    }
+
+    /// <summary>
+    /// Says whether an account is an administrator, for deciding how much of the run list it may see (F4).
+    /// </summary>
+    /// <param name="userId">The account to resolve.</param>
+    /// <returns>True only when Jellyfin says the account has the administrator permission.</returns>
+    public bool IsAdministrator(Guid userId)
+    {
+        try
+        {
+            return _userManager?.GetUserById(userId)?.HasPermission(PermissionKind.IsAdministrator) ?? false;
+        }
+        catch (Exception ex)
+        {
+            // Fails closed: an account that cannot be resolved is not an administrator.
+            _logger.LogDebug(ex, "Could not resolve whether {UserId} is an administrator", userId);
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Says whether the ffsubsync engine that would actually run can be found (D2).
+    /// </summary>
+    /// <remarks>
+    /// The status used to answer "is the plugin's own managed binary present", which says nothing about the binary a
+    /// job will execute: a configured path wins over the managed one, and a bundled binary wins over both. A user with
+    /// a configured path that does not exist read "installed", saw no install prompt, and then watched every sync
+    /// fail. This asks the resolver.
+    /// </remarks>
+    /// <returns>True when the resolved engine exists.</returns>
+    public bool EngineIsInstalled()
+        => EngineIsUsable(
+            ResolveFfSubSyncPath(),
+            File.Exists,
+            Environment.GetEnvironmentVariable("PATH"));
+
+    /// <summary>
+    /// Says whether a resolved engine path can be found (D2).
+    /// </summary>
+    /// <remarks>
+    /// A rooted path is asked of the filesystem. A bare command name (the last resort of the resolver: plain
+    /// <c>ffsubsync</c>) is looked up on PATH, because that is how the operating system will look for it - and an empty
+    /// PATH finds nothing, so this fails closed.
+    /// </remarks>
+    /// <param name="resolvedPath">The path the resolver chose.</param>
+    /// <param name="fileExists">How to ask whether a file exists.</param>
+    /// <param name="pathVariable">The PATH the operating system would use.</param>
+    /// <returns>True when the engine would be found.</returns>
+    internal static bool EngineIsUsable(string? resolvedPath, Func<string, bool> fileExists, string? pathVariable)
+    {
+        if (string.IsNullOrWhiteSpace(resolvedPath))
+        {
+            return false;
+        }
+
+        if (Path.IsPathRooted(resolvedPath))
+        {
+            return fileExists(resolvedPath);
+        }
+
+        if (string.IsNullOrWhiteSpace(pathVariable))
+        {
+            return false;
+        }
+
+        foreach (var directory in pathVariable.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries))
+        {
+            if (!string.IsNullOrWhiteSpace(directory) && fileExists(Path.Join(directory, resolvedPath)))
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /// <summary>How long a teardown waits for the lanes and the pump to leave (B14).</summary>
     internal const int ShutdownWaitMs = 5000;
 
     /// <summary>
@@ -6778,6 +7023,27 @@ public class SubSyncService : IDisposable
 
         PluginLog.Info($"extract: {where} was stopped (killed by the user) — no fallback attempted");
         throw new OperationCanceledException(token);
+    }
+
+    /// <summary>
+    /// Explains where the engine was looked for, when it was not found (D2).
+    /// </summary>
+    /// <param name="enginePath">The path the resolver chose.</param>
+    /// <returns>A sentence naming the path, so a user can act on it.</returns>
+    internal string EngineMissingNote(string? enginePath)
+    {
+        var configured = Services.SettingsSource.Current()?.FfSubSyncPath;
+        if (!string.IsNullOrWhiteSpace(configured)
+            && !string.IsNullOrWhiteSpace(enginePath)
+            && configured == enginePath)
+        {
+            return $"The configured ffsubsync path {enginePath} does not exist. Correct it in the settings, clear it to "
+                + "use the bundled engine, or install the managed one here.";
+        }
+
+        return string.IsNullOrWhiteSpace(enginePath)
+            ? "No ffsubsync engine could be resolved."
+            : $"{enginePath} was not found, so a sync would fail at the first engine call.";
     }
 
     /// <summary>How long a finished job's row stays in the interface.</summary>

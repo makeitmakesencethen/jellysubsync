@@ -45,6 +45,7 @@ WORK = os.environ.get('TESTS_WORK') or os.path.join(REPO, '.tests-work')
 ENV = dict(os.environ, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
 
 PROGRAM = r"""
+using Jellyfin.Plugin.SubSync.Api;
 using Jellyfin.Plugin.SubSync.Configuration;
 using Jellyfin.Plugin.SubSync.Services;
 
@@ -3758,6 +3759,116 @@ else
         b21Line);
 }
 
+// ---------------- Access and truth: who sees which run, which engine is installed, what can be synced -------------
+
+// F4: a run belongs to the account that asked for it. Everything here drives the rule the endpoints use, so "who may
+// see which job" is measured rather than read out of the source.
+{
+    var f4Me = Guid.NewGuid();
+    var f4Other = Guid.NewGuid();
+    var f4Mine = new SyncJob
+    {
+        Id = "mine",
+        OwnerId = f4Me,
+        ItemId = Guid.NewGuid(),
+        OutputPath = "/media/Movies/Mine (2026).SYNCED.eng.srt",
+        Error = "Could not open /media/Movies/Mine (2026).mkv",
+        Outcome = "Nothing was written for this subtitle."
+    };
+    var f4Theirs = new SyncJob { Id = "theirs", OwnerId = f4Other, OutputPath = "/media/Movies/Theirs.SYNCED.eng.srt" };
+    var f4Swept = new SyncJob { Id = "sweep", OwnerId = null, OutputPath = "/media/Movies/Swept.SYNCED.eng.srt" };
+    var f4All = new List<SyncJob> { f4Mine, f4Theirs, f4Swept };
+
+    Check("F4: an administrator sees every run",
+        ItemAccess.VisibleJobs(f4All, f4Me, true).Count() == 3,
+        $"{ItemAccess.VisibleJobs(f4All, f4Me, true).Count()} of 3");
+    Check("F4: an account sees only the runs its own requests created",
+        ItemAccess.VisibleJobs(f4All, f4Me, false).Select(j => j.Id).SequenceEqual(new[] { "mine" }),
+        string.Join(",", ItemAccess.VisibleJobs(f4All, f4Me, false).Select(j => j.Id)));
+    Check("F4: a run the plugin queued itself is not shown to an account that did not ask for it",
+        !ItemAccess.VisibleJobs(f4All, f4Me, false).Any(j => j.Id == "sweep")
+        && ItemAccess.VisibleJobs(f4All, null, false).Count() == 0);
+    Check("F4: another account's run is answered like one that does not exist",
+        !ItemAccess.MaySeeJob(f4Theirs, f4Me, false)
+        && !ItemAccess.MaySeeJob(null, f4Me, false)
+        && ItemAccess.MaySeeJob(f4Mine, f4Me, false)
+        && ItemAccess.MaySeeJob(f4Theirs, f4Me, true));
+
+    var f4View = ItemAccess.ForViewer(f4Mine, false);
+    Check("F4: a non-administrator's own run is answered without the server's paths",
+        f4View.OutputPath is null && f4View.Error is not null && !f4View.Error!.Contains("/media"),
+        $"output={f4View.OutputPath ?? "null"} error='{f4View.Error}'");
+    Check("F4: answering one viewer does not edit the server's own record",
+        !ReferenceEquals(f4View, f4Mine)
+        && f4Mine.OutputPath == "/media/Movies/Mine (2026).SYNCED.eng.srt"
+        && f4Mine.Error!.Contains("/media/Movies/Mine (2026).mkv"),
+        $"tracked output={f4Mine.OutputPath ?? "null"}");
+    Check("F4: the redacted message still says what happened",
+        f4View.Error!.Contains("<path>") && f4View.Error!.Contains("Could not open"),
+        f4View.Error!);
+    var f4AdminJob = new SyncJob { OutputPath = "/media/x.srt", Error = "Could not open /media/x.mkv", Outcome = "wrote /media/x.srt" };
+    Check("F4: an administrator's view keeps the paths and is the tracked job itself",
+        ReferenceEquals(ItemAccess.ForViewer(f4AdminJob, true), f4AdminJob)
+        && f4AdminJob.OutputPath == "/media/x.srt" && f4AdminJob.Error!.Contains("/media/x.mkv"),
+        f4AdminJob.Error!);
+    Check("F4: a Windows path is redacted as well",
+        ItemAccess.RedactPaths(@"Could not open C:\Media\Film (2026).mkv") == "Could not open <path>",
+        ItemAccess.RedactPaths(@"Could not open C:\Media\Film (2026).mkv"));
+    Check("F4: a path with a space in it is redacted whole",
+        ItemAccess.RedactPaths("Could not open /media/Movies/Mine (2026).mkv") == "Could not open <path>",
+        ItemAccess.RedactPaths("Could not open /media/Movies/Mine (2026).mkv"));
+    Check("F4: the redaction runs to the end of the segment, which is the cheaper mistake",
+        ItemAccess.RedactPaths("See /media/x.mkv for details") == "See <path>",
+        ItemAccess.RedactPaths("See /media/x.mkv for details"));
+    Check("F4: a message that names no path is left alone",
+        ItemAccess.RedactPaths("Nothing was written for this subtitle.") == "Nothing was written for this subtitle.");
+    Check("F4: a message that is not there stays not there", ItemAccess.RedactPaths(null) is null);
+    var f4Task = new BatchTask { OutputPath = "/media/x.srt" };
+    ItemAccess.HideServerPaths(f4Task, false);
+    Check("F4: a batch task loses its output path too", f4Task.OutputPath is null);
+}
+
+// D2: "installed" has to describe the engine a job will run, not the plugin's own copy of one.
+{
+    var d2Exists = new Func<string, bool>(path => path == "/opt/engine/ffsubsync");
+    Check("D2: a configured engine path that exists counts as installed",
+        SubSyncService.EngineIsUsable("/opt/engine/ffsubsync", d2Exists, null));
+    Check("D2: a configured engine path that does not exist is not installed",
+        !SubSyncService.EngineIsUsable("/opt/engine/missing", d2Exists, null));
+    Check("D2: a bare command name is looked up on PATH, exactly as the shell would",
+        SubSyncService.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin:/opt/engine")
+        && !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin"));
+    Check("D2: an empty or missing PATH finds nothing, so the answer fails closed",
+        !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, string.Empty)
+        && !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, null));
+    Check("D2: no resolved path at all is not installed",
+        !SubSyncService.EngineIsUsable(string.Empty, d2Exists, "/usr/bin")
+        && !SubSyncService.EngineIsUsable(null, d2Exists, "/usr/bin"));
+}
+
+// D8: one rule for what can be synced, applied wherever a request arrives.
+{
+    var d8Id = Guid.NewGuid();
+    var d8Series = SubSyncService.ClassifySyncTarget(d8Id, "Series", false);
+    var d8Season = SubSyncService.ClassifySyncTarget(d8Id, "Season", false);
+    var d8Movie = SubSyncService.ClassifySyncTarget(d8Id, "Movie", true);
+    var d8Missing = SubSyncService.ClassifySyncTarget(d8Id, null, false);
+    Check("D8: a series is refused with a sentence that names what it is",
+        !d8Series.CanSync && d8Series.Found && d8Series.Refusal!.Contains("series")
+        && d8Series.Refusal!.Contains("not a video"),
+        d8Series.Refusal!);
+    Check("D8: the same rule covers a season and any other container",
+        !d8Season.CanSync && d8Season.Refusal!.Contains("season"),
+        d8Season.Refusal!);
+    Check("D8: a video is a target",
+        d8Movie.CanSync && d8Movie.IsVideo && d8Movie.Found);
+    Check("D8: an item that does not exist is refused as one that is not found",
+        !d8Missing.CanSync && !d8Missing.Found && d8Missing.Refusal!.Contains("not found"),
+        d8Missing.Refusal!);
+    Check("D8: the refusal tells the user what to do instead",
+        d8Series.Refusal!.Contains("library sweep"));
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4524,7 +4635,7 @@ def run_page_checks():
     report('D9: a batch reports what was already queued instead of counting it as its own work',
            'alreadyQueued.Add(queued.Job);' in service_source
            and 'Jobs = jobs, AlreadyQueued = alreadyQueued' in service_source
-           and 'return Ok(BuildCreatedBatchView(created.BatchId, created.AlreadyQueued.Count));' in controller_source)
+           and 'BuildBatchViewForCaller(created.BatchId, created.AlreadyQueued.Count)' in controller_source)
     report('D9: the page tells the user when a request was already queued',
            'not queued a second time' in page_js and 'function noteAlreadyQueued(view)' in page_js)
 
@@ -4764,6 +4875,8 @@ def run_page_checks():
                                         'JobProcessRegistry.cs'), encoding='utf-8').read()
     diagnostics_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                            'ExceptionDiagnostics.cs'), encoding='utf-8').read()
+    itemaccess_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                          'ItemAccess.cs'), encoding='utf-8').read()
 
     # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
     report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
@@ -4783,6 +4896,59 @@ def run_page_checks():
            service_source.count('TrackChildProcess(process);') == service_source.count('process.Start();'),
            f"{service_source.count('TrackChildProcess(process);')} registered of "
            f"{service_source.count('process.Start();')} started")
+
+    # ---------------- Access and truth: who sees which run, which engine, what can be synced (F4, D2, D8) ----------
+
+    report('F4: a job records the account that asked for it, and every queue path carries it',
+           'public Guid? OwnerId { get; set; }' in service_source
+           and 'OwnerId = ownerId,' in service_source
+           and 'string? mode = null, Guid? ownerId = null' in service_source
+           and service_source.count('ownerId)') >= 3
+           and 'request.Mode, CallerId());' in controller_source
+           and 'request.Mode, CallerId()' in controller_source)
+    report('F4: the run list and the batch list are scoped to the caller, and its paths are removed',
+           'ItemAccess.VisibleJobs(_syncService.GetAllJobs(), CallerId(), isAdmin)' in controller_source
+           and 'ItemAccess.ForViewer(job, isAdmin)' in controller_source
+           and 'ItemAccess.HideServerPaths(task, false);' in controller_source
+           and 'ItemAccess.MaySeeJob(job, CallerId(), isAdmin)' in controller_source
+           and 'private BatchView? BuildBatchViewForCaller' in controller_source
+           and 'private bool CallerIsAdmin()' in controller_source)
+    report('F4: the rules themselves are one place the checks can drive, and a read cannot edit the tracked job',
+           'internal static IEnumerable<SyncJob> VisibleJobs(' in itemaccess_source
+           and 'internal static bool MaySeeJob(' in itemaccess_source
+           and 'internal static SyncJob ForViewer(SyncJob job, bool isAdmin)' in itemaccess_source
+           and 'public SyncJob CopyForViewer() => (SyncJob)MemberwiseClone();' in service_source
+           and 'internal static void HideServerPaths(BatchTask task, bool isAdmin)' in itemaccess_source
+           and 'internal static string? RedactPaths(string? text)' in itemaccess_source)
+    report('F4: work another account has queued is not handed over as if it were the caller\'s',
+           'public sealed class SyncQueueConflictException' in service_source
+           and 'alreadyQueued.OwnerId != ownerId' in service_source
+           and 'StatusCodes.Status409Conflict, "Already queued"' in controller_source)
+
+    # D2: the status describes the engine that will run.
+    report('D2: "installed" is the engine a job would execute, resolved the way a job resolves it',
+           'IsInstalled = enginePresent,' in service_source
+           and 'var enginePath = ResolveFfSubSyncPath();' in service_source
+           and 'ResolvedBinaryPath = enginePath,' in service_source
+           and 'public bool EngineIsInstalled()' in service_source
+           and 'internal static bool EngineIsUsable(string? resolvedPath, Func<string, bool> fileExists, string? pathVariable)' in service_source)
+    report('D2: the old answer - the plugin\'s own managed binary - is gone',
+           'IsInstalled = File.Exists(ManagedFfSubSyncPath)' not in service_source)
+    report('D2: a missing engine is explained in words that name the path',
+           'EngineNote = enginePresent' in service_source
+           and 'public string? EngineNote { get; set; }' in service_source
+           and 'internal string EngineMissingNote(string? enginePath)' in service_source)
+
+    # D8: one rule for what can be synced, wherever the request arrives.
+    report('D8: both entry points refuse a target that cannot be synced, through one helper',
+           controller_source.count('RefuseUntargetable(') >= 3
+           and 'private ObjectResult? RefuseUntargetable(Guid itemId)' in controller_source
+           and 'public SyncTarget InspectSyncTarget(Guid itemId)' in service_source
+           and 'internal static SyncTarget ClassifySyncTarget(Guid itemId, string? itemKind, bool isVideo)' in service_source)
+    report('D8: a series is refused by name, with what to do instead, and the answer is the same shape as every refusal',
+           'not a video: pick the episodes themselves' in service_source
+           and 'Fail(StatusCodes.Status400BadRequest, "Not a video", target.Refusal!)' in controller_source
+           and 'Fail(StatusCodes.Status404NotFound, "Item not found", target.Refusal!)' in controller_source)
 
     # B31: the pump's pass runs inside a guarded loop that survives a failing pass and says so.
     report('B31: the pump runs its pass through the guarded loop rather than a bare loop',
