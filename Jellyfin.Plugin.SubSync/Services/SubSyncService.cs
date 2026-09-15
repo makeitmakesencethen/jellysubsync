@@ -2985,6 +2985,34 @@ public class SubSyncService : IDisposable
     internal static int VolumesOtherThan(string thisVolume, IEnumerable<string> otherVolumes)
         => otherVolumes.Count(v => !string.Equals(v, thisVolume, StringComparison.Ordinal));
 
+    /// <summary>
+    /// Whether a subtitle ruler's cues moved too unevenly for it to be this film's own timeline.
+    /// </summary>
+    /// <remarks>
+    /// Kept as a pure function because the numbers are the whole decision and a check has to be able to disagree
+    /// with it: on 2026-09-15 the real sibling track of a file measured a spread of 0 ms and the same track from
+    /// a 2 % longer cut measured 27 760 ms, at a 30 s reference ceiling (so a 7 500 ms bar).
+    /// </remarks>
+    /// <param name="change">What the sync changed, cue by cue.</param>
+    /// <param name="referenceCeilingMs">The configured limit on a subtitle ruler's demanded shift, in milliseconds.</param>
+    /// <returns>True when the ruler should be discarded and the audio used instead.</returns>
+    internal static bool RulerSpreadTooWide(SyncChange change, double referenceCeilingMs)
+        => change.SpreadMs > Math.Max(1.0, referenceCeilingMs) * SubtitleReferenceSpreadFraction;
+
+    /// <summary>
+    /// How much of the subtitle-reference offset ceiling the per-cue spread may reach before that ruler is
+    /// refused as "not the same cut".
+    /// </summary>
+    /// <remarks>
+    /// A quarter of <c>MaxSubtitleReferenceOffsetSeconds</c>, so both numbers move together and the check has no
+    /// constant of its own: at the 30 s default a spread over 7,5 s is refused. Measured on 2026-09-15, the real
+    /// sibling track of a file measured a spread of 0,00 s and the same track from a 2 % longer cut measured
+    /// 27,76 s, so the line sits between two observations rather than in the middle of one. A language's own
+    /// timing differences are fractions of a second, and a genuinely rescaled framerate mismatch is rescaled by
+    /// the plugin *before* the engine sees it - which is why a wide spread here means the ruler, not the timing.
+    /// </remarks>
+    public const double SubtitleReferenceSpreadFraction = 0.25;
+
     /// <summary>The ceiling a storage-bound volume is held to: two walks at a time.</summary>
     public const int StorageBoundWalkCap = 2;
 
@@ -4181,10 +4209,17 @@ public class SubSyncService : IDisposable
     /// What a successful sync actually changed, measured by comparing the cue timings of the input
     /// and the synced file.
     /// </summary>
-    /// <param name="ShiftMs">Applied offset in milliseconds (signed; + = subtitles moved later).</param>
+    /// <param name="ShiftMs">Median displacement of the cues, in milliseconds (signed; + = moved later).</param>
     /// <param name="Ratio">Fitted time ratio; 1.0 when no framerate correction was needed.</param>
     /// <param name="DriftMs">Cumulative drift the ratio fixes over the subtitle's runtime.</param>
-    internal readonly record struct SyncChange(long ShiftMs, double Ratio, long DriftMs)
+    /// <param name="SpreadMs">
+    /// Interquartile range of the per-cue displacement, in milliseconds. A median alone cannot tell a ruler that
+    /// matches from a ruler that is not this cut: measured on 2026-09-15, a subtitle aligned against the same
+    /// track from a 2 % longer cut showed a median of -26,52 s - under the 30 s reference ceiling, so nothing
+    /// refused it - with an IQR of 27,76 s, where the correct sibling scored an IQR of 0,00 s.
+    /// </param>
+    /// <param name="RangeMs">Largest minus smallest displacement, in milliseconds.</param>
+    internal readonly record struct SyncChange(long ShiftMs, double Ratio, long DriftMs, long SpreadMs = 0, long RangeMs = 0)
     {
         /// <summary>
         /// Gets a value indicating whether the sync changed nothing: no offset and no framerate
@@ -4291,7 +4326,13 @@ public class SubSyncService : IDisposable
         }
 
         var driftMs = (long)Math.Round((ratio - 1.0) * before[^1] * 1000.0);
-        return new SyncChange(shiftMs, ratio, driftMs);
+
+        // The spread of the displacement, not just its middle: cues that all moved by the same amount are a
+        // sync (or a cut that matches), cues that moved by wildly different amounts are a ruler that does not
+        // belong to this film wherever the median happens to land.
+        var spreadMs = (long)Math.Round((diffs[(3 * n) / 4] - diffs[n / 4]) * 1000.0);
+        var rangeMs = (long)Math.Round((diffs[^1] - diffs[0]) * 1000.0);
+        return new SyncChange(shiftMs, ratio, driftMs, spreadMs, rangeMs);
     }
 
     /// <summary>
@@ -4338,6 +4379,105 @@ public class SubSyncService : IDisposable
     /// corrected a framerate mismatch, the fitted time ratio plus the total
     /// cumulative drift it fixed over the subtitle's runtime.
     /// </summary>
+    /// <summary>
+    /// States what the engine said about an alignment: its score and the offset it chose.
+    /// </summary>
+    /// <remarks>
+    /// Logged for both paths on purpose. The score was being discarded, which is why a wrong ruler could pass
+    /// without anything in the log hinting at it, and the two numbers side by side are what lets a field run be
+    /// read after the fact: a subtitle reference that scores far below the audio reference of the same file is
+    /// the pattern S31 is about.
+    /// </remarks>
+    /// <param name="jobId">The job the run belonged to.</param>
+    /// <param name="reference">What the engine was aligned against, in words.</param>
+    /// <param name="score">The score it printed, when it printed one.</param>
+    /// <param name="offsetSeconds">The offset it printed, when it printed one.</param>
+    private static void LogEngineAlignment(string jobId, string reference, double? score, double? offsetSeconds)
+    {
+        if (score is null && offsetSeconds is null)
+        {
+            return;
+        }
+
+        var scoreText = score is { } s ? $"{s:0.###}" : "(none)";
+        var offsetText = offsetSeconds is { } o ? $"{o:0.000} s" : "(none)";
+        PluginLog.Info(
+            $"[{jobId}] ffsubsync alignment: score={scoreText} offset={offsetText} against {reference}"
+            + (score is { } low && low < 0
+                ? " - the engine itself calls a negative score an unsuccessful sync"
+                : string.Empty));
+    }
+
+    /// <summary>
+    /// Reads the alignment score out of one line of the engine's output.
+    /// </summary>
+    /// <remarks>
+    /// ffsubsync prints `score: 198713.000` and `offset seconds: 0.050` for every run, and that score is the only
+    /// place the engine states how well the two timelines agreed. Measured on 2026-09-15: a real sibling
+    /// subtitle scores ~198 700 against the same cut and a subtitle of another film ~2 900, but the *same track
+    /// from a 2 % longer cut* scores 274 700, i.e. higher than the correct ruler, so the score alone is not a
+    /// verdict - it is a number the log has to carry, and one signal beside the spread above. It is captured
+    /// because it was being discarded, and because a field run cannot be read without it.
+    /// </remarks>
+    /// <param name="line">One line of the engine's stdout/stderr.</param>
+    /// <param name="score">The score it states, when it states one.</param>
+    /// <returns>True when the line carried a score.</returns>
+    internal static bool TryParseEngineScore(string line, out double score)
+    {
+        score = 0;
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var marker = line.IndexOf("score:", StringComparison.OrdinalIgnoreCase);
+        if (marker < 0)
+        {
+            return false;
+        }
+
+        var rest = line[(marker + "score:".Length)..].TrimStart();
+        var end = 0;
+        while (end < rest.Length && (char.IsDigit(rest[end]) || rest[end] is '-' or '+' or '.' or ','))
+        {
+            end++;
+        }
+
+        return end > 0 && double.TryParse(
+            rest[..end].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out score);
+    }
+
+    /// <summary>
+    /// Reads the offset the engine reported out of one line of its output.
+    /// </summary>
+    /// <param name="line">One line of the engine's output.</param>
+    /// <param name="seconds">The offset it states, when it states one.</param>
+    /// <returns>True when the line carried an offset.</returns>
+    internal static bool TryParseEngineOffset(string line, out double seconds)
+    {
+        seconds = 0;
+        if (string.IsNullOrWhiteSpace(line))
+        {
+            return false;
+        }
+
+        var marker = line.IndexOf("offset seconds:", StringComparison.OrdinalIgnoreCase);
+        if (marker < 0)
+        {
+            return false;
+        }
+
+        var rest = line[(marker + "offset seconds:".Length)..].TrimStart();
+        var end = 0;
+        while (end < rest.Length && (char.IsDigit(rest[end]) || rest[end] is '-' or '+' or '.' or ','))
+        {
+            end++;
+        }
+
+        return end > 0 && double.TryParse(
+            rest[..end].Replace(',', '.'), NumberStyles.Float, CultureInfo.InvariantCulture, out seconds);
+    }
+
     internal static string? DescribeSyncChange(string inputPath, string outputPath)
         => MeasureSyncChange(inputPath, outputPath)?.Describe();
 
@@ -4796,11 +4936,23 @@ public class SubSyncService : IDisposable
             // and the reason (an unreadable reference, a subtitle with no text, a demux error) is
             // always in the last few lines ffsubsync printed.
             var engineErrors = new List<string>();
+            double? engineScore = null;
+            double? engineOffsetSeconds = null;
             var exitCode = await RunProcessWithStderrCallbackAsync(
                 ffsubsyncExe, args, tempDir,
                 line =>
                 {
                     ParseFfSubSyncStderr(line, job);
+                        if (TryParseEngineScore(line, out var parsedScore))
+                        {
+                            engineScore = parsedScore;
+                        }
+
+                        if (TryParseEngineOffset(line, out var parsedOffset))
+                        {
+                            engineOffsetSeconds = parsedOffset;
+                        }
+
                         lock (engineErrors)
                         {
                             if (!string.IsNullOrWhiteSpace(line))
@@ -4817,6 +4969,11 @@ public class SubSyncService : IDisposable
                 new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
             engineWatch.Stop();
             PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
+            LogEngineAlignment(
+                job.Id,
+                usedSubtitleReference ? $"reference subtitle {referenceSpec}" : "the audio",
+                engineScore,
+                engineOffsetSeconds);
 
             // A walk of the media measures its volume without taking any read to measure it, which is the only
             // signal that exists on a run whose extractions were all served from the subtitle cache. It only
@@ -5001,9 +5158,19 @@ public class SubSyncService : IDisposable
             // MaxSubtitleReferenceOffsetSeconds as a refusal since the reference path was added, so
             // this is that refusal — with the measured numbers, and without touching anything.
             var referenceCeilingMs = Math.Max(1.0, config.MaxSubtitleReferenceOffsetSeconds) * 1000.0;
+
+            // ...and a median is not enough to tell a ruler that fits from one that does not. Measured on
+            // 2026-09-15: a subtitle aligned against the *same track from a 2 % longer cut* came out with a median
+            // shift of -26,52 s - under the 30 s ceiling above, so nothing refused it - while its per-cue
+            // displacement had an interquartile range of 27,76 s; the same file against its real sibling track
+            // measured an IQR of 0,00 s. The spread is what separates them, and it is the only signal in the
+            // plugin that sees this case: the engine's own score rated the wrong ruler *higher* (274 721 against
+            // 198 713). So a subtitle ruler is also refused when its cues did not move together.
+            var spreadCeilingMs = referenceCeilingMs * SubtitleReferenceSpreadFraction;
+            var rulerSpreadTooWide = measured is { } spread && RulerSpreadTooWide(spread, referenceCeilingMs);
             if (usedSubtitleReference
                 && measured is { } fromReference
-                && Math.Abs(fromReference.ShiftMs) > referenceCeilingMs)
+                && (Math.Abs(fromReference.ShiftMs) > referenceCeilingMs || rulerSpreadTooWide))
             {
                 // The measurement is right and the conclusion was incomplete: a subtitle reference cannot be trusted
                 // for a shift this size (it is very likely from a different cut), but the film's own audio cannot be
@@ -5011,15 +5178,21 @@ public class SubSyncService : IDisposable
                 // aligned against, drop that track as a ruler and align this subtitle against the audio. The track
                 // is discarded so the file's other subtitles do not repeat the same measurement, and the audio
                 // analysis is paid once per file, cached like every other audio path.
-                var detail = $"aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms";
+                var detail = Math.Abs(fromReference.ShiftMs) > referenceCeilingMs
+                    ? $"aligned to the reference subtitle {referenceSpec} at {fromReference.ShiftMs} ms"
+                    : $"the cues did not move together against {referenceSpec}: a spread of "
+                        + $"{fromReference.SpreadMs / 1000.0:0.00} s across the middle half of its cues "
+                        + $"(range {fromReference.RangeMs / 1000.0:0.00} s) while the median was "
+                        + $"{fromReference.ShiftMs} ms";
                 _logger.LogWarning(
                     "Sync job {JobId}: the reference subtitle is not the same cut ({Detail}) - aligning against the audio instead",
                     job.Id,
                     detail);
                 PluginLog.Info(
                     $"job {job.Id}: the reference subtitle {referenceSpec} is not the same cut ({detail}, over the "
-                    + $"{referenceCeilingMs / 1000.0:0.#} s limit for a subtitle reference) \u2014 discarding that "
-                    + $"track as a ruler and aligning against the audio instead, file={video.Path}");
+                    + $"{referenceCeilingMs / 1000.0:0.#} s limit for a subtitle reference, itself under the "
+                    + $"{spreadCeilingMs / 1000.0:0.#} s spread limit) \u2014 discarding that track as a ruler and "
+                    + $"aligning against the audio instead, file={video.Path}");
 
                 if (referenceSpec is not null)
                 {
@@ -5031,9 +5204,25 @@ public class SubSyncService : IDisposable
                 var audioArgs = BuildFfSubSyncArgs(
                     config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null);
 
+                double? audioScore = null;
+                double? audioOffsetSeconds = null;
                 var audioExit = await RunProcessWithStderrCallbackAsync(
-                    ffsubsyncExe, audioArgs, tempDir, null, cancellationToken,
+                    ffsubsyncExe, audioArgs, tempDir,
+                    line =>
+                    {
+                        if (TryParseEngineScore(line, out var parsedScore))
+                        {
+                            audioScore = parsedScore;
+                        }
+
+                        if (TryParseEngineOffset(line, out var parsedOffset))
+                        {
+                            audioOffsetSeconds = parsedOffset;
+                        }
+                    },
+                    cancellationToken,
                     new EngineWatch(job.Id, Path.GetFileName(videoPath), "audio")).ConfigureAwait(false);
+                LogEngineAlignment(job.Id, "the audio", audioScore, audioOffsetSeconds);
 
                 if (audioExit == 0 && File.Exists(tempOutput))
                 {

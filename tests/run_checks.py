@@ -541,6 +541,91 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
 }
 
 
+// S31: the engine's own alignment score was being thrown away, and a median shift cannot tell a ruler that fits
+// from a ruler that does not. Both measured on 2026-09-15 against ffsubsync 0.5.1 (the plugin's own engine):
+// a real sibling subtitle scored 198 713 at offset 0.050, a subtitle of another film 2 864, and the *same track
+// from a 2 % longer cut* 274 721 - higher than the correct one - with a median shift of -26,52 s (under the 30 s
+// reference ceiling) and an interquartile range of 27,76 s, where the correct sibling's spread was 0,00 s.
+{
+    var s31ScoreLine = "2026-09-15 01:02:03.000Z INFO     score: 198713.000                           ffsubsync.py:255";
+    var s31NegLine = "           INFO     score: -17208.023                           ffsubsync.py:255";
+    var s31OffsetLine = "           INFO     offset seconds: 0.050                       ffsubsync.py:256";
+    Check("the engine's own alignment score is parsed from its output",
+        SubSyncService.TryParseEngineScore(s31ScoreLine, out var parsedScore) && Math.Abs(parsedScore - 198713.0) < 0.001,
+        $"{parsedScore}");
+    Check("a negative score is parsed as negative, not ignored",
+        SubSyncService.TryParseEngineScore(s31NegLine, out var parsedNegative) && parsedNegative < 0,
+        $"{parsedNegative}");
+    Check("the offset the engine reports is parsed too",
+        SubSyncService.TryParseEngineOffset(s31OffsetLine, out var parsedOffset) && Math.Abs(parsedOffset - 0.05) < 0.0005,
+        $"{parsedOffset}");
+    Check("a line with no score states none rather than zero",
+        !SubSyncService.TryParseEngineScore("extracting speech from reference...", out _),
+        "no score in that line");
+}
+
+// ...and the spread of the per-cue displacement, which is what sees the case the score cannot. Built here from
+// two real SRTs so the measurement is exercised, not described.
+{
+    var s31Dir = Path.Combine(Path.GetTempPath(), "s31-" + Guid.NewGuid().ToString("N"));
+    Directory.CreateDirectory(s31Dir);
+    try
+    {
+        var cues = new (string Start, string End)[]
+        {
+            ("00:00:10,000", "00:00:12,000"), ("00:00:20,000", "00:00:22,000"),
+            ("00:00:30,000", "00:00:32,000"), ("00:00:40,000", "00:00:42,000"),
+            ("00:00:50,000", "00:00:52,000"), ("00:01:00,000", "00:01:02,000"),
+            ("00:01:10,000", "00:01:12,000"), ("00:01:20,000", "00:01:22,000"),
+        };
+        string Write(string name, Func<int, int> shiftSeconds)
+        {
+            var path = Path.Combine(s31Dir, name);
+            var text = new System.Text.StringBuilder();
+            for (var i = 0; i < cues.Length; i++)
+            {
+                var (start, end) = cues[i];
+                var delta = shiftSeconds(i);
+                string Move(string stamp) => TimeSpan.ParseExact(stamp, "hh\\:mm\\:ss\\,fff", null)
+                    .Add(TimeSpan.FromSeconds(delta)).ToString("hh\\:mm\\:ss\\,fff");
+                text.AppendLine((i + 1).ToString());
+                text.AppendLine(Move(start) + " --> " + Move(end));
+                text.AppendLine("line " + i);
+                text.AppendLine();
+            }
+
+            File.WriteAllText(path, text.ToString());
+            return path;
+        }
+
+        var s31Input = Write("in.srt", _ => 0);
+        var s31Together = Write("together.srt", _ => 5);                  // every cue moved the same 5 s
+        var s31Drifting = Write("drifting.srt", i => 5 + (i * 6));        // cues moved by different amounts
+
+        var s31Tight = SubSyncService.MeasureSyncChange(s31Input, s31Together);
+        var s31Loose = SubSyncService.MeasureSyncChange(s31Input, s31Drifting);
+        Check("a sync whose cues all moved together measures no spread",
+            s31Tight is { SpreadMs: 0 } tight && Math.Abs(tight.ShiftMs - 5000) < 1,
+            $"{s31Tight}");
+        Check("a sync whose cues moved unevenly measures the spread",
+            s31Loose is { } loose && loose.SpreadMs > 10_000,
+            $"{s31Loose}");
+        var s31TightValue = s31Tight.GetValueOrDefault();
+        var s31LooseValue = s31Loose.GetValueOrDefault();
+        Check("the spread decides, at a quarter of the configured reference ceiling",
+            s31Tight.HasValue && s31Loose.HasValue
+            && !SubSyncService.RulerSpreadTooWide(s31TightValue, 30_000)
+            && SubSyncService.RulerSpreadTooWide(s31LooseValue, 30_000)
+            && SubSyncService.SubtitleReferenceSpreadFraction == 0.25,
+            $"tight={s31TightValue.SpreadMs} ms, loose={s31LooseValue.SpreadMs} ms, "
+            + $"fraction={SubSyncService.SubtitleReferenceSpreadFraction}");
+    }
+    finally
+    {
+        Directory.Delete(s31Dir, recursive: true);
+    }
+}
+
 // S33: the walk is the second signal, and the only one that exists when every extraction in a run was served
 // from the subtitle cache and nothing was read through the policy at all. A volume measured this way must not
 // sit at the conservative ceiling for ever. The throughputs are the ones measured on 2026-09-14: the share
@@ -2789,6 +2874,19 @@ def run_page_checks():
            # and not back in the audio-reference branch, which jobs on a real server never take (S38, 2026-09-14)
            and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
+
+    report('the engine\'s alignment score is captured and logged for both reference paths',
+           'TryParseEngineScore(line' in service_source
+           and 'LogEngineAlignment(' in service_source
+           and service_source.count('LogEngineAlignment(') == 3      # the method and its two callers
+           and 'ffsubsync alignment: score=' in service_source
+           and 'alignment: score={scoreText} offset={offsetText} against {reference}' in service_source)
+
+    report('a subtitle ruler whose cues did not move together is refused as not the same cut',
+           'RulerSpreadTooWide(spread, referenceCeilingMs)' in service_source
+           and 'the cues did not move together against' in service_source
+           and 'SubtitleReferenceSpreadFraction = 0.25' in service_source
+           and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service_source)
 
     report('the first measurement of a volume is more than one read, and says what its median stands on',
            'private const int ProbeReads = 3;' in service_source

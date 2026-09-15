@@ -652,7 +652,7 @@ Fix: give refusals their own terminal state or badge ("not written - unverified"
 its own line, not as FAIL. The plugin log already distinguishes them (`UNVERIFIED:` / `REFUSED:`), so this is
 presentation only.
 
-### S31 - a reference subtitle is trusted on plausibility, never on correctness (high, correctness)
+### S31 - a reference subtitle is trusted on plausibility, never on correctness (high, open: score captured, the refusal this row proposed refuted by measurement)
 
 Question that produced this row: when the plugin checks a sync against a sibling subtitle, how do we know that
 sibling is right? **We do not.** There is no ground truth inside the plugin; what exists is four plausibility
@@ -689,6 +689,60 @@ engine's own `score:` appears in exactly one place in the whole plugin - `:5300`
 `else if (lower.Contains("got score") && lower.Contains("for ratio"))` - inside the parser that turns the
 engine's *error* text into a message. Nothing reads the score of a successful alignment, so the one signal that
 could tell a right reference from a merely plausible one is thrown away.
+
+**Status, 2026-09-15 - reproduced end to end, and the cheap fix this row proposed does not hold.**
+
+*Reproduced, in the rig, on a real 50-minute episode* (`python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler`):
+the fixture carries two embedded tracks - the episode's own track shifted +5 s as the target, and the same track
+*stretched 1,02x* as the ruler, i.e. a different cut of the same episode that passes every check the plugin has
+(cue count 803, span inside the 3 % rule, demanded shift under the 30 s ceiling). Against the released 2.0.38:
+
+    queued: job=2da83f01... stream=3 ordinal=0 language=eng
+    reference: method=subtitle cues=803 track=s:1 file=.../S31 Episode (2026).mkv
+    ffsubsync exit=0 after 640 ms
+    note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means
+          that track is not the same cut
+    job 2da83f01... completed: mode=normal output=.../S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=+24170 ms
+
+The plugin *noticed* (its own note says the shift usually means the track is not the same cut), wrote the file
+anyway, and reported the job Completed. The right answer for that fixture is -5 s, so the output is ~29 s wrong
+and nothing in the job record says so. That is the Alex class, reproduced with a real episode rather than argued.
+
+**The score, measured (ffsubsync 0.5.1, the plugin's own engine).** The engine prints `score:` and
+`offset seconds:` for every run and the plugin discarded both. Now captured and logged
+(`[job] ffsubsync alignment: score=66451 offset=24.170 s against reference subtitle s:1`). But as a *refusal*
+threshold it does not hold up:
+
+| ruler (same 50-minute episode, same input) | score |
+|---|---|
+| the file's real sibling subtitle | 198 713 |
+| the same track from a 2 % longer cut | **274 721** - higher than the correct one |
+| the rig's wrong ruler (target +5 s, ruler stretched) | 66 451 |
+| the film's own **audio** (webrtc VAD) for the same file | 53 566 |
+
+So "far below what an audio-reference sync produces" would have called the *wrong* ruler in the rig (66 451)
+acceptable against the audio bar (53 566) on that same file, and it would have refused a correct pair (198 713)
+on a file whose audio path scores lower. The score separates a ruler of *another film* by 3-70x (2 864 for a
+4,9-minute subtitle against a 45,6-minute episode) and it is worth having in the log for exactly that, but it is
+not a threshold that can be picked from this evidence without inventing one, which is the failure mode this
+register exists to avoid.
+
+**What was implemented anyway, because it is sound and can disagree** (working tree, commit with this entry):
+- the score and offset are captured and logged for both reference paths, so a field run can be read (above);
+- `ReadPolicy`-style separation of concerns for the reference: `SyncChange` now carries the per-cue
+  **dispersion** (IQR and range), and `RulerSpreadTooWide` refuses a subtitle ruler whose cues did not move
+  together (a quarter of the configured reference ceiling, so it has no constant of its own). Measured: the real
+  sibling scores an IQR of 0,00 s, the same track from a 2 % longer cut 27,76 s. It does **not** fire on the rig
+  reproduction above, because there the engine absorbed the wrong ruler as a single +24,17 s shift - dispersion 0 -
+  which is exactly why it cannot be the whole fix.
+- Nine checks (638 in the suite, green) pin the score parser, the dispersion measurement and the decision.
+
+**What the row still needs, and the shape it should take:** the answer a *subtitle* ruler gives has to be
+cross-checked against the film's own audio before it is written, for the cases where the ruler's demand is large
+enough to be suspicious (the note above is the plugin already saying "this looks wrong" and doing nothing). The
+audio path exists, is cached per file, and is the one ruler that cannot be from a different cut; the cost is one
+audio analysis for the suspicious case only. That is a scoped change, and it is what this row should close on -
+not a score threshold.
 
 ### The walk ceiling A - shipped and verified in the field (2.0.30/2.0.31, done)
 

@@ -612,5 +612,277 @@
     ],
     "batch": null,
     "seconds": 97.1
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:22:29",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 before: the released 2.0.38 build",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": false,
+        "detail": "(no score line: the build throws it away)"
+      },
+      {
+        "check": "a ruler whose cues did not move together is refused",
+        "passed": false,
+        "detail": "(nothing refused it)"
+      },
+      {
+        "check": "the refused ruler is discarded, not merely noted",
+        "passed": false,
+        "detail": "(the track was kept as a ruler)"
+      },
+      {
+        "check": "the run aligns against the audio instead",
+        "passed": false,
+        "detail": "(the wrong ruler decided the output)"
+      },
+      {
+        "check": "a subtitle was produced without claiming the wrong ruler",
+        "passed": true,
+        "detail": "job 2625cfbe0a384c8b81190d939be6971e completed: mode=normal output=/tmp/s39-fast/S31 Episode (2026).eng.SYNCED.srt bytes=1947 change=-5000 ms offset e"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 00:22:51.313Z INFO  job 2625cfbe0a384c8b81190d939be6971e completed: mode=normal output=/tmp/s39-fast/S31 Episode (2026).eng.SYNCED.srt bytes=1947 change=-5000 ms offset extraction=n/a"
+    ],
+    "batch": "d3f453a9578f44ec8209b538c464bff6",
+    "seconds": 26.9
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:27:01",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 before: released 2.0.38, a sibling sidecar from a different cut",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the S31 fixture is in the library",
+        "passed": false,
+        "detail": "no item for /opt/data/jf12test/media/s31/S31 Episode (2026).mkv"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "batch": null,
+    "log_tail": [
+      "2026-09-14 23:52:18.452Z INFO  dispatch: starting 1, running 1, limit 4, queued 2, batch 430d2f6f55d74b8aaf3dd2c99f1e272f \u2014 starting 1 of 4: 2 queued across 2 media file(s), 1 running from 1 file(s) (a second subtitle of a running file waits for its audio analysis)",
+      "2026-09-14 23:52:18.453Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - this volume's last walk moved 1.3 MB/s against the best 162.7 MB/s this machine has measured (0.01x), which is storage-bound",
+      "2026-09-14 23:52:18.669Z INFO  extract: method=cache cues=27 file=/opt/data/jf12test/media-slow/Judged Clip 02 (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-14 23:52:18.670Z INFO  [71dbd835707a424eb102ee3fe252ae37] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-14 23:52:18.670Z INFO  [71dbd835707a424eb102ee3fe252ae37] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/fd2e6e9489f1aace8c7a03ad3d661796.mkv -i /opt/data/jf12test/cache/subsync/shared/8f2a2d7029b1852a/subtitle_2.srt -o /opt/data/jf12test/cache/subsync/71dbd835707a424eb102ee3fe252ae37/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/71dbd835707a424eb102ee3fe252ae37",
+      "2026-09-14 23:52:18.675Z INFO  extract: method=cache cues=27 file=/opt/data/jf12test/media-slow/Judged Clip 03 (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-14 23:52:18.676Z INFO  [9b1ea621a9b7495c9cb75d38903d9395] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-14 23:52:18.676Z INFO  [9b1ea621a9b7495c9cb75d38903d9395] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/e2fa9c9f1efd94ba8db2d44d81df7ef2.mkv -i /opt/data/jf12test/cache/subsync/shared/5f303ac9129b6780/subtitle_2.srt -o /opt/data/jf12test/cache/subsync/9b1ea621a9b7495c9cb75d38903d9395/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/9b1ea621a9b7495c9cb75d38903d9395",
+      "2026-09-14 23:52:23.418Z INFO  [9b1ea621a9b7495c9cb75d38903d9395] ffsubsync exit=143 after 4741 ms",
+      "2026-09-14 23:52:23.419Z INFO  [9b1ea621a9b7495c9cb75d38903d9395] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 03 (2026).mkv in 4.7 s = 2.4 MB/s - the ceiling for that volume is 2 (this volume measured 13.1 ms per read, which is storage-bound)",
+      "2026-09-14 23:52:23.419Z INFO  [71dbd835707a424eb102ee3fe252ae37] ffsubsync exit=143 after 4749 ms",
+      "2026-09-14 23:52:23.420Z INFO  [71dbd835707a424eb102ee3fe252ae37] this walk moved 83.6 MB of /opt/data/jf12test/media-slow/Judged Clip 02 (2026).mkv in 4.7 s = 3.3 MB/s - the ceiling for that volume is 2 (this volume measured 13.1 ms per read, which is storage-bound)",
+      "2026-09-14 23:52:23.420Z ERROR job 9b1ea621a9b7495c9cb75d38903d9395 failed: mode=ultimate item=7803318c-b988-90e8-eee4-a8e423689ca3 stream=2",
+      "System.InvalidOperationException: ffsubsync exited with code 143. Last output: b7495c9cb75d38903d9395/ffsubsync.log | INFO     extracting speech segments from reference   ffsubsync.py:734 | '/opt/data/jf12test/data/data/subsync/state | /speech-cache/e2fa9c9f1efd94ba8db2d44d81df7 | ef2.mkv'... | 0%|          | 0/122.041 [00:00<?, ?it/s]",
+      "   at Jellyfin.Plugin.SubSync.Services.SubSyncService.RunSyncJob(SyncJob job, Video video, MediaStream subtitleStream, Int32 subtitleOrdinal, PluginConfiguration config, CancellationToken cancellationToken) in /opt/data/jellysubsync/Jellyfin.Plugin.SubSync/Services/SubSyncService.cs:line 4914",
+      "2026-09-14 23:52:23.420Z ERROR job 71dbd835707a424eb102ee3fe252ae37 failed: mode=ultimate item=49fc6a72-1c7c-ea12-7381-4aa6315ea11c stream=2",
+      "System.InvalidOperationException: ffsubsync exited with code 143. Last output: 7a424eb102ee3fe252ae37/ffsubsync.log | INFO     extracting speech segments from reference   ffsubsync.py:734 | '/opt/data/jf12test/data/data/subsync/state | /speech-cache/fd2e6e9489f1aace8c7a03ad3d661 | 796.mkv'... | 0%|          | 0/122.041 [00:00<?, ?it/s]",
+      "   at Jellyfin.Plugin.SubSync.Services.SubSyncService.RunSyncJob(SyncJob job, Video video, MediaStream subtitleStream, Int32 subtitleOrdinal, PluginConfiguration config, CancellationToken cancellationToken) in /opt/data/jellysubsync/Jellyfin.Plugin.SubSync/Services/SubSyncService.cs:line 4914",
+      "2026-09-14 23:52:23.421Z INFO  dispatch: starting 1, running 1, limit 4, queued 1, batch 430d2f6f55d74b8aaf3dd2c99f1e272f",
+      "2026-09-14 23:52:23.491Z INFO  extract lane: stopped",
+      "2026-09-15 00:22:31.631Z INFO  startup: version=2.0.38.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.38.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 00:22:33.296Z INFO  batch history: restored 20 batch(es), 82 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 00:22:50.639Z INFO  queued: job=2625cfbe0a384c8b81190d939be6971e item=56b38635-26a7-1e2b-abc9-dd5817fd1c37 stream=0 ordinal=-1 mode=auto batch=d3f453a9578f44ec8209b538c464bff6 language=eng external=True forced=False codec=subrip video=/tmp/s39-fast/S31 Episode (2026).mkv",
+      "2026-09-15 00:22:50.641Z INFO  batch d3f453a9578f44ec8209b538c464bff6 queued: tasks=1 mode=auto label='rig-s31' totalMs=18 slowestTaskMs=17 (index 0: gap=0 ms; item=0 ms, sources=4 ms, settings=0 ms, log=3 ms, total=7 ms)",
+      "2026-09-15 00:22:50.672Z INFO  extract lane: started",
+      "2026-09-15 00:22:50.672Z INFO  extract lane: started",
+      "2026-09-15 00:22:50.685Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 00:22:50.721Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch d3f453a9578f44ec8209b538c464bff6",
+      "2026-09-15 00:22:50.827Z INFO  volume overlay had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 00:22:50.971Z INFO  extract plan: cue-indexed, window 2.1 KB, 54 planned read(s), expects 0.06 MB (the index locates 27 of 27 cue point(s); 27 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 2 KB)",
+      "2026-09-15 00:22:50.979Z INFO  extract plan: S31 Episode (2026).mkv cue-indexed expected 0.06 MB/54 read(s) (0.8 ms), actual 0.06 MB/53 read(s) (0.8 ms) - bytes 1.00x, reads 0.98x",
+      "2026-09-15 00:22:50.984Z INFO  extract profile: S31 Episode (2026).mkv: storage 0.01 ms per read and 231.1 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 2 KB",
+      "2026-09-15 00:22:50.989Z INFO  reference: method=seekhead-cues ms=113 cues=27 bytesRead=81339 readCalls=61 file=/tmp/s39-fast/S31 Episode (2026).mkv stream=0",
+      "2026-09-15 00:22:50.996Z INFO  [2625cfbe0a384c8b81190d939be6971e] reference: method=subtitle cues=27 track=s:0 file=/tmp/s39-fast/S31 Episode (2026).mkv",
+      "2026-09-15 00:22:51.002Z INFO  [2625cfbe0a384c8b81190d939be6971e] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/0237aa661b109ade/75a6903c98707aedabc049cfd31b6cce.ref.srt -i /tmp/s39-fast/S31 Episode (2026).eng.srt -o /opt/data/jf12test/cache/subsync/2625cfbe0a384c8b81190d939be6971e/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/2625cfbe0a384c8b81190d939be6971e",
+      "2026-09-15 00:22:51.298Z INFO  [2625cfbe0a384c8b81190d939be6971e] ffsubsync exit=0 after 296 ms",
+      "2026-09-15 00:22:51.313Z INFO  job 2625cfbe0a384c8b81190d939be6971e completed: mode=normal output=/tmp/s39-fast/S31 Episode (2026).eng.SYNCED.srt bytes=1947 change=-5000 ms offset extraction=n/a",
+      "2026-09-15 00:22:55.770Z INFO  extract lane: stopped",
+      "2026-09-15 00:27:04.560Z INFO  startup: version=2.0.38.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.38.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 00:27:06.067Z INFO  batch history: restored 20 batch(es), 81 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 109.6
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:32:39",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 before: released 2.0.38",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": false,
+        "detail": "(no score line: the build throws it away)"
+      },
+      {
+        "check": "a ruler whose cues did not move together is refused",
+        "passed": false,
+        "detail": "(nothing refused it)"
+      },
+      {
+        "check": "the refused ruler is discarded, not merely noted",
+        "passed": false,
+        "detail": "(the track was kept as a ruler)"
+      },
+      {
+        "check": "the run aligns against the audio instead",
+        "passed": true,
+        "detail": "[cd187b8272aa4548907b71e376de0705] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wa"
+      },
+      {
+        "check": "a subtitle was produced without claiming the wrong ruler",
+        "passed": true,
+        "detail": "job cd187b8272aa4548907b71e376de0705 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).eng.SYNCED.srt bytes=56"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 00:33:23.884Z INFO  [cd187b8272aa4548907b71e376de0705] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 00:33:39.988Z INFO  job cd187b8272aa4548907b71e376de0705 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).eng.SYNCED.srt bytes=56767 change=-5080 ms offset extraction=n/a"
+    ],
+    "batch": "9410ffd940f74623a68f48d7b237cd97",
+    "seconds": 64.0
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:40:25",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 before: released 2.0.38",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": false,
+        "detail": "(no score line: the build throws it away)"
+      },
+      {
+        "check": "a ruler whose cues did not move together is refused",
+        "passed": false,
+        "detail": "(nothing refused it)"
+      },
+      {
+        "check": "the refused ruler is discarded, not merely noted",
+        "passed": false,
+        "detail": "(the track was kept as a ruler)"
+      },
+      {
+        "check": "the run aligns against the audio instead",
+        "passed": true,
+        "detail": "[6bbee333b0ce4da892d42ff2448dc9ed] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wa"
+      },
+      {
+        "check": "a subtitle was produced without claiming the wrong ruler",
+        "passed": false,
+        "detail": "(no completion line)"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 00:40:46.451Z INFO  [6bbee333b0ce4da892d42ff2448dc9ed] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)"
+    ],
+    "batch": "bf74ae72a6b748aea72bfeb8ff07b377",
+    "seconds": 421.4
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:47:59",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 before: released 2.0.38",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": false,
+        "detail": "(no score line: the build throws it away)"
+      },
+      {
+        "check": "a ruler whose cues did not move together is refused",
+        "passed": true,
+        "detail": "[2da83f018a034a3c94e063809d503939] note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means that track is not the same "
+      },
+      {
+        "check": "the refused ruler is discarded, not merely noted",
+        "passed": false,
+        "detail": "(the track was kept as a ruler)"
+      },
+      {
+        "check": "the run aligns against the audio instead",
+        "passed": false,
+        "detail": "(the wrong ruler decided the output)"
+      },
+      {
+        "check": "a subtitle was produced without claiming the wrong ruler",
+        "passed": true,
+        "detail": "job 2da83f018a034a3c94e063809d503939 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 00:48:46.206Z INFO  [2da83f018a034a3c94e063809d503939] note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means that track is not the same cut",
+      "2026-09-15 00:48:46.216Z INFO  job 2da83f018a034a3c94e063809d503939 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=+24170 ms offset \u00b7 aligned to the reference subtitle s:1 at 24170 ms - worth checking, a shift this size usually means the reference track is not the same cut extraction=read through the container index (subtitle-cache), 32 ms",
+      "2026-09-15 00:48:46.216Z INFO  job 2da83f018a034a3c94e063809d503939 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=+24170 ms offset \u00b7 aligned to the reference subtitle s:1 at 24170 ms - worth checking, a shift this size usually means the reference track is not the same cut extraction=read through the container index (subtitle-cache), 32 ms"
+    ],
+    "batch": "44fab2b9a817482ca8d8ac20eac52a21",
+    "seconds": 50.9
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 02:48:50",
+    "plugin": "SubSync_2.0.38.0",
+    "shim": null,
+    "note": "S31 after: score logging + spread guard",
+    "repo_head": "52b1eca",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": true,
+        "detail": "[96f7fbef06604659bc2ab17b8ace2ccd] ffsubsync alignment: score=66451 offset=24.170 s against reference subtitle s:1"
+      },
+      {
+        "check": "a ruler whose cues did not move together is refused",
+        "passed": true,
+        "detail": "[96f7fbef06604659bc2ab17b8ace2ccd] note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means that track is not the same "
+      },
+      {
+        "check": "the refused ruler is discarded, not merely noted",
+        "passed": false,
+        "detail": "(the track was kept as a ruler)"
+      },
+      {
+        "check": "the run aligns against the audio instead",
+        "passed": false,
+        "detail": "(the wrong ruler decided the output)"
+      },
+      {
+        "check": "a subtitle was produced without claiming the wrong ruler",
+        "passed": true,
+        "detail": "job 96f7fbef06604659bc2ab17b8ace2ccd completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 00:49:34.658Z INFO  [96f7fbef06604659bc2ab17b8ace2ccd] ffsubsync alignment: score=66451 offset=24.170 s against reference subtitle s:1",
+      "2026-09-15 00:49:34.673Z INFO  [96f7fbef06604659bc2ab17b8ace2ccd] note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means that track is not the same cut",
+      "2026-09-15 00:49:34.690Z INFO  job 96f7fbef06604659bc2ab17b8ace2ccd completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=+24170 ms offset \u00b7 aligned to the reference subtitle s:1 at 24170 ms - worth checking, a shift this size usually means the reference track is not the same cut extraction=read through the container index (subtitle-cache), 48 ms",
+      "2026-09-15 00:49:34.690Z INFO  job 96f7fbef06604659bc2ab17b8ace2ccd completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=+24170 ms offset \u00b7 aligned to the reference subtitle s:1 at 24170 ms - worth checking, a shift this size usually means the reference track is not the same cut extraction=read through the container index (subtitle-cache), 48 ms"
+    ],
+    "batch": "24a71afde3824e35805a93614ef3836a",
+    "seconds": 48.3
   }
 ]

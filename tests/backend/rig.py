@@ -233,12 +233,14 @@ class Rig:
 
     # ----------------------------------------------------------------- batches
 
-    def queue_batch(self, items, mode=None, label='rig'):
+    def queue_batch(self, items, mode=None, label='rig', external=False):
+        """Queues a batch. `external=True` targets a file's external sidecar instead of its embedded track."""
         tasks = []
         for item in items:
             streams = item.get('MediaStreams') or []
-            sidx = next((int(s.get('Index', 0)) for s in streams
-                         if s.get('Type') == 'Subtitle' and not s.get('IsExternal')), 0)
+            wanted = [(s) for s in streams if s.get('Type') == 'Subtitle'
+                      and bool(s.get('IsExternal')) == external]
+            sidx = next((int(s.get('Index', 0)) for s in wanted), 0)
             tasks.append({'ItemId': item['Id'], 'SubtitleIndex': sidx,
                           'Title': item.get('Name') or item['Id']})
         if not tasks:

@@ -56,13 +56,33 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
-## Next, in the order the goal sets
+## Item 3 - S31 (in progress; the user reordered the register around correctness and data-safety)
 
-1. **S40 + S7** — the enqueue's `log` phase costs 8-21 s per item. Diagnose what that phase writes before
-   changing anything; the fix must show the same batch queued in a fraction of the time, measured.
-2. **S42** — a walk measured against a file the engine never read (found above; ranked medium).
-3. Then B6, B8, B23, B13, F10, D3, the mediums in tier order, the lows, S30. **S31** stays parked on the
-   user's decision.
+Reproduced end to end on the rig, then partly fixed - and the fix the row proposed is refuted by measurement.
+
+- **Reproduction** (`python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler`): a sibling embedded track from
+  a different cut (the same track stretched 1,02x) passes every check and makes the plugin write a wrong subtitle
+  with a *note* and a `Completed` status - ~29 s wrong, silently. Released 2.0.38, quoted in the register.
+- **Implemented**: the engine's own `score:`/`offset seconds:` are captured and logged for both reference paths;
+  `SyncChange` carries the per-cue dispersion and `RulerSpreadTooWide` refuses a ruler whose cues did not move
+  together. 638 checks green, nine of them new.
+- **Refuted**: "refuse when the score is far below what the audio path produces" does not discriminate - the wrong
+  ruler in the rig scored 66 451 against the same file's audio 53 566, and in a direct test an other-cut ruler
+  scored *higher* (274 721) than the correct one (198 713). Numbers in the register.
+- **Next, and the shape S31 should close on**: cross-check a subtitle ruler's answer against the film's own audio
+  when its demand is suspicious (the note above is the plugin saying "this looks wrong" and doing nothing). One
+  audio analysis, cached, for the suspicious case only.
+
+Hold for go-ahead before shipping, as instructed: the work is committed locally, not pushed.
+
+## Then, in the register's order
+
+1. **D3 + F10** — range/format validation on settings, before they are saved and before they reach the engine.
+2. **B8** — a failed ffmpeg extraction must not be accepted because a partial output exists.
+3. **B23** — `ClearStaleJobDirectories` needs a scoped delete or a root-path safety check.
+4. **B6** — a job stuck `Running` needs the heartbeat/deadline from S27.
+5. Then **S40 + S7** (the enqueue's `log` phase) and the rest of the performance tier, **S42**, the mediums, the
+   lows. **S31**'s cross-check above comes before all of them.
 
 ## How to continue in one command
 

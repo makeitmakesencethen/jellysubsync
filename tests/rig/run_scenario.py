@@ -349,6 +349,165 @@ def prepare_judged_fixtures(count: int) -> None:
     log(f'[rig] {count} judged fixture(s) on {SLOW_VOLUME_DIR}')
 
 
+# S31's fixture: the real 50-minute episode, without its embedded subtitle tracks, beside two external sidecars -
+# the one to sync, and a sibling that is the same track from a different cut. The episode is hardlinked (no copy
+# of 2,4 GB) and the stripped file is made once with a stream copy.
+S31_SOURCE = JELLYFIN / 'media' / 'Helikopterrånet S01E01.mkv'
+S31_DIR = JELLYFIN / 'media' / 'S31 Wrong Ruler'
+S31_MEDIA = S31_DIR / 'S31 Episode (2026).mkv'
+S31_TARGET = S31_DIR / 'S31 Episode (2026).eng.srt'
+S31_RULER = S31_DIR / 'S31 Episode (2026).pol.srt'
+S31_SCRATCH = pathlib.Path('/tmp/s31-fixture')
+S31_SPAN_STRETCH = 1.02      # a different cut: inside the plugin's 3 % span check
+S31_TARGET_SHIFT = 5.0       # the target's own misalignment, in seconds
+
+
+def _srt_stamp(seconds: float) -> str:
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    millis = int(round((seconds - int(seconds)) * 1000))
+    return f'{hours:02d}:{minutes:02d}:{secs:02d},{millis:03d}'
+
+
+def _srt_seconds(value: str) -> float:
+    hours, minutes, rest = value.split(':')
+    secs, millis = rest.replace('.', ',').split(',')
+    return int(hours) * 3600 + int(minutes) * 60 + int(secs) + int(millis) / 1000.0
+
+
+def _rerender(source: str, move) -> str:
+    blocks = [b for b in re.split(r'\n\s*\n', source.strip()) if '-->' in b]
+    out = []
+    for block in blocks:
+        lines = block.splitlines()
+        start, end = lines[1].split(' --> ')
+        moved = f'{_srt_stamp(move(_srt_seconds(start)))} --> {_srt_stamp(move(_srt_seconds(end)))}'
+        out.append('\n'.join([lines[0], moved] + lines[2:]))
+    return '\n\n'.join(out) + '\n'
+
+
+def prepare_s31_fixtures() -> None:
+    """Builds S31's shape and says what it is, because the shape is the whole experiment.
+
+    * The media carries exactly two subtitle tracks, both embedded: the **target** (the episode's own track
+      shifted +5 s, a plausible misalignment) and the **ruler** (the same track stretched 1,02x - a different cut
+      of the same episode). Embedded rather than external sidecars, because that is the path the plugin takes
+      when it picks "another text track" as the reference, and it needs no client-side plumbing for a sidecar
+      target: measured 2026-09-15, an external-sidecar target resolved to `ordinal=-1` and the job fell back to
+      the audio, which would have proved nothing.
+    * The ruler passes every plausibility check the plugin has: cue count, span against the file (2 % < 3 %),
+      and it asks for a median shift of -26,52 s, under the 30 s reference ceiling. Against ffsubsync 0.5.1 the
+      same shape measures an interquartile range of 27,76 s where the file's real sibling measures 0,00 s.
+    """
+    S31_DIR.mkdir(parents=True, exist_ok=True)
+    S31_SCRATCH.mkdir(parents=True, exist_ok=True)
+    raw = S31_SCRATCH / 'source-track.srt'
+    if not raw.exists() or raw.read_text(encoding='utf-8', errors='replace').count(' --> ') < 100:
+        # Not `0:s:0`: the episode's first embedded track is a signs track with 8 cues (measured), and a ruler
+        # with 8 cues over 50 minutes is refused by the plugin's own signs check - a different refusal than the
+        # one this scenario is about. Stream 4 is the full English track, 803 cues.
+        subprocess.run(['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
+                        '-map', '0:4', str(raw)], check=True, capture_output=True)
+    source = raw.read_text(encoding='utf-8', errors='replace')
+    target = S31_SCRATCH / 'target.srt'
+    ruler = S31_SCRATCH / 'ruler.srt'
+    if not target.exists() or target.read_text(encoding='utf-8').count(' --> ') < 100:
+        target.write_text(_rerender(source, lambda x: x + S31_TARGET_SHIFT), encoding='utf-8')
+    if not ruler.exists() or ruler.read_text(encoding='utf-8').count(' --> ') < 100:
+        ruler.write_text(_rerender(source, lambda x: x * S31_SPAN_STRETCH), encoding='utf-8')
+
+    if S31_MEDIA.exists():
+        # Rebuilt every run rather than reused: Jellyfin keeps an item's subtitle streams across a rescan, so a
+        # fixture that once had sidecars beside it keeps pointing at them after they are gone - measured
+        # 2026-09-15, which is why two earlier runs targeted a deleted sidecar (ordinal=-1) and fell back to the
+        # audio instead of exercising the ruler at all.
+        S31_MEDIA.unlink()
+
+    # A stream copy of the episode's video and audio with the original subtitle tracks dropped, plus the two
+    # crafted tracks. No re-encode: the file is 2,4 GB and copying it locally costs seconds.
+    if not S31_MEDIA.exists():
+        subprocess.run(
+            ['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
+             '-i', str(target), '-i', str(ruler),
+             '-map', '0:v', '-map', '0:a', '-map', '1', '-map', '2',
+             '-c', 'copy', '-c:s', 'srt',
+             '-metadata:s:s:0', 'language=eng', '-metadata:s:s:1', 'language=pol',
+             '-metadata', 'title=S31 Wrong Ruler', str(S31_MEDIA)],
+            check=True, capture_output=True)
+    cues = source.count(' --> ')
+    log(f'[rig] S31 fixture ready: {S31_MEDIA.name}, {cues} cue(s) in each track - '
+        f'target shifted +{S31_TARGET_SHIFT:0.0f} s (eng), ruler stretched {S31_SPAN_STRETCH}x (pol)')
+
+
+def scenario_s31_wrong_ruler(rig, args, ctx):
+    """S31: a sibling subtitle from a different cut must not be trusted as a ruler.
+
+    What the row is about, in the field's own shape: a track that passes every plausibility check the plugin has
+    (cue count, span against the file, demanded shift) but is not this film's timeline. The plugin aligns the
+    target onto it and writes the result as an ordinary success.
+
+    Assertions, in the order the fix makes them true: the engine's score is in the log at all, the sync was not
+    left standing on that ruler, the ruler was discarded, and the run says it aligned against the audio instead.
+    Run against a released build first: every one of those fails and a sidecar is written anyway, which is the
+    silent-wrongness this row exists for.
+    """
+    # Scanned first with the fixture absent, so an item left over from an earlier run (with its old subtitle
+    # streams) is dropped rather than updated in place, then scanned again once the file exists.
+    rig.refresh_library()
+    time.sleep(15)
+    prepare_s31_fixtures()
+    rig.refresh_library()
+    time.sleep(10)
+    # Looked up by path, not by name: Jellyfin names the movie after its folder, so a name filter finds nothing.
+    items = [i for i in rig.items(str(S31_DIR)) if str(S31_DIR) in (i.get('Path') or '')]
+    if not items:
+        rig.refresh_library()
+        time.sleep(20)
+        items = [i for i in rig.items(str(S31_DIR)) if str(S31_DIR) in (i.get('Path') or '')]
+    if not items:
+        return [('the S31 fixture is in the library', False, f'no item whose path contains {S31_DIR}')]
+
+    # The audio path has to be able to succeed for the fallback to mean anything: clear the caches so the
+    # reference is built and the audio analysed in this run.
+    rig.post('/SubSync/SpeechCache/Clear')
+    rig.log_lines()
+    since = rig._log_offset
+    # The target is an *embedded* track: the ruler has to be the file's other embedded track, which is the path
+    # the plugin takes when it picks a sibling subtitle as the reference.
+    batch = rig.queue_batch(items[:1], label='rig-s31', external=False)
+    ctx['batch'] = batch
+    lines, deadline = [], time.time() + float(args.timeout)
+    while time.time() < deadline:
+        lines = rig.log_lines(since)
+        if any('job ' in ln and 'completed' in ln for ln in lines) or \
+           any(ln.strip().endswith(('FAILED', 'UNVERIFIED')) for ln in lines):
+            break
+        time.sleep(5)
+    rig.wait_batch(batch, timeout=60)
+
+    text = '\n'.join(lines)
+    scores = [ln for ln in lines if 'ffsubsync alignment: score=' in ln]
+    refused = [ln for ln in lines if 'not the same cut' in ln]
+    discarded = [ln for ln in lines if 'discarding that track as a ruler' in ln]
+    to_audio = [ln for ln in lines if 'reference: method=audio' in ln]
+    written = [ln for ln in lines if 'completed:' in ln]
+    ctx['observations'] = scores + refused + discarded + to_audio + written
+
+    return [
+        ('the engine\'s alignment score is in the log', bool(scores),
+         scores[0].split('INFO')[-1].strip()[:150] if scores else '(no score line: the build throws it away)'),
+        ('a ruler whose cues did not move together is refused', bool(refused),
+         refused[0].split('INFO')[-1].strip()[:170] if refused else '(nothing refused it)'),
+        ('the refused ruler is discarded, not merely noted', bool(discarded),
+         discarded[0].split('INFO')[-1].strip()[:150] if discarded else '(the track was kept as a ruler)'),
+        ('the run aligns against the audio instead', bool(to_audio),
+         to_audio[0].split('INFO')[-1].strip()[:150] if to_audio else '(the wrong ruler decided the output)'),
+        ('a subtitle was produced without claiming the wrong ruler', bool(written),
+         (written[0].split('INFO')[-1].strip()[:150] if written else '(no completion line)')),
+    ]
+
+
 def scenario_s39_ratio(rig, args, ctx):
     """S39: a ceiling chosen between two numbers this machine measured, not from a constant.
 
@@ -462,6 +621,8 @@ SCENARIOS = {
                           shim={'MS_PER_CALL': 13.0, 'MS_PER_16K': 0.0,
                                 'FD_FIRST_MS': 231.0, 'FD_FIRST_READS': 1},
                           needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
+    's31-wrong-ruler': dict(run=scenario_s31_wrong_ruler, storage='any',
+                            needs='a sibling subtitle from a different cut: the ruler passes every check and is wrong'),
     's39-ratio': dict(run=scenario_s39_ratio, storage='shim',
                       shim={'MS_PER_CALL': 0.0, 'MS_PER_16K': 12.8},
                       needs='8 walks on one volume, then a slow walk on another: the ratios must decide, not a constant'),
