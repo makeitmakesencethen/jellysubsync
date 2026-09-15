@@ -200,6 +200,17 @@ public static class SettingsValidation
             config.ExtractionTimeoutMinutes = timeout;
         }
 
+        // Golden-section search is only ever handed to the engine together with framerate correction
+        // (`FramerateArgs` emits `--gss` only when correction is on), so a tick without it is a control that
+        // does nothing - which is what it looked like: "an inert checkbox misleads" (F12). The value is kept
+        // (the page shows it, and turning the correction back on restores what it was set to) and the page is
+        // told it is doing nothing meanwhile.
+        if (config.UseGoldenSectionSearch && !config.FixFramerate)
+        {
+            notes.Add("Golden-section search: it only does anything together with \"Correct framerate mismatch\", "
+                      + "which is off; it is stored but the engine is not given --gss");
+        }
+
         var stuck = StuckJobTimeoutOf(config);
         if (stuck != config.StuckJobTimeoutMinutes)
         {

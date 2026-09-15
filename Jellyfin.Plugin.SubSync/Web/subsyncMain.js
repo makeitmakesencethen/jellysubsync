@@ -364,6 +364,22 @@
     }
 
     // ---------------- Settings ----------------
+
+    // Golden-section search is handed to the engine only together with framerate correction (the server emits
+    // --gss just when correction is on), so while correction is off the switch is disabled rather than
+    // switchable-but-inert - the case that read as a control that does nothing when ticked (F12). The tick
+    // itself is left alone: what was set is what comes back when correction is turned on again.
+    function syncGoldenSectionState() {
+        var gss = $('ss-gss');
+        var fixfps = $('ss-fixfps');
+        if (!gss || !fixfps) return;
+        var usable = !!fixfps.checked;
+        gss.disabled = !usable;
+        gss.setAttribute('aria-disabled', usable ? 'false' : 'true');
+        var row = gss.closest ? gss.closest('.checkboxContainer') : null;
+        if (row) row.classList.toggle('ss-inert', !usable);
+    }
+
     function loadConfig() {
         return api('SubSync/Configuration').then(function (c) {
             $('ss-vad').value = c.VadMethod || 'subs_then_webrtc';
@@ -377,6 +393,7 @@
             $('ss-mode').value = c.SyncModeCopy !== false ? 'copy' : 'replace';
             $('ss-fixfps').checked = !!c.FixFramerate;
             $('ss-gss').checked = !!c.UseGoldenSectionSearch;
+            syncGoldenSectionState();
             $('ss-multimode').value = c.MultiSyncMode || 'auto';
             // The settings input has its own id: it used to share "ss-workers" with the
             // worker-rows container, and getElementById returned the container, so the
@@ -388,6 +405,11 @@
             }
             renderLangChips();
         });
+    }
+
+    function wireSettingsControls() {
+        var fixfps = $('ss-fixfps');
+        if (fixfps) fixfps.addEventListener('change', syncGoldenSectionState);
     }
 
     function saveConfig() {
@@ -2099,6 +2121,7 @@
     }
 
     // ---------------- Wiring ----------------
+    wireSettingsControls();
     $('ss-save').addEventListener('click', saveConfig);
     var cancelBtn = $('ss-cancel');
     if (cancelBtn) cancelBtn.addEventListener('click', cancelWatchedBatch);

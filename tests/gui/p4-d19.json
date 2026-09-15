@@ -1,0 +1,89 @@
+{
+ "url": "http://127.0.0.1:8096/web/p4-d19.html",
+ "stylesheetLoaded": true,
+ "static": {
+  "gssInput": {
+   "tag": "input",
+   "width": 13,
+   "height": 13,
+   "display": "block",
+   "opacity": "1",
+   "position": "static",
+   "cursor": "default"
+  },
+  "gssLabel": {
+   "tag": "label",
+   "width": 620,
+   "height": 37.59,
+   "display": "flex",
+   "opacity": "1",
+   "position": "relative",
+   "cursor": "pointer"
+  },
+  "gssOutline": null,
+  "fixfpsInput": {
+   "tag": "input",
+   "width": 13,
+   "height": 13,
+   "display": "block",
+   "opacity": "1",
+   "position": "static",
+   "cursor": "default"
+  },
+  "fixfpsLabel": {
+   "tag": "label",
+   "width": 620,
+   "height": 37.59,
+   "display": "flex",
+   "opacity": "1",
+   "position": "relative",
+   "cursor": "pointer"
+  },
+  "rowWidth": 620,
+  "labelPaddingLeft": "38.4px",
+  "elementAtLabelCentre": "label"
+ },
+ "inert": {
+  "gssInput": {
+   "tag": "input",
+   "width": 13,
+   "height": 13,
+   "display": "block",
+   "opacity": "1",
+   "position": "static",
+   "cursor": "default"
+  },
+  "gssLabel": {
+   "tag": "label",
+   "width": 620,
+   "height": 37.59,
+   "display": "flex",
+   "opacity": "1",
+   "position": "relative",
+   "cursor": "not-allowed"
+  },
+  "gssOutline": null,
+  "fixfpsInput": {
+   "tag": "input",
+   "width": 13,
+   "height": 13,
+   "display": "block",
+   "opacity": "1",
+   "position": "static",
+   "cursor": "default"
+  },
+  "fixfpsLabel": {
+   "tag": "label",
+   "width": 620,
+   "height": 37.59,
+   "display": "flex",
+   "opacity": "1",
+   "position": "relative",
+   "cursor": "pointer"
+  },
+  "rowWidth": 620,
+  "labelPaddingLeft": "38.4px",
+  "elementAtLabelCentre": "label"
+ },
+ "inertOpacity": "0.55"
+}

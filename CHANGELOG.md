@@ -1,3 +1,44 @@
+## 2.0.47 (beta)
+
+Four small things in the settings, all of the same shape: a control that said something the server did not do.
+
+**The output encoding is chosen, not typed (F11).** The field was free text, and the server had always replaced a
+value the engine cannot be given with utf-8 and said so afterwards - so a typo like `utf8` was invited, and the
+report arrived as a footnote after a save that otherwise looked complete. It is now a dropdown over exactly the
+five encodings the engine accepts (utf-8, utf-8-sig, utf-16, latin-1, ascii), each labelled with what it is for,
+so the value cannot be typed wrong at all; the server-side replacement stays as the backstop for a hand-edited
+config.xml and is still named on save. Verified against a real server as well: a chosen encoding comes back on a
+fresh read (what the page's reload depends on), and `utf8` is replaced with
+`Output encoding: 'utf8' is not one of ascii, latin-1, utf-16, utf-8, utf-8-sig; utf-8 is stored`.
+
+**Golden-section search is no longer a switch that can do nothing (F12).** It only ever reaches the engine
+together with framerate correction, so while "Correct framerate mismatch" is off the control is now disabled and
+its row reads as inert (55 % opacity, `cursor: not-allowed`), on load and on every change of that switch, with
+the description saying why - and the tick itself is kept, so turning correction back on restores what was set. A
+hand-edited config.xml that pairs them the wrong way is told as well: "it is stored but the engine is not given
+--gss".
+
+**A saved worker count reaches the extraction lanes at once (F13).** The lanes' width is half the worker count
+(capped at 3), and it was read from the plugin's in-memory configuration - which a settings file edited outside
+the API never updates - while the sync side read the settings file. Both now read the same source, and saving a
+configuration wakes the scheduler, so an increase applies immediately (the log says `settings applied: workers=64
+lanes=3`) and a decrease as the running extractions finish. The field's description states both.
+
+**D19 closed: the 1x1 px checkbox is the hidden native input, not the control.** jellyfin-web's own stylesheet
+makes it so on purpose (`emby-checkbox{appearance:none;height:1px;opacity:0;position:absolute;width:1px}`); what
+the user sees and clicks is `.emby-checkbox-label`, measured at 620 x 37,6 px with `cursor: pointer` and a hit
+test at its centre returning the label. The framerate-correction switch above it measures identically, so there
+was never a scaling defect in the golden-section control. The measurement ran in Chromium with the plugin's own
+markup plus that stylesheet (`tests/gui/p4-d19-probe.js`).
+
+Verification: `python3 tests/run_checks.py` passes (781 checks, 0 failures) with 16 new ones - 10 unit checks
+(the encoding stored as chosen, a typo replaced *and* reported, the engine's flag set, `--gss` absent without
+framerate correction and present with it, the inert tick reported and kept, the lane width) and 6 for the
+page/script (the dropdown offers exactly the server's set, the golden-section gating runs on load and on change,
+the worker wording, and the save reaching the running scheduler). Integration against a real Jellyfin with the
+plugin installed: `tests/backend/p4_settings_probe.py` (11 assertions, all passing - retention, the two notes,
+and the `settings applied:` line in the plugin log) and the D19 measurement above.
+
 ## 2.0.46 (beta)
 
 One measurement and one set of bounds, both in the family of "what does a long run hold".

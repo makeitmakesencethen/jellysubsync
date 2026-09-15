@@ -3312,6 +3312,67 @@ Check("B12: the newest sweep record survives the trim",
 
 Directory.Delete(b12Dir, recursive: true);
 
+
+// ---------------- P4: the settings that could lie (F11, F12, F13) ----------------
+//
+// Three settings used to be able to say something that was not true: a free-text encoding that the server
+// silently replaced, a golden-section switch that did nothing unless framerate correction was on, and a
+// worker count whose effect on the extraction lanes nobody knew. Each is checked here for what it stores,
+// what it reports, and what reaches the engine.
+
+// F11: only the encodings the engine accepts are offered, a chosen one is kept exactly, and one that cannot
+// be given is replaced *and named* rather than stored as typed.
+Check("F11: the engine's encoding list is the one the page offers",
+    SubSyncService.AllowedOutputEncodings.OrderBy(x => x, StringComparer.Ordinal)
+        .SequenceEqual(new[] { "ascii", "latin-1", "utf-16", "utf-8", "utf-8-sig" }),
+    string.Join(",", SubSyncService.AllowedOutputEncodings.OrderBy(x => x, StringComparer.Ordinal)));
+
+var p4Chosen = new PluginConfiguration { OutputEncoding = "latin-1" };
+var p4ChosenNotes = SettingsValidation.Apply(p4Chosen);
+Check("F11: a chosen encoding is stored as chosen, with nothing reported",
+    p4Chosen.OutputEncoding == "latin-1"
+    && !p4ChosenNotes.Any(note => note.StartsWith("Output encoding", StringComparison.Ordinal)),
+    string.Join(" | ", p4ChosenNotes));
+
+var p4Typo = new PluginConfiguration { OutputEncoding = "utf8" };      // what a free-text field invited
+var p4TypoNotes = SettingsValidation.Apply(p4Typo);
+Check("F11: an encoding the engine cannot be given is replaced and the page is told",
+    p4Typo.OutputEncoding == "utf-8"
+    && p4TypoNotes.Any(note => note.StartsWith("Output encoding", StringComparison.Ordinal)),
+    $"stored={p4Typo.OutputEncoding} notes={string.Join(" | ", p4TypoNotes)}");
+Check("F11: the engine is given what was stored, and the fallback only for what it cannot be given",
+    SettingsValidation.OutputEncodingOf(new PluginConfiguration { OutputEncoding = "latin-1" }) == "latin-1"
+    && SettingsValidation.OutputEncodingOf(new PluginConfiguration { OutputEncoding = "utf8" }) == "utf-8"
+    && SettingsValidation.OutputEncodingOf(new PluginConfiguration { OutputEncoding = null! }) == "utf-8");
+// F12: golden-section search is handed over only with framerate correction, and a tick without it says so.
+var p4GssAlone = SubSyncService.FramerateArgs(fixFramerate: false, goldenSection: true).ToList();
+var p4GssWithCorrection = SubSyncService.FramerateArgs(fixFramerate: true, goldenSection: true).ToList();
+Check("F12: golden-section search alone never reaches the engine",
+    !p4GssAlone.Contains("--gss")
+    && p4GssAlone.Contains("--no-fix-framerate")
+    && p4GssAlone.Contains("--skip-infer-framerate-ratio"),
+    string.Join(" ", p4GssAlone));
+Check("F12: with framerate correction on, the flag is handed over",
+    p4GssWithCorrection.Count == 1 && p4GssWithCorrection[0] == "--gss",
+    string.Join(" ", p4GssWithCorrection));
+var p4Inert = new PluginConfiguration { FixFramerate = false, UseGoldenSectionSearch = true };
+var p4InertNotes = SettingsValidation.Apply(p4Inert);
+Check("F12: a tick that does nothing is reported to the page",
+    p4InertNotes.Any(note => note.StartsWith("Golden-section", StringComparison.Ordinal)),
+    string.Join(" | ", p4InertNotes));
+Check("F12: the tick is left as it was, so turning correction back on restores it",
+    p4Inert.UseGoldenSectionSearch);
+Check("F12: nothing is reported while the pair is usable",
+    !SettingsValidation.Apply(new PluginConfiguration { FixFramerate = true, UseGoldenSectionSearch = true })
+        .Any(note => note.StartsWith("Golden-section", StringComparison.Ordinal)));
+
+// F13: the extraction lanes' width is the number the settings ask for, read live rather than at startup.
+var p4Service = new SubSyncService(null!, null!, null!, null!);
+Check("F13: the lane width is half the worker count, capped at the documented three",
+    p4Service.ConfiguredLaneLimit == Math.Clamp(SubSyncService.DefaultParallelWorkers / 2, 1, 3)
+    && p4Service.ConfiguredLaneLimit == 2,
+    $"{p4Service.ConfiguredLaneLimit} of {SubSyncService.DefaultParallelWorkers} workers");
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4422,6 +4483,52 @@ def run_page_checks():
            'private int TrimLocked()' in sweep_state
            and '_entries.Count > MaxEntries || _pendingWrites >= SaveBatchSize' in sweep_state)
 
+
+    # P4 (F11/F12/F13): the settings page and the server agree on what the encoding may be, the
+    # golden-section switch is unavailable while framerate correction is off, and the worker field says what
+    # the extraction lanes do with the number.
+    page_path = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Web', 'subsyncMain.html')
+    script_path = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Web', 'subsyncMain.js')
+    controller_path = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api', 'SubSyncController.cs')
+    page = open(page_path, encoding='utf-8').read()
+    script = open(script_path, encoding='utf-8').read()
+    controller = open(controller_path, encoding='utf-8').read()
+
+    encoding_block = page.split('id="ss-encoding"', 1)[-1].split('</select>', 1)[0]
+    page_encodings = set(re.findall(r'<option value="([^"]+)"', encoding_block))
+    server_block = service.split('AllowedOutputEncodings', 1)[1].split('};', 1)[0]
+    server_encodings = set(re.findall(r'"([^"]+)"', server_block))
+    report('F11: the encoding dropdown offers exactly the encodings the engine accepts',
+           re.search(r'<select[^>]*id="ss-encoding"', page) is not None
+           and re.search(r'<input[^>]*id="ss-encoding"', page) is None
+           and page_encodings == server_encodings and len(page_encodings) == 5,
+           f'page={sorted(page_encodings)} server={sorted(server_encodings)}')
+    report('F11: the encoding field says a typo can no longer be saved',
+           'silently written as UTF-8' in page)
+    report('F11: the chosen encoding is handed to the engine by name',
+           '"--output-encoding", outputEncoding' in service
+           and 'var outputEncoding = Configuration.SettingsValidation.OutputEncodingOf(config);' in service)
+
+    report('F12: the golden-section switch follows framerate correction in the interface',
+           'function syncGoldenSectionState()' in script
+           and 'gss.disabled = !usable' in script
+           and "fixfps.addEventListener('change', syncGoldenSectionState)" in script
+           and 'syncGoldenSectionState();' in script                      # on load
+           and 'wireSettingsControls();' in script                        # wired at startup
+           and 'ss-inert' in page and '.checkboxContainer.ss-inert' in page
+           and 'Correct framerate mismatch</strong> above' in page)
+
+    report('F13: the worker field says what the extraction lanes do with the number',
+           'half this number and at most 3' in page
+           and 'applies as soon as you save' in page
+           and 'as the extractions already running finish' in page)
+
+    report('F13: a saved configuration is applied to the running scheduler, not the next restart',
+           '_syncService.ApplySettingsNow();' in controller
+           and 'public void ApplySettingsNow()' in service
+           and 'public int ConfiguredLaneLimit' in service
+           and 'Services.SettingsSource.Current()?.ParallelWorkers ?? DefaultParallelWorkers' in service
+           and 'Plugin.Instance?.Configuration?.ParallelWorkers' not in service)
     return failures
 
 

@@ -639,6 +639,10 @@ public class SubSyncController : ControllerBase
         // The body stays exactly what it always was - the page reads these fields back and compares them - so
         // what was adjusted is reported by SettingsValidationNotes instead (D3).
         Plugin.LastSettingsNotes = notes;
+
+        // What was just saved is in force from here, not from the next restart (F13): the scheduler re-reads
+        // the worker limit on its next pass and the extraction lanes' width is recomputed now.
+        _syncService.ApplySettingsNow();
         return Ok(Plugin.Instance.Configuration);
     }
 

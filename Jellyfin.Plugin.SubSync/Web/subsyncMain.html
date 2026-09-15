@@ -81,6 +81,10 @@
             .ss-settings-grid .ss-field { margin-bottom: 22px; }
             .ss-settings-grid .ss-field .fieldDescription { margin-top: 4px; }
             .ss-settings-grid .checkboxContainer { margin-bottom: 0; }
+            /* A switch that cannot do anything right now reads as unavailable instead of looking clickable
+               (F12). Its tick is kept, so turning framerate correction back on restores what was set. */
+            .ss-settings-grid .checkboxContainer.ss-inert { opacity: .55; }
+            .ss-settings-grid .checkboxContainer.ss-inert .emby-checkbox-label { cursor: not-allowed; }
             .ss-hist-item { border-bottom: 1px solid rgba(255,255,255,.07); padding: 10px 4px; cursor: pointer; border-radius: 6px; }
             .ss-hist-item:hover { background: rgba(255,255,255,.04); }
             .ss-hist-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -203,8 +207,14 @@
                                     <div class="fieldDescription">Lets the offset change across the timeline, for a file that is not one continuous cut (commercial breaks, inserted or removed scenes, discs joined into one file). 0 = a single offset for the whole file, which is what the plugin has always done. Values around 4-20 are typical; lower splits more eagerly. Default: 0.</div>
                                 </div>
                                 <div class="ss-field">
-                                    <input is="emby-input" type="text" id="ss-encoding" label="Output encoding" placeholder="utf-8" />
-                                    <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
+                                    <select is="emby-select" id="ss-encoding" label="Output encoding">
+                                        <option value="utf-8">UTF-8 — what every player expects (default)</option>
+                                        <option value="utf-8-sig">UTF-8 with BOM — for players that only guess UTF-8 from the mark</option>
+                                        <option value="utf-16">UTF-16 — for the few tools that ask for it</option>
+                                        <option value="latin-1">Latin-1 (ISO-8859-1) — for older western-European players</option>
+                                        <option value="ascii">ASCII — drops letters outside English; only for a track that has none</option>
+                                    </select>
+                                    <div class="fieldDescription">The encoding the synced subtitle file is written in. Only the values the engine accepts are offered, so a typo cannot be saved and then silently written as UTF-8.</div>
                                 </div>
 
                                 <h3 class="ss-subhead">Multi-subtitle sync mode</h3>
@@ -233,7 +243,7 @@
                                 </div>
                                 <div class="ss-field">
                                     <input is="emby-input" type="number" id="ss-workers-input" label="Parallel workers" min="1" max="64" />
-                                    <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once.</div>
+                                    <div class="fieldDescription">How many subtitles run at once in Parallel mode. Default: 4. Each wave covers different media files — several tracks of the same file never run at once. Reading subtitles out of the video runs in its own lanes, half this number and at most 3, because a lane reads a file while the workers align files already read. A higher value applies as soon as you save; a lower one as the extractions already running finish.</div>
                                 </div>
                                 <div class="ss-field">
                                     <label class="selectLabel">Cached data</label>
@@ -284,7 +294,7 @@
                                             <input is="emby-checkbox" type="checkbox" id="ss-gss" />
                                             <span>Use golden-section search for framerate ratio</span>
                                         </label>
-                                        <div class="fieldDescription checkboxFieldDescription">Searches harder for the exact stretch factor. Slower, and only useful together with the option above.</div>
+                                        <div class="fieldDescription checkboxFieldDescription">Searches harder for the exact stretch factor. Slower, and it only does anything together with <strong>Correct framerate mismatch</strong> above: while that is off the switch is unavailable and the engine is not given the flag.</div>
                                     </div>
                                 </div>
                                 <div class="ss-field">

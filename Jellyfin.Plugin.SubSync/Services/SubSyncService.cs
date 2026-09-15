@@ -2043,13 +2043,37 @@ public class SubSyncService : IDisposable
     /// <returns>Lookup key.</returns>
     private static string ExtractedKeyOf(string videoPath, int ordinal) => videoPath + "\u0000" + ordinal;
 
+    /// <summary>
+    /// Applies a settings change to the running scheduler at once.
+    /// </summary>
+    /// <remarks>
+    /// The settings page stores through the API and expects what it saved to be in force, so the scheduler is
+    /// woken here rather than on the next run: the sync worker limit is read per planning pass, and the
+    /// extraction lanes' width is recomputed when the extractor is woken (F13). An increase applies within a
+    /// second; a decrease applies as the running extractions finish, because a lane that is mid-file is not
+    /// stopped to satisfy a number.
+    /// </remarks>
+    public void ApplySettingsNow()
+    {
+        WakePump();
+        PluginLog.Info($"settings applied: workers={ConfiguredWorkerLimit} lanes={ConfiguredLaneLimit}");
+    }
+
+    /// <summary>
+    /// Gets how many extraction lanes the current settings ask for, without starting any.
+    /// </summary>
+    /// <remarks>Half the worker count, bounded by <see cref="MaxExtractionLanes"/> - the number the UI states.</remarks>
+    public int ConfiguredLaneLimit => Math.Clamp(
+        (Services.SettingsSource.Current()?.ParallelWorkers ?? DefaultParallelWorkers) / 2, 1, MaxExtractionLanes);
+
     /// <summary>Wakes the extraction lane, starting it if it is not running.</summary>
     private void WakeExtractor()
     {
-        var wanted = Math.Clamp(
-            (Plugin.Instance?.Configuration?.ParallelWorkers ?? DefaultParallelWorkers) / 2,
-            1,
-            MaxExtractionLanes);
+        // Read through the settings source, not the plugin's in-memory copy: the page stores settings through
+        // the API, and a hand-edited config.xml changes nothing else. Half the worker count, because a lane
+        // reads a file while the workers drive the engine on files already read (F13).
+        var configured = Services.SettingsSource.Current()?.ParallelWorkers ?? DefaultParallelWorkers;
+        var wanted = Math.Clamp(configured / 2, 1, MaxExtractionLanes);
 
         lock (_queueLock)
         {
