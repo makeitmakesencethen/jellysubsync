@@ -359,7 +359,8 @@ S31_TARGET = S31_DIR / 'S31 Episode (2026).eng.srt'
 S31_RULER = S31_DIR / 'S31 Episode (2026).pol.srt'
 S31_SCRATCH = pathlib.Path('/tmp/s31-fixture')
 S31_SPAN_STRETCH = 1.02      # a different cut: inside the plugin's 3 % span check
-S31_TARGET_SHIFT = 5.0       # the target's own misalignment, in seconds
+S31_TARGET_SHIFT = 5.0            # the target's own misalignment, in seconds (other-cut variant)
+S31_TARGET_SHIFT_CORRECT = 20.0   # the same, for the correct-ruler variant: big enough to reach the band
 
 
 def _srt_stamp(seconds: float) -> str:
@@ -387,45 +388,45 @@ def _rerender(source: str, move) -> str:
     return '\n\n'.join(out) + '\n'
 
 
-def prepare_s31_fixtures() -> None:
+def prepare_s31_fixtures(ruler_kind: str = 'other-cut') -> None:
     """Builds S31's shape and says what it is, because the shape is the whole experiment.
 
-    * The media carries exactly two subtitle tracks, both embedded: the **target** (the episode's own track
-      shifted +5 s, a plausible misalignment) and the **ruler** (the same track stretched 1,02x - a different cut
-      of the same episode). Embedded rather than external sidecars, because that is the path the plugin takes
-      when it picks "another text track" as the reference, and it needs no client-side plumbing for a sidecar
-      target: measured 2026-09-15, an external-sidecar target resolved to `ordinal=-1` and the job fell back to
-      the audio, which would have proved nothing.
-    * The ruler passes every plausibility check the plugin has: cue count, span against the file (2 % < 3 %),
-      and it asks for a median shift of -26,52 s, under the 30 s reference ceiling. Against ffsubsync 0.5.1 the
-      same shape measures an interquartile range of 27,76 s where the file's real sibling measures 0,00 s.
+    * The media carries exactly two embedded subtitle tracks: the **target** (the episode's own track shifted
+      +5 s - a plausible misalignment) and the **ruler**. Embedded rather than external sidecars, because that is
+      the path the plugin takes when it picks "another text track" as the reference, and an external-sidecar
+      target resolved to `ordinal=-1` and fell back to the audio (measured 2026-09-15), which would prove nothing.
+    * `ruler_kind='other-cut'` is the Alex shape: the same track stretched 1,02x, so it passes the cue-count
+      check, the 3 % span rule and the 30 s ceiling while no longer matching the film. `'correct'` is the film's
+      own timeline: the cross-check must accept it, which is what makes the check able to disagree.
+
+    The media is rebuilt whenever the requested ruler changes, because the ruler is a track inside it.
     """
     S31_DIR.mkdir(parents=True, exist_ok=True)
     S31_SCRATCH.mkdir(parents=True, exist_ok=True)
+    mark = S31_SCRATCH / f'ruler-{ruler_kind}.mark'
+
     raw = S31_SCRATCH / 'source-track.srt'
     if not raw.exists() or raw.read_text(encoding='utf-8', errors='replace').count(' --> ') < 100:
-        # Not `0:s:0`: the episode's first embedded track is a signs track with 8 cues (measured), and a ruler
-        # with 8 cues over 50 minutes is refused by the plugin's own signs check - a different refusal than the
-        # one this scenario is about. Stream 4 is the full English track, 803 cues.
+        # Not `0:s:0`: the episode's first embedded track is a signs track with 8 cues (measured), and 8 cues over
+        # 50 minutes is refused by the plugin's own signs check - a different refusal than the one under test.
         subprocess.run(['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
                         '-map', '0:4', str(raw)], check=True, capture_output=True)
     source = raw.read_text(encoding='utf-8', errors='replace')
-    target = S31_SCRATCH / 'target.srt'
-    ruler = S31_SCRATCH / 'ruler.srt'
-    if not target.exists() or target.read_text(encoding='utf-8').count(' --> ') < 100:
-        target.write_text(_rerender(source, lambda x: x + S31_TARGET_SHIFT), encoding='utf-8')
-    if not ruler.exists() or ruler.read_text(encoding='utf-8').count(' --> ') < 100:
-        ruler.write_text(_rerender(source, lambda x: x * S31_SPAN_STRETCH), encoding='utf-8')
 
-    if S31_MEDIA.exists():
-        # Rebuilt every run rather than reused: Jellyfin keeps an item's subtitle streams across a rescan, so a
-        # fixture that once had sidecars beside it keeps pointing at them after they are gone - measured
-        # 2026-09-15, which is why two earlier runs targeted a deleted sidecar (ordinal=-1) and fell back to the
-        # audio instead of exercising the ruler at all.
+    stale = S31_MEDIA.exists() and not mark.exists()
+    if stale:
         S31_MEDIA.unlink()
 
-    # A stream copy of the episode's video and audio with the original subtitle tracks dropped, plus the two
-    # crafted tracks. No re-encode: the file is 2,4 GB and copying it locally costs seconds.
+    target = S31_SCRATCH / 'target.srt'
+    ruler = S31_SCRATCH / 'ruler.srt'
+    # A correct ruler still has to reach the cross-check band for the check to be exercised at all: its own
+    # demand is the target's shift, so that variant uses a larger one (20 s > the 10 s band at the default
+    # ceiling). The other-cut variant keeps 5 s, where the ruler's *own* demand lands at ~24 s.
+    shift = S31_TARGET_SHIFT if ruler_kind != 'correct' else S31_TARGET_SHIFT_CORRECT
+    target.write_text(_rerender(source, lambda x: x + shift), encoding='utf-8')
+    ruler.write_text(_rerender(source, (lambda x: x) if ruler_kind == 'correct'
+                               else (lambda x: x * S31_SPAN_STRETCH)), encoding='utf-8')
+
     if not S31_MEDIA.exists():
         subprocess.run(
             ['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
@@ -435,12 +436,18 @@ def prepare_s31_fixtures() -> None:
              '-metadata:s:s:0', 'language=eng', '-metadata:s:s:1', 'language=pol',
              '-metadata', 'title=S31 Wrong Ruler', str(S31_MEDIA)],
             check=True, capture_output=True)
-    cues = source.count(' --> ')
-    log(f'[rig] S31 fixture ready: {S31_MEDIA.name}, {cues} cue(s) in each track - '
-        f'target shifted +{S31_TARGET_SHIFT:0.0f} s (eng), ruler stretched {S31_SPAN_STRETCH}x (pol)')
+
+    for other in S31_SCRATCH.glob('ruler-*.mark'):
+        other.unlink()
+    mark.write_text('ok')
+    log(f"[rig] S31 fixture ready ({ruler_kind} ruler): {source.count(' --> ')} cue(s) per track - "
+        f"target shifted +{shift:0.0f} s (eng), ruler "
+        + ('the film\'s own timeline (pol)' if ruler_kind == 'correct'
+           else f'stretched {S31_SPAN_STRETCH}x (pol)'))
 
 
 def scenario_s31_wrong_ruler(rig, args, ctx):
+    """Runs with `--s31-ruler correct` to prove the cross-check does not fire when the ruler is right."""
     """S31: a sibling subtitle from a different cut must not be trusted as a ruler.
 
     What the row is about, in the field's own shape: a track that passes every plausibility check the plugin has
@@ -456,7 +463,7 @@ def scenario_s31_wrong_ruler(rig, args, ctx):
     # streams) is dropped rather than updated in place, then scanned again once the file exists.
     rig.refresh_library()
     time.sleep(15)
-    prepare_s31_fixtures()
+    prepare_s31_fixtures(getattr(args, 's31_ruler', 'other-cut'))
     rig.refresh_library()
     time.sleep(10)
     # Looked up by path, not by name: Jellyfin names the movie after its folder, so a name filter finds nothing.
@@ -488,24 +495,42 @@ def scenario_s31_wrong_ruler(rig, args, ctx):
 
     text = '\n'.join(lines)
     scores = [ln for ln in lines if 'ffsubsync alignment: score=' in ln]
-    refused = [ln for ln in lines if 'not the same cut' in ln]
-    discarded = [ln for ln in lines if 'discarding that track as a ruler' in ln]
-    to_audio = [ln for ln in lines if 'reference: method=audio' in ln]
+    cross = [ln for ln in lines if 'cross-check' in ln]
+    disagree = [ln for ln in lines if 'disagree' in ln]
+    confirm = [ln for ln in lines if 'confirmed by' in ln]
+    discarded = [ln for ln in lines if 'discarded as a ruler' in ln]
     written = [ln for ln in lines if 'completed:' in ln]
-    ctx['observations'] = scores + refused + discarded + to_audio + written
+    ctx['observations'] = scores + cross + disagree + confirm + discarded + written
+    other_cut = getattr(args, 's31_ruler', 'other-cut') != 'correct'
 
-    return [
+    assertions = [
         ('the engine\'s alignment score is in the log', bool(scores),
-         scores[0].split('INFO')[-1].strip()[:150] if scores else '(no score line: the build throws it away)'),
-        ('a ruler whose cues did not move together is refused', bool(refused),
-         refused[0].split('INFO')[-1].strip()[:170] if refused else '(nothing refused it)'),
-        ('the refused ruler is discarded, not merely noted', bool(discarded),
-         discarded[0].split('INFO')[-1].strip()[:150] if discarded else '(the track was kept as a ruler)'),
-        ('the run aligns against the audio instead', bool(to_audio),
-         to_audio[0].split('INFO')[-1].strip()[:150] if to_audio else '(the wrong ruler decided the output)'),
-        ('a subtitle was produced without claiming the wrong ruler', bool(written),
-         (written[0].split('INFO')[-1].strip()[:150] if written else '(no completion line)')),
+         scores[0].split('INFO')[-1].strip()[:160] if scores else '(no score line: the build throws it away)'),
+        ('a suspicious ruler is cross-checked against the film\'s own audio', bool(cross),
+         cross[0].split('INFO')[-1].strip()[:150] if cross else '(no cross-check ran)'),
     ]
+    if other_cut:
+        assertions += [
+            ('the wrong ruler and the audio disagree', bool(disagree),
+             disagree[0].split('INFO')[-1].strip()[:190] if disagree else '(nothing disagreed)'),
+            ('the wrong ruler is discarded', bool(discarded),
+             discarded[0].split('INFO')[-1].strip()[:150] if discarded else '(the track was kept as a ruler)'),
+            ('the wrong ruler\'s answer was not written', any('UNVERIFIED' in ln or 'nothing written' in ln
+                                                           or 'method=audio' in ln for ln in lines),
+             ' | '.join(ln.split('INFO')[-1].strip()[:110] for ln in lines
+                        if 'UNVERIFIED' in ln or 'nothing written' in ln) or
+             ('completed with the audio\'s answer' if written else '(nothing said either way)')),
+        ]
+    else:
+        assertions += [
+            ('a correct ruler is confirmed by the audio, not refused', bool(confirm),
+             confirm[0].split('INFO')[-1].strip()[:180] if confirm else '(the audio never confirmed it)'),
+            ('nothing was discarded when the ruler was right', not discarded,
+             discarded[0].split('INFO')[-1].strip()[:150] if discarded else 'no discard, as expected'),
+            ('a subtitle was produced', bool(written),
+             written[0].split('INFO')[-1].strip()[:150] if written else '(no completion line)'),
+        ]
+    return assertions
 
 
 def scenario_s39_ratio(rig, args, ctx):
@@ -651,6 +676,8 @@ def main() -> int:
     parser.add_argument('--timeout', type=float, default=900.0, help='seconds to wait for the evidence')
     parser.add_argument('--settle', type=float, default=20.0, help='seconds after a refresh before queueing')
     parser.add_argument('--keep-rig', action='store_true', help='leave the server running for inspection')
+    parser.add_argument('--s31-ruler', choices=('other-cut', 'correct'), default='other-cut',
+                        help="S31's ruler: the same track from a different cut, or the film's own timeline")
     parser.add_argument('--fast-files', type=int, default=12,
                         help='walk fixtures (one engine run each): the reference needs 8 to count, so a few extra '
                              'survive the walks that are discarded for contention')

@@ -2986,6 +2986,22 @@ public class SubSyncService : IDisposable
         => otherVolumes.Count(v => !string.Equals(v, thisVolume, StringComparison.Ordinal));
 
     /// <summary>
+    /// Whether a subtitle ruler's answer and the film's own audio disagree about how far the subtitles must move.
+    /// </summary>
+    /// <remarks>
+    /// A pure function on purpose: the numbers are the decision, and a check has to be able to disagree with it.
+    /// Measured 2026-09-15 on the rig - the same ruler back-to-back agrees with itself to a hundredth of a second,
+    /// where the other-cut ruler's 24 170 ms against the audio's own answer is a different film's timeline.
+    /// </remarks>
+    /// <param name="rulerShiftMs">The shift the subtitle ruler asked for.</param>
+    /// <param name="audioShiftMs">The shift the film's own audio asked for, on the same subtitle.</param>
+    /// <param name="referenceCeilingMs">The configured limit on a subtitle ruler's demanded shift.</param>
+    /// <returns>True when the ruler loses to the audio.</returns>
+    internal static bool RulersDisagree(long rulerShiftMs, long audioShiftMs, double referenceCeilingMs)
+        => Math.Abs(audioShiftMs - rulerShiftMs)
+           > Math.Max(1.0, referenceCeilingMs) * SubtitleReferenceAudioAgreementFraction;
+
+    /// <summary>
     /// Whether a subtitle ruler's cues moved too unevenly for it to be this film's own timeline.
     /// </summary>
     /// <remarks>
@@ -3012,6 +3028,29 @@ public class SubSyncService : IDisposable
     /// the plugin *before* the engine sees it - which is why a wide spread here means the ruler, not the timing.
     /// </remarks>
     public const double SubtitleReferenceSpreadFraction = 0.25;
+
+    /// <summary>
+    /// How much of the configured reference ceiling a demanded shift may reach before the answer is cross-checked
+    /// against the film's own audio.
+    /// </summary>
+    /// <remarks>
+    /// A third of <c>MaxSubtitleReferenceOffsetSeconds</c>: 10 s at the 30 s default, which is the number this
+    /// band used to be written as in the log note ("a shift this size usually means that track is not the same
+    /// cut"). Deriving it keeps the default behaviour identical while making it follow the setting the user
+    /// actually controls.
+    /// </remarks>
+    public const double SuspiciousReferenceShiftFraction = 1.0 / 3.0;
+
+    /// <summary>
+    /// How far apart a subtitle ruler's answer and the film's own audio may be before the ruler loses.
+    /// </summary>
+    /// <remarks>
+    /// A tenth of the reference ceiling - 3 s at the default. Measured on 2026-09-15: two alignments of the same
+    /// file against the *same* ruler differ by hundredths of a second, and the rig's other-cut ruler measured
+    /// 24 170 ms against the audio's own answer, so the line sits between a measured agreement and a measured
+    /// disagreement rather than in the middle of one.
+    /// </remarks>
+    public const double SubtitleReferenceAudioAgreementFraction = 0.1;
 
     /// <summary>The ceiling a storage-bound volume is held to: two walks at a time.</summary>
     public const int StorageBoundWalkCap = 2;
@@ -5453,10 +5492,16 @@ public class SubSyncService : IDisposable
                 return;
             }
 
+            var suspiciousMs = referenceCeilingMs * SuspiciousReferenceShiftFraction;
+            var agreementMs = referenceCeilingMs * SubtitleReferenceAudioAgreementFraction;
             if (usedSubtitleReference
                 && measured is { } fromReferenceNote
-                && Math.Abs(fromReferenceNote.ShiftMs) > 10000)
+                && Math.Abs(fromReferenceNote.ShiftMs) > suspiciousMs)
             {
+                // The plugin's own words for a shift this size are "usually means that track is not the same cut",
+                // and until now it wrote the result anyway with that note on it. Instead, ask the one ruler that
+                // cannot be a different cut - the film's own audio - and let the two answers decide. It costs one
+                // audio analysis, cached per file like every other audio path, and only for shifts in this band.
                 cuesNote = Join(cuesNote, $"aligned to the reference subtitle {referenceSpec} at {fromReferenceNote.ShiftMs} ms - "
                     + "worth checking, a shift this size usually means the reference track is not the same cut");
                 _logger.LogInformation(
@@ -5467,6 +5512,103 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"[{job.Id}] note: aligned to the reference subtitle {referenceSpec} at {fromReferenceNote.ShiftMs} ms "
                     + "- check the result; a shift this size usually means that track is not the same cut");
+
+                var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");
+                SafeDelete(crossCheckOutput);
+                var crossReference = await PrepareAudioReferenceAsync(
+                    "the reference subtitle asked for a shift worth checking").ConfigureAwait(false);
+                // `webrtc`, not the configured VAD: with the default `subs_then_webrtc` the engine takes the
+                // video's *embedded subtitles* as the speech signal, and the ruler being cross-checked is one of
+                // them - measured 2026-09-15, the "audio" run then returned the ruler's own answer (24 170 ms
+                // against the film's real -0,08 s), i.e. it confirmed the very track it was meant to check.
+                var crossArgs = BuildFfSubSyncArgs(
+                    config, crossReference, subtitleInputPath, crossCheckOutput, tempDir, serializeSpeech, null,
+                    vadOverride: "webrtc");
+                double? crossScore = null;
+                double? crossOffset = null;
+                PluginLog.Info(
+                    $"[{job.Id}] cross-check run: reference={crossReference} input={subtitleInputPath} "
+                    + $"args={string.Join(' ', crossArgs)}");
+                var crossExit = await RunProcessWithStderrCallbackAsync(
+                    ffsubsyncExe, crossArgs, tempDir,
+                    line =>
+                    {
+                        if (TryParseEngineScore(line, out var parsedCrossScore))
+                        {
+                            crossScore = parsedCrossScore;
+                        }
+
+                        if (TryParseEngineOffset(line, out var parsedCrossOffset))
+                        {
+                            crossOffset = parsedCrossOffset;
+                        }
+                    },
+                    cancellationToken,
+                    new EngineWatch(job.Id, Path.GetFileName(videoPath), "audio")).ConfigureAwait(false);
+                LogEngineAlignment(job.Id, "the audio (cross-check of a subtitle ruler)", crossScore, crossOffset);
+                PluginLog.Info(
+                    $"[{job.Id}] cross-check exit={crossExit}, output={crossCheckOutput} "
+                    + $"exists={File.Exists(crossCheckOutput)}");
+
+                var fromAudio = crossExit == 0 && File.Exists(crossCheckOutput)
+                    ? MeasureSyncChange(subtitleInputPath, crossCheckOutput)
+                    : null;
+                if (fromAudio is { } audioChange)
+                {
+                    if (speechKey is not null && serializeSpeech)
+                    {
+                        SpeechCache.Harvest(crossReference, speechKey);
+                        SpeechCache.DropLink(speechKey);
+                        SpeechCache.Prune();
+                    }
+
+                    ReleaseSpeechGate(job, videoPath);
+                    var disagreementMs = Math.Abs(audioChange.ShiftMs - fromReferenceNote.ShiftMs);
+                    if (RulersDisagree(fromReferenceNote.ShiftMs, audioChange.ShiftMs, referenceCeilingMs))
+                    {
+                        // The two rulers disagree about this film, and only one of them can be a different cut.
+                        File.Copy(crossCheckOutput, tempOutput, overwrite: true);
+                        if (referenceSpec is not null)
+                        {
+                            ReferenceStore.Discard(videoPath, referenceSpec);
+                        }
+
+                        var wasSpec = referenceSpec;
+                        usedSubtitleReference = false;
+                        referenceSpec = null;
+                        referenceStream = null;
+                        referenceArg = crossReference;
+                        audioFallback = true;
+                        measured = MeasureSyncChange(subtitleInputPath, tempOutput);
+                        cuesNote = null;
+                        _logger.LogWarning(
+                            "Sync job {JobId}: the reference subtitle and the film's own audio disagree ({Ruler} ms against {Audio} ms) - writing the audio's answer",
+                            job.Id,
+                            fromReferenceNote.ShiftMs,
+                            audioChange.ShiftMs);
+                        PluginLog.Info(
+                            $"[{job.Id}] the reference subtitle {wasSpec} and the film's own audio disagree "
+                            + $"({fromReferenceNote.ShiftMs} ms against {audioChange.ShiftMs} ms, over the "
+                            + $"{agreementMs / 1000.0:0.#} s they are allowed to differ) \u2014 that track is not this "
+                            + $"film's timeline, so it is discarded as a ruler and the audio's answer is written, file={video.Path}");
+                        PluginLog.Info(
+                            $"[{job.Id}] reference: method=audio why=the reference subtitle and the film's own audio "
+                            + $"disagreed by {disagreementMs} ms");
+                    }
+                    else
+                    {
+                        PluginLog.Info(
+                            $"[{job.Id}] the reference subtitle's shift ({fromReferenceNote.ShiftMs} ms) is confirmed by "
+                            + $"the film's own audio ({audioChange.ShiftMs} ms, within {agreementMs / 1000.0:0.#} s) "
+                            + "- keeping the reference's answer");
+                    }
+                }
+                else
+                {
+                    PluginLog.Info(
+                        $"[{job.Id}] the audio cross-check of the reference subtitle produced no alignment "
+                        + $"(exit {crossExit}): the shift stands as noted, nothing new is decided");
+                }
             }
 
             // "Changed nothing" is about the subtitle the user has, so it is measured against that: when the
@@ -6085,12 +6227,15 @@ public class SubSyncService : IDisposable
         string subtitleOutput,
         string? logDir = null,
         bool serializeSpeech = false,
-        string? referenceStream = null)
+        string? referenceStream = null,
+        string? vadOverride = null)
     {
         // Validate config values to prevent argument injection
-        var vadMethod = AllowedVadMethods.Contains(config.VadMethod)
-            ? config.VadMethod
-            : "subs_then_webrtc";
+        var vadMethod = !string.IsNullOrWhiteSpace(vadOverride) && AllowedVadMethods.Contains(vadOverride)
+            ? vadOverride!
+            : AllowedVadMethods.Contains(config.VadMethod)
+                ? config.VadMethod
+                : "subs_then_webrtc";
         var outputEncoding = AllowedOutputEncodings.Contains(config.OutputEncoding)
             ? config.OutputEncoding
             : "utf-8";

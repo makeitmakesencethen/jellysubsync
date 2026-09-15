@@ -744,6 +744,40 @@ audio path exists, is cached per file, and is the one ruler that cannot be from 
 audio analysis for the suspicious case only. That is a scoped change, and it is what this row should close on -
 not a score threshold.
 
+**Part 2, 2026-09-15 - the cross-check, and the two findings that came out of building it.**
+
+What was implemented (working tree, commit with this entry): a subtitle ruler whose demand crosses a third of the
+configured ceiling (10 s at the default) is cross-checked against the film's own audio *before anything is
+written*, and when the two disagree by more than a tenth of that ceiling (3 s) the ruler is discarded and the
+audio's answer is written. Both fractions derive from `MaxSubtitleReferenceOffsetSeconds`, so the default
+behaviour is what it was and the numbers follow the setting the user controls.
+
+Proved in both directions on the rig, one command each:
+
+    python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler --s31-ruler other-cut   # 5 of 5
+    python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler --s31-ruler correct    # 5 of 5
+
+- the other-cut ruler: `the reference subtitle s:1 and the film's own audio disagree (24170 ms against -5080 ms,
+  over the 3 s they are allowed to differ) - that track is not this film's timeline, so it is discarded as a
+  ruler and the audio's answer is written`. The audio's -5080 ms is the truth for that fixture, measured
+  independently: the film's own audio puts the extracted track at -0,08 s, and the target is that track +5 s.
+  With the ruler gone the file has no second track to verify against, so the job reports
+  `UNVERIFIED: the audio was the only ruler (-5080 ms offset) ... nothing written` - the wrong answer is not
+  written, which is the outcome this row exists for.
+- the correct ruler: `the reference subtitle's shift (-20000 ms) is confirmed by the film's own audio
+  (-20080 ms, within 3 s) - keeping the reference's answer`, nothing discarded, the sidecar written. The check
+  can disagree in both directions, which is what makes it a check.
+
+**Finding 1 (worth its own row): the audio path is not necessarily audio.** The first version of the cross-check
+returned the *ruler's own* answer (24 170 ms, the same score to three decimals as the subtitle run), because
+`--vad subs_then_webrtc` - the plugin's default - makes ffsubsync read the video's **embedded subtitles** as its
+speech signal, and the ruler being checked is one of them. The cross-check now forces `webrtc` for that one run.
+The same trap sits under the *audio fallback* generally: on any file that carries subtitle tracks, "the audio
+ruler" can be a subtitle ruler wearing an audio name. Filed as S43 below.
+
+**Finding 2: the score still is not a threshold.** Recorded above; the log now carries it, which is what makes
+this kind of thing visible in the field.
+
 ### The walk ceiling A - shipped and verified in the field (2.0.30/2.0.31, done)
 
 The per-volume ceiling is in the released beta and was measured on fabji's own server, on the season that
@@ -1299,3 +1333,23 @@ Not fixed here: correcting it means deciding what a walk *is* when the read did 
 measure the extraction pass's own reads instead), and that is a decision for its own item, not a rider on S39.
 Until then, any walk-based ceiling on a run whose speech was already cached is suspect, and the tests/rig S39
 scenario clears the caches before the walk it needs for exactly this reason.
+
+### S43 - "the audio ruler" is whatever the VAD picks, and the default VAD reads subtitles (high, open)
+
+Found while proving S31 part 2, 2026-09-15, measured rather than reasoned. The plugin hands ffsubsync the media
+file as the audio reference with `--vad subs_then_webrtc` (the default, `AllowedVadMethods`), and that VAD takes
+the video's **embedded subtitle tracks** as the speech signal when it has any. So on a file with subtitles, the
+"audio" path can be a *subtitle* path - and in the S31 fixture it was the very track being cross-checked:
+
+    cross-check run: reference=.../speech-cache/7580d625....mkv input=.../shared/.../subtitle_4.srt
+    ffsubsync alignment: score=66451 offset=24.170 s against the audio (cross-check of a subtitle ruler)   <- the ruler's own answer
+    ... -5080 ms against the film's real answer once `webrtc` is forced instead
+
+The same run with `--vad webrtc` gives -5080 ms, which matches the film's own measurement (-0,08 s for the
+extracted track, the fixture's target being that track +5 s). The cross-check in S31 now forces `webrtc` for its
+one run, but the general path is open: `PrepareAudioReferenceAsync` calls the audio analysis a measurement of the
+*audio*, and with this VAD on a file that has subtitles it may be a measurement of a subtitle track - including a
+wrong one, which is precisely the case the audio fallback exists to escape. Next step is a rig scenario that
+queues an audio-only fallback on a file whose embedded subtitle is the wrong ruler and shows whether the fallback
+inherits the ruler's answer; the fix is either forcing `webrtc` in the analysis or documenting the VAD's
+behaviour where the fallback is decided.

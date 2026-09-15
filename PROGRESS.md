@@ -56,24 +56,29 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
-## Item 3 - S31 (in progress; the user reordered the register around correctness and data-safety)
+## Item 3 - S31 (the two mechanisms are in and proved; the row stays open for the decision it recorded)
 
-Reproduced end to end on the rig, then partly fixed - and the fix the row proposed is refuted by measurement.
+Reproduced, implemented, and proved in both directions on the rig. Nothing shipped (held as instructed).
 
-- **Reproduction** (`python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler`): a sibling embedded track from
-  a different cut (the same track stretched 1,02x) passes every check and makes the plugin write a wrong subtitle
-  with a *note* and a `Completed` status - ~29 s wrong, silently. Released 2.0.38, quoted in the register.
-- **Implemented**: the engine's own `score:`/`offset seconds:` are captured and logged for both reference paths;
-  `SyncChange` carries the per-cue dispersion and `RulerSpreadTooWide` refuses a ruler whose cues did not move
-  together. 638 checks green, nine of them new.
-- **Refuted**: "refuse when the score is far below what the audio path produces" does not discriminate - the wrong
-  ruler in the rig scored 66 451 against the same file's audio 53 566, and in a direct test an other-cut ruler
-  scored *higher* (274 721) than the correct one (198 713). Numbers in the register.
-- **Next, and the shape S31 should close on**: cross-check a subtitle ruler's answer against the film's own audio
-  when its demand is suspicious (the note above is the plugin saying "this looks wrong" and doing nothing). One
-  audio analysis, cached, for the suspicious case only.
+- **Reproduction**: `--scenario s31-wrong-ruler --s31-ruler other-cut`, a real 50-minute episode whose sibling
+  embedded track is the same episode from a different cut (stretched 1,02x - passes cue count, the 3 % span rule
+  and the 30 s ceiling). The film's own answer for that fixture is -5,08 s, measured independently.
+- **Implemented**: the engine's `score:`/`offset seconds:` are captured and logged for every run; a subtitle ruler
+  whose demand crosses a third of the configured ceiling is cross-checked against the film's own audio, and when
+  the two disagree by more than a tenth of that ceiling the ruler is discarded and the audio's answer is written;
+  a ruler whose cues did not move together is refused outright. All fractions derive from
+  `MaxSubtitleReferenceOffsetSeconds` - no hand-picked constant.
+- **Proved**: other-cut ruler 5/5 (`… disagree (24170 ms against -5080 ms, over the 3 s they are allowed to
+  differ) … discarded as a ruler`, and the wrong answer is not written - the job reports `UNVERIFIED: the audio
+  was the only ruler (-5080 ms offset) … nothing written`); correct ruler 5/5 (`… confirmed by the film's own
+  audio (-20080 ms, within 3 s) - keeping the reference's answer`, nothing discarded, sidecar written).
+- **Not a score threshold**, with the table in the register: a wrong ruler scored 274 721 against a correct
+  ruler's 198 713 in a direct test, and the rig's wrong ruler 66 451 against the same file's audio 53 566.
+- **New row S43 (high, open)**: the "audio" reference is whatever the VAD picks - the default `subs_then_webrtc`
+  reads the video's embedded subtitles, so an audio-named ruler can be a subtitle ruler, including the wrong one.
+  Measured: the cross-check returned the ruler's own answer until it forced `webrtc` for that run.
 
-Hold for go-ahead before shipping, as instructed: the work is committed locally, not pushed.
+Suite: 642 checks green. Register linter PASS (S31 open with its severity, S43 added).
 
 ## Then, in the register's order
 

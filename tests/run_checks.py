@@ -626,6 +626,24 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
     }
 }
 
+// S31 part 2: a suspicious subtitle ruler is cross-checked against the film's own audio before anything is
+// written. Measured on the rig 2026-09-15: the other-cut ruler asked for +24 170 ms while the audio's own answer
+// was -5 000 ms (the fixture's true shift), where two alignments against the *same* ruler agree to hundredths.
+{
+    Check("a ruler and the audio that disagree decide against the ruler",
+        SubSyncService.RulersDisagree(24170, -5000, 30_000),
+        "24 170 ms against -5 000 ms at a 30 s ceiling");
+    Check("a ruler the audio confirms is kept",
+        !SubSyncService.RulersDisagree(5000, 5050, 30_000),
+        "5 000 ms against 5 050 ms at a 30 s ceiling");
+    Check("the band that triggers the cross-check is a third of the configured ceiling, so 10 s by default",
+        Math.Abs(SubSyncService.SuspiciousReferenceShiftFraction - (1.0 / 3.0)) < 1e-9
+        && Math.Abs(30_000 * SubSyncService.SuspiciousReferenceShiftFraction - 10_000) < 0.5
+        && Math.Abs(SubSyncService.SubtitleReferenceAudioAgreementFraction - 0.1) < 1e-9,
+        $"fractions: {SubSyncService.SuspiciousReferenceShiftFraction}, "
+        + $"{SubSyncService.SubtitleReferenceAudioAgreementFraction}");
+}
+
 // S33: the walk is the second signal, and the only one that exists when every extraction in a run was served
 // from the subtitle cache and nothing was read through the policy at all. A volume measured this way must not
 // sit at the conservative ceiling for ever. The throughputs are the ones measured on 2026-09-14: the share
@@ -2878,9 +2896,16 @@ def run_page_checks():
     report('the engine\'s alignment score is captured and logged for both reference paths',
            'TryParseEngineScore(line' in service_source
            and 'LogEngineAlignment(' in service_source
-           and service_source.count('LogEngineAlignment(') == 3      # the method and its two callers
+           and service_source.count('LogEngineAlignment(') >= 3       # the method and its callers
            and 'ffsubsync alignment: score=' in service_source
            and 'alignment: score={scoreText} offset={offsetText} against {reference}' in service_source)
+
+    report('a suspicious subtitle ruler is cross-checked against the film\'s own audio before it is written',
+           'RulersDisagree(fromReferenceNote.ShiftMs, audioChange.ShiftMs, referenceCeilingMs)' in service_source
+           and 'the reference subtitle and the film\'s own audio disagree' in service_source
+           and 'cross-check of a subtitle ruler' in service_source
+           and 'keeping the reference\'s answer' in service_source
+           and 'SuspiciousReferenceShiftFraction = 1.0 / 3.0' in service_source)
 
     report('a subtitle ruler whose cues did not move together is refused as not the same cut',
            'RulerSpreadTooWide(spread, referenceCeilingMs)' in service_source
