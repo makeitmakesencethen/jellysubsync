@@ -3840,5 +3840,257 @@
       "2026-09-15 20:22:03.832Z INFO  batch history: restored 20 batch(es), 47 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
     ],
     "seconds": 11.4
+  },
+  {
+    "scenario": "smoke",
+    "when": "2026-09-15 20:48:23",
+    "plugin": "SubSync_2.0.52.0",
+    "shim": null,
+    "note": "",
+    "repo_head": "a9dd6d2",
+    "assertions": [
+      {
+        "check": "the rig lists items at all",
+        "passed": true,
+        "detail": "40 item(s)"
+      },
+      {
+        "check": "the shimmed volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the fast volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /dev/shm/s39-fast (shm)"
+      },
+      {
+        "check": "the two volumes are different volumes",
+        "passed": true,
+        "detail": "/dev/nvme0n1p2 vs shm"
+      },
+      {
+        "check": "the plugin log is where the plugin writes",
+        "passed": true,
+        "detail": "/opt/data/jf12test/data/data/subsync/logs/subsync.log"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "slow volume key: /dev/nvme0n1p2",
+      "fast volume key: shm"
+    ],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 20:26:48.830Z INFO  extract: method=cache cues=778 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=45 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:48.831Z INFO  [929f27e477244b31bb6f71268055c9c3] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_56.srt -o /opt/data/jf12test/cache/subsync/929f27e477244b31bb6f71268055c9c3/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/929f27e477244b31bb6f71268055c9c3",
+      "2026-09-15 20:26:48.831Z INFO  [929f27e477244b31bb6f71268055c9c3] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:49.110Z INFO  [439c58c017a549338898c389276394f1] ffsubsync exit=0 after 673 ms",
+      "2026-09-15 20:26:49.110Z INFO  [439c58c017a549338898c389276394f1] ffsubsync alignment: score=201377 offset=0.040 s against reference subtitle s:1",
+      "2026-09-15 20:26:49.114Z INFO  job 439c58c017a549338898c389276394f1 completed: mode=ultimate output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.SYNCED.tur.srt bytes=53456 change=+40 ms offset extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:49.248Z INFO  extract: method=cache cues=790 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=46 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:49.249Z INFO  [85052de131664012a1a2727a3dd3d7e5] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_57.srt -o /opt/data/jf12test/cache/subsync/85052de131664012a1a2727a3dd3d7e5/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/85052de131664012a1a2727a3dd3d7e5",
+      "2026-09-15 20:26:49.249Z INFO  [85052de131664012a1a2727a3dd3d7e5] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:49.578Z INFO  [929f27e477244b31bb6f71268055c9c3] ffsubsync exit=0 after 747 ms",
+      "2026-09-15 20:26:49.579Z INFO  [929f27e477244b31bb6f71268055c9c3] ffsubsync alignment: score=214289 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:49.580Z INFO  job 929f27e477244b31bb6f71268055c9c3 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:49.610Z INFO  dispatch: starting 2, running 3, limit 64, queued 2, batch 753e43899f2b465d9d8f6b720f98f169",
+      "2026-09-15 20:26:49.661Z INFO  extract: method=cache cues=792 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=48 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:49.662Z INFO  extract: method=cache cues=743 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=47 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:49.663Z INFO  [b43e592cd3ab4289b302846d38852746] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_58.srt -o /opt/data/jf12test/cache/subsync/b43e592cd3ab4289b302846d38852746/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/b43e592cd3ab4289b302846d38852746",
+      "2026-09-15 20:26:49.663Z INFO  [b43e592cd3ab4289b302846d38852746] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:49.663Z INFO  [ae38f97435fb4815a2fe228b4cf41100] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_59.srt -o /opt/data/jf12test/cache/subsync/ae38f97435fb4815a2fe228b4cf41100/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/ae38f97435fb4815a2fe228b4cf41100",
+      "2026-09-15 20:26:49.663Z INFO  [ae38f97435fb4815a2fe228b4cf41100] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:49.967Z INFO  [85052de131664012a1a2727a3dd3d7e5] ffsubsync exit=0 after 717 ms",
+      "2026-09-15 20:26:49.967Z INFO  [85052de131664012a1a2727a3dd3d7e5] ffsubsync alignment: score=203696 offset=0.040 s against reference subtitle s:1",
+      "2026-09-15 20:26:49.971Z INFO  job 85052de131664012a1a2727a3dd3d7e5 completed: mode=ultimate output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.SYNCED.ukr.srt bytes=69602 change=+40 ms offset extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.045Z INFO  extract: method=cache cues=782 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=49 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:50.045Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_60.srt -o /opt/data/jf12test/cache/subsync/c50397d06cad4248be0288eb50310f56/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/c50397d06cad4248be0288eb50310f56",
+      "2026-09-15 20:26:50.045Z INFO  [c50397d06cad4248be0288eb50310f56] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:50.504Z INFO  [b43e592cd3ab4289b302846d38852746] ffsubsync exit=0 after 841 ms",
+      "2026-09-15 20:26:50.504Z INFO  [b43e592cd3ab4289b302846d38852746] ffsubsync alignment: score=212817 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.508Z INFO  job b43e592cd3ab4289b302846d38852746 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.617Z INFO  [ae38f97435fb4815a2fe228b4cf41100] ffsubsync exit=0 after 953 ms",
+      "2026-09-15 20:26:50.617Z INFO  [ae38f97435fb4815a2fe228b4cf41100] ffsubsync alignment: score=215601 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.618Z INFO  job ae38f97435fb4815a2fe228b4cf41100 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.815Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync exit=0 after 769 ms",
+      "2026-09-15 20:26:50.815Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync alignment: score=212955 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.817Z INFO  job c50397d06cad4248be0288eb50310f56 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:53.902Z INFO  [2b5a3d2a747d40d7b1bcd422e5251a0e] ffsubsync alignment: score=123351 offset=38.160 s against the audio",
+      "2026-09-15 20:26:53.903Z INFO  [2b5a3d2a747d40d7b1bcd422e5251a0e] reference: method=audio why=the reference subtitle was not the same cut (it demanded -59080 ms)",
+      "2026-09-15 20:26:53.903Z INFO  job 2b5a3d2a747d40d7b1bcd422e5251a0e UNVERIFIED: the audio was the only ruler (+38160 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:27:02.027Z INFO  KILL requested: 0 queued cancelled, 0 run token(s), 0 of 0 process tree(s) stopped, 0 survivor(s)",
+      "2026-09-15 20:48:26.174Z INFO  startup: version=2.0.52.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.52.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 20:48:27.714Z INFO  batch history: restored 20 batch(es), 159 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 11.5
+  },
+  {
+    "scenario": "smoke",
+    "when": "2026-09-15 20:50:02",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "",
+    "repo_head": "a9dd6d2",
+    "assertions": [
+      {
+        "check": "the rig lists items at all",
+        "passed": true,
+        "detail": "40 item(s)"
+      },
+      {
+        "check": "the shimmed volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the fast volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /dev/shm/s39-fast (shm)"
+      },
+      {
+        "check": "the two volumes are different volumes",
+        "passed": true,
+        "detail": "/dev/nvme0n1p2 vs shm"
+      },
+      {
+        "check": "the plugin log is where the plugin writes",
+        "passed": true,
+        "detail": "/opt/data/jf12test/data/data/subsync/logs/subsync.log"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "slow volume key: /dev/nvme0n1p2",
+      "fast volume key: shm"
+    ],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 20:26:49.971Z INFO  job 85052de131664012a1a2727a3dd3d7e5 completed: mode=ultimate output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.SYNCED.ukr.srt bytes=69602 change=+40 ms offset extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.045Z INFO  extract: method=cache cues=782 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=49 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 20:26:50.045Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/bebfa66a9e6626b046fb3d6f8d19a9de.ref.srt -i /opt/data/jf12test/cache/subsync/shared/429f98ca746d0aed/subtitle_60.srt -o /opt/data/jf12test/cache/subsync/c50397d06cad4248be0288eb50310f56/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/c50397d06cad4248be0288eb50310f56",
+      "2026-09-15 20:26:50.045Z INFO  [c50397d06cad4248be0288eb50310f56] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:26:50.504Z INFO  [b43e592cd3ab4289b302846d38852746] ffsubsync exit=0 after 841 ms",
+      "2026-09-15 20:26:50.504Z INFO  [b43e592cd3ab4289b302846d38852746] ffsubsync alignment: score=212817 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.508Z INFO  job b43e592cd3ab4289b302846d38852746 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.617Z INFO  [ae38f97435fb4815a2fe228b4cf41100] ffsubsync exit=0 after 953 ms",
+      "2026-09-15 20:26:50.617Z INFO  [ae38f97435fb4815a2fe228b4cf41100] ffsubsync alignment: score=215601 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.618Z INFO  job ae38f97435fb4815a2fe228b4cf41100 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:50.815Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync exit=0 after 769 ms",
+      "2026-09-15 20:26:50.815Z INFO  [c50397d06cad4248be0288eb50310f56] ffsubsync alignment: score=212955 offset=0.000 s against reference subtitle s:1",
+      "2026-09-15 20:26:50.817Z INFO  job c50397d06cad4248be0288eb50310f56 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-15 20:26:53.902Z INFO  [2b5a3d2a747d40d7b1bcd422e5251a0e] ffsubsync alignment: score=123351 offset=38.160 s against the audio",
+      "2026-09-15 20:26:53.903Z INFO  [2b5a3d2a747d40d7b1bcd422e5251a0e] reference: method=audio why=the reference subtitle was not the same cut (it demanded -59080 ms)",
+      "2026-09-15 20:26:53.903Z INFO  job 2b5a3d2a747d40d7b1bcd422e5251a0e UNVERIFIED: the audio was the only ruler (+38160 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:27:02.027Z INFO  KILL requested: 0 queued cancelled, 0 run token(s), 0 of 0 process tree(s) stopped, 0 survivor(s)",
+      "2026-09-15 20:48:26.174Z INFO  startup: version=2.0.52.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.52.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 20:48:27.714Z INFO  batch history: restored 20 batch(es), 159 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 20:48:35.187Z INFO  queued: job=ee6193b05b0247b2983e5f81de4e1552 item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 ordinal=-1 mode=auto batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:48:35.222Z INFO  extract lane: started",
+      "2026-09-15 20:48:35.224Z INFO  extract lane: started",
+      "2026-09-15 20:48:35.224Z INFO  extract lane: started",
+      "2026-09-15 20:48:35.247Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 20:48:35.320Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch (standalone)",
+      "2026-09-15 20:48:35.439Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 20:48:35.495Z INFO  reference: method=cache cues=803 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=1",
+      "2026-09-15 20:48:35.499Z INFO  [ee6193b05b0247b2983e5f81de4e1552] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:48:35.505Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/fd37105575303109ae9e7d55dfb41390.ref.srt -i /opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.srt -o /opt/data/jf12test/cache/subsync/ee6193b05b0247b2983e5f81de4e1552/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/ee6193b05b0247b2983e5f81de4e1552",
+      "2026-09-15 20:48:35.508Z INFO  [ee6193b05b0247b2983e5f81de4e1552] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:48:36.096Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync exit=0 after 588 ms",
+      "2026-09-15 20:48:36.099Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync alignment: score=203700 offset=-5.000 s against reference subtitle s:1",
+      "2026-09-15 20:48:36.124Z INFO  job ee6193b05b0247b2983e5f81de4e1552 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=69602 change=-5000 ms offset extraction=n/a",
+      "2026-09-15 20:49:15.165Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.297Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.298Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.301Z INFO  teardown: tracked=0 stopped=0 killedDirect=0 exitedDirect=0 aliveAfter=0 tasksDone=4/4 trackedLeft=0",
+      "2026-09-15 20:50:04.910Z INFO  startup: version=2.0.52.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.53.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 20:50:06.457Z INFO  batch history: restored 20 batch(es), 159 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 20:50:06.465Z INFO  startup: removed 2 orphaned job scratch director(ies)"
+    ],
+    "seconds": 11.3
+  },
+  {
+    "scenario": "smoke",
+    "when": "2026-09-15 20:52:18",
+    "plugin": "SubSync_2.0.53.0",
+    "shim": null,
+    "note": "",
+    "repo_head": "a9dd6d2",
+    "assertions": [
+      {
+        "check": "the rig lists items at all",
+        "passed": true,
+        "detail": "40 item(s)"
+      },
+      {
+        "check": "the shimmed volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /opt/data/jf12test/media-slow (/dev/nvme0n1p2)"
+      },
+      {
+        "check": "the fast volume has the scenario fixture",
+        "passed": true,
+        "detail": "1 on /dev/shm/s39-fast (shm)"
+      },
+      {
+        "check": "the two volumes are different volumes",
+        "passed": true,
+        "detail": "/dev/nvme0n1p2 vs shm"
+      },
+      {
+        "check": "the plugin log is where the plugin writes",
+        "passed": true,
+        "detail": "/opt/data/jf12test/data/data/subsync/logs/subsync.log"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "slow volume key: /dev/nvme0n1p2",
+      "fast volume key: shm"
+    ],
+    "batch": null,
+    "log_tail": [
+      "2026-09-15 20:48:35.224Z INFO  extract lane: started",
+      "2026-09-15 20:48:35.247Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 20:48:35.320Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch (standalone)",
+      "2026-09-15 20:48:35.439Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 20:48:35.495Z INFO  reference: method=cache cues=803 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=1",
+      "2026-09-15 20:48:35.499Z INFO  [ee6193b05b0247b2983e5f81de4e1552] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:48:35.505Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/fd37105575303109ae9e7d55dfb41390.ref.srt -i /opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.srt -o /opt/data/jf12test/cache/subsync/ee6193b05b0247b2983e5f81de4e1552/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/ee6193b05b0247b2983e5f81de4e1552",
+      "2026-09-15 20:48:35.508Z INFO  [ee6193b05b0247b2983e5f81de4e1552] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:48:36.096Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync exit=0 after 588 ms",
+      "2026-09-15 20:48:36.099Z INFO  [ee6193b05b0247b2983e5f81de4e1552] ffsubsync alignment: score=203700 offset=-5.000 s against reference subtitle s:1",
+      "2026-09-15 20:48:36.124Z INFO  job ee6193b05b0247b2983e5f81de4e1552 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=69602 change=-5000 ms offset extraction=n/a",
+      "2026-09-15 20:49:15.165Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.297Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.298Z INFO  extract lane: stopped",
+      "2026-09-15 20:49:15.301Z INFO  teardown: tracked=0 stopped=0 killedDirect=0 exitedDirect=0 aliveAfter=0 tasksDone=4/4 trackedLeft=0",
+      "2026-09-15 20:50:04.910Z INFO  startup: version=2.0.52.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.53.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 20:50:06.457Z INFO  batch history: restored 20 batch(es), 159 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 20:50:06.465Z INFO  startup: removed 2 orphaned job scratch director(ies)",
+      "2026-09-15 20:50:13.789Z INFO  queued: job=50a73ee45c8a440d83908ed7dd7c9b66 item=7dffdc11-79c6-0bc0-d778-5db9dbd958f2 stream=0 ordinal=-1 mode=auto batch=(standalone) language=swe external=True forced=False codec=subrip video=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:50:13.824Z INFO  extract lane: started",
+      "2026-09-15 20:50:13.824Z INFO  extract lane: started",
+      "2026-09-15 20:50:13.824Z INFO  extract lane: started",
+      "2026-09-15 20:50:13.861Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 20:50:13.895Z INFO  sweep: removed 1 orphaned job scratch director(ies)",
+      "2026-09-15 20:50:13.936Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch (standalone)",
+      "2026-09-15 20:50:14.033Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 20:50:14.086Z INFO  reference: method=cache cues=803 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv stream=1",
+      "2026-09-15 20:50:14.092Z INFO  [50a73ee45c8a440d83908ed7dd7c9b66] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.mkv",
+      "2026-09-15 20:50:14.103Z INFO  [50a73ee45c8a440d83908ed7dd7c9b66] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/f9a3a961bf9b0fa1/fd37105575303109ae9e7d55dfb41390.ref.srt -i /opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.srt -o /opt/data/jf12test/cache/subsync/50a73ee45c8a440d83908ed7dd7c9b66/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/50a73ee45c8a440d83908ed7dd7c9b66",
+      "2026-09-15 20:50:14.108Z INFO  [50a73ee45c8a440d83908ed7dd7c9b66] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 20:50:14.681Z INFO  [50a73ee45c8a440d83908ed7dd7c9b66] ffsubsync exit=0 after 573 ms",
+      "2026-09-15 20:50:14.684Z INFO  [50a73ee45c8a440d83908ed7dd7c9b66] ffsubsync alignment: score=203700 offset=-5.000 s against reference subtitle s:1",
+      "2026-09-15 20:50:14.708Z INFO  job 50a73ee45c8a440d83908ed7dd7c9b66 completed: mode=normal output=/opt/data/jf12test/media/Helikopterr\u00e5net S01E01.swe.SYNCED.srt bytes=69602 change=-5000 ms offset extraction=n/a",
+      "2026-09-15 20:50:17.305Z INFO  extract lane: stopped",
+      "2026-09-15 20:50:17.333Z INFO  extract lane: stopped",
+      "2026-09-15 20:50:17.333Z INFO  extract lane: stopped",
+      "2026-09-15 20:50:17.574Z INFO  teardown: tracked=0 stopped=0 killedDirect=0 exitedDirect=0 aliveAfter=0 tasksDone=4/4 trackedLeft=0",
+      "2026-09-15 20:52:20.610Z INFO  startup: version=2.0.53.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.53.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 20:52:22.136Z INFO  batch history: restored 20 batch(es), 159 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 20:52:22.146Z INFO  startup: removed 5 orphaned job scratch director(ies)"
+    ],
+    "seconds": 11.5
   }
 ]

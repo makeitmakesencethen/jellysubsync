@@ -1,0 +1,41 @@
+{
+  "probe": "f7",
+  "checks": [
+    {
+      "check": "F7: the rig starts with the planted directories in place",
+      "ok": true,
+      "detail": "smoke run passed"
+    },
+    {
+      "check": "F7: every scratch directory left by a dead job is gone once the plugin has loaded",
+      "ok": true,
+      "detail": "0 of 5 still there"
+    },
+    {
+      "check": "F7: a directory that is not a job id is left alone",
+      "ok": true,
+      "detail": "the id rule still holds while sweeping"
+    },
+    {
+      "check": "F7: the plugin says what it removed at startup",
+      "ok": true,
+      "detail": "log said ['5'], expected 5"
+    },
+    {
+      "check": "F7: a scratch directory that appears while the server runs is swept by maintenance, with no button pressed",
+      "ok": true,
+      "detail": "swept after 180s"
+    },
+    {
+      "check": "F7: the maintenance sweep is reported in the log too",
+      "ok": true,
+      "detail": "log said ['1']"
+    },
+    {
+      "check": "F7: the reference cache beside the job directories is left alone",
+      "ok": true,
+      "detail": "only job scratch directories are candidates"
+    }
+  ],
+  "failures": 0
+}

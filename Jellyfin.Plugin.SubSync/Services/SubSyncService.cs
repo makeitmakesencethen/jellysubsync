@@ -277,6 +277,16 @@ public class FfSubSyncInstallationStatus
     /// <summary>Gets or sets a summary of the cached speech analysis used by fast mode.</summary>
     public string? SpeechCacheSummary { get; set; }
 
+    /// <summary>
+    /// Gets or sets a summary of the extracted-subtitle cache (F16).
+    /// </summary>
+    /// <remarks>
+    /// The audio cache was described in the interface and this one was not, although it is the larger of the two on a
+    /// library that has been synced for a while: it holds the subtitle text taken out of each media file, on disk for
+    /// 120 days and capped in size, plus a bounded in-memory layer for the files being worked on right now.
+    /// </remarks>
+    public string? SubtitleCacheSummary { get; set; }
+
     /// <summary>Gets or sets the bundled ffsubsync version (plugin-shipped binary), if present.</summary>
     public string? BundledFfSubSyncVersion { get; set; }
 
@@ -614,6 +624,22 @@ public class SubSyncService : IDisposable
         _cleanupTimer = new Timer(_ => CleanupOldJobs(), null, TimeSpan.FromMinutes(30), TimeSpan.FromMinutes(30));
 
         RestoreBatchHistory();
+
+        // A plugin that was stopped while jobs were running leaves their scratch directories behind, and nothing else
+        // removes them until someone clears the cache by hand (F7). This runs before the first pass, so the cache root
+        // starts clean rather than after the first maintenance window.
+        try
+        {
+            var orphans = ClearStaleJobDirectories();
+            if (orphans > 0)
+            {
+                PluginLog.Info($"startup: removed {orphans} orphaned job scratch director(ies)");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not sweep orphaned scratch directories at startup");
+        }
     }
 
     /// <summary>
@@ -821,7 +847,11 @@ public class SubSyncService : IDisposable
                 .GetName().Version?.ToString() ?? string.Empty,
 
             // Where the plugin's own log is, so it can be opened from the interface.
-            LogFile = PluginLog.Describe()
+            LogFile = PluginLog.Describe(),
+
+            // What the extracted-subtitle cache holds and what bounds it, reported with the audio cache so the two are
+            // described in the same place (F16).
+            SubtitleCacheSummary = SubtitleCache.Describe()
         };
 
         // Check system python3
@@ -2016,7 +2046,18 @@ public class SubSyncService : IDisposable
             // shared extraction directories, a log or state directory, or a directory somebody else put
             // there) is not this method's to remove, and a recursive delete of a misconfigured root used to
             // take files outside the plugin's own scratch with it.
-            if (!IsJobScratchDirectory(name) || _jobs.ContainsKey(name))
+            if (!IsJobScratchDirectory(name))
+            {
+                continue;
+            }
+
+            // A job that is still queued or running may be using its directory right now, so it is left alone. A job
+            // that is merely *known* - it finished, failed, was cancelled, or was restored from the history file after
+            // a restart - does not protect its directory: that is precisely the directory this sweep is for (F7). The
+            // first version of this check asked only whether the id was known, which left every interrupted job's
+            // directory in place forever once its record had been written to the history file.
+            if (_jobs.TryGetValue(name, out var tracked)
+                && tracked.Status is SyncJobStatus.Queued or SyncJobStatus.Running)
             {
                 continue;
             }
@@ -2262,7 +2303,9 @@ public class SubSyncService : IDisposable
     private static long ResolveEnqueueTraceMs()
     {
         var raw = Environment.GetEnvironmentVariable("SUBSYNC_ENQUEUE_TRACE_MS");
-        return long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : 250;
+        return long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var parsed) && parsed >= 0
+            ? parsed
+            : 250;
     }
 
     private const int MaxExtractionLanes = 3;
@@ -4530,7 +4573,7 @@ public class SubSyncService : IDisposable
         foreach (var line in ffmpegOutput.Split('\n'))
         {
             var match = System.Text.RegularExpressions.Regex.Match(line, @"Stream\s+#0:(\d+)[^:]*:\s*Subtitle:");
-            if (match.Success && int.TryParse(match.Groups[1].Value, out var idx))
+            if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx))
             {
                 result.Add(idx);
             }
@@ -4613,10 +4656,10 @@ public class SubSyncService : IDisposable
 
         var parts = token.Split(':', ',', '.');
         if (parts.Length < 4
-            || !int.TryParse(parts[0], out var h)
-            || !int.TryParse(parts[1], out var m)
-            || !int.TryParse(parts[2], out var s)
-            || !int.TryParse(parts[3], out var frac))
+            || !int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var h)
+            || !int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var m)
+            || !int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var s)
+            || !int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var frac))
         {
             return false;
         }
@@ -4762,16 +4805,16 @@ public class SubSyncService : IDisposable
                     continue;
                 }
 
-                if (int.TryParse(parts[0], out var h)
-                    && int.TryParse(parts[1], out var m)
-                    && int.TryParse(parts[2], out var s))
+                if (int.TryParse(parts[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var h)
+                    && int.TryParse(parts[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var m)
+                    && int.TryParse(parts[2], NumberStyles.Integer, CultureInfo.InvariantCulture, out var s))
                 {
                     // The fraction matters: SRT writes milliseconds (",500"), and dropping them
                     // truncated every cue to a whole second. A real 400 ms shift then measured as
                     // "0 ms offset" - which would have skipped saving a genuine correction. Some
                     // tools write one or two digits, so scale by the digit count.
                     var fraction = 0.0;
-                    if (parts.Length > 3 && int.TryParse(parts[3], out var frac))
+                    if (parts.Length > 3 && int.TryParse(parts[3], NumberStyles.Integer, CultureInfo.InvariantCulture, out var frac))
                     {
                         fraction = frac / Math.Pow(10, parts[3].Length);
                     }
@@ -7369,7 +7412,7 @@ public class SubSyncService : IDisposable
 
         // Try to parse tqdm percentage
         var match = TqdmPercentRegex.Match(line);
-        if (match.Success && int.TryParse(match.Groups[1].Value, out var percent))
+        if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var percent))
         {
             // Speech extraction phase: map 0-100% → 0.10-0.55
             job.Progress = 0.10 + (percent / 100.0) * 0.45;
@@ -7523,6 +7566,15 @@ public class SubSyncService : IDisposable
             }
 
             Interlocked.Exchange(ref _lastStoreSweepTicks, now.Ticks);
+
+            // Scratch directories are the other thing a run leaves behind (F7): a job that was killed or whose process
+            // died never reached its own cleanup, and its directory then sat in the cache root until an operator pressed
+            // "Clear cache". They are swept on the same pass that sweeps the stores, and once when the plugin loads.
+            var scratchRemoved = ClearStaleJobDirectories();
+            if (scratchRemoved > 0)
+            {
+                PluginLog.Info($"sweep: removed {scratchRemoved} orphaned job scratch director(ies)");
+            }
 
             var liveFiles = new HashSet<string>(StringComparer.Ordinal);
             foreach (var job in _jobs.Values)

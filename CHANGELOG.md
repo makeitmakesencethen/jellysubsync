@@ -1,3 +1,39 @@
+## 2.0.53 (beta)
+
+Hygiene: the things this plugin leaves behind, and the numbers it reads.
+
+**F7 — nobody should have to press a button to clean up after a kill.** A job that is killed, or a server that is stopped
+mid-run, left its scratch directory in the cache root, and the only thing that ever removed one was the operator-facing
+"clear the cache" action — so they accumulated on any server where jobs had been cancelled. They are now swept by the
+same maintenance pass that prunes the caches, and once when the plugin loads. The sweep keeps its old safety rule: only
+directories whose name is a job id are candidates, and a directory that belongs to a job that is queued or running is
+never touched. That last clause is where the first version of the fix was wrong, and the rig caught it: it asked whether
+the id was merely *known*, and every interrupted job's record is in the history file, so their directories were still
+there after the sweep. A job that finished, failed or was cancelled does not protect its directory — that directory is
+the thing being cleaned up. Measured on the rig, on a cache root that had accumulated three stale directories from
+earlier runs: all five (three already there, two planted) were gone after the plugin loaded (the log says
+`startup: removed 5 orphaned job scratch director(ies)`), a directory planted while the server ran went with the next
+maintenance pass without anyone pressing anything, a directory whose name was not a job id was left alone, and the
+reference tree beside them was untouched.
+
+**B26 — a server that writes numbers with a comma.** The engine's output was already parsed with an explicit invariant
+culture in the two helpers that read its scores and offsets, but ten further `int.TryParse` calls and one
+`long.TryParse` call read digits under whatever culture the process happened to have. On a machine set to a
+comma-decimal locale, "12.5" means twelve and a half only if the parse says so. Every numeric parse in the plugin now
+names its culture, and the test suite fails if a new one is added without it — a guard that is exhaustive rather than a
+sample. The harness also runs with globalization on now, as a server does, and parses the engine's lines while the
+process is set to a comma-decimal locale.
+
+**F16 — the cache the interface did not mention.** The audio-analysis cache was described in the settings page; the
+extracted-subtitle cache — the larger of the two on a library that has been synced for a while — was not. The page now
+describes it (120 days, 512 MB on disk, a bounded number of entries in memory) and shows what it holds right now,
+from the same status call the rest of the page uses. The bounds themselves were already enforced and are now pinned by
+checks that fail if they are loosened.
+
+**F30 — the sweep history stops at its cap, on load as well as on write.** Verified rather than changed: a state file
+written by an older, longer-lived run is trimmed to 5,000 entries as it is loaded, dropping the least recently touched
+end, and the check drives that path with an oversized file rather than trusting the constant.
+
 ## 2.0.52 (beta)
 
 Four consistency fixes, plus two of the old open questions answered by measurement rather than by argument.

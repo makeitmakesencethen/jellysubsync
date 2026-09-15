@@ -42,9 +42,15 @@ DOTNET = _find_dotnet()
 # Scratch space for the generated harness project and fixtures. Kept inside the repository (and
 # git-ignored) so a failed run can be inspected, but never committed.
 WORK = os.environ.get('TESTS_WORK') or os.path.join(REPO, '.tests-work')
-ENV = dict(os.environ, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
+# Globalization is on by default, as it is on a server: a comma-decimal locale is one of the cultures this code has to
+# survive, and with invariant globalization the culture that catches it cannot even be created. Set
+# SUBSYNC_INVARIANT_GLOBALIZATION=1 to run the whole harness in invariant mode instead.
+ENV = (dict(os.environ, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
+       if os.environ.get('SUBSYNC_INVARIANT_GLOBALIZATION') == '1' else dict(os.environ))
 
 PROGRAM = r"""
+using System.Globalization;
+using System.Text.Json;
 using Jellyfin.Plugin.SubSync.Api;
 using Jellyfin.Plugin.SubSync.Configuration;
 using Jellyfin.Plugin.SubSync.Services;
@@ -3968,6 +3974,97 @@ else
         SubSyncService.SyncedTargetName("/media", "ukr", "ukr"));
 }
 
+// ---------------- Hygiene: bounded caches, bounded state, culture-independent numbers (F16, F30, B26) ------------
+
+// F16: the extracted-subtitle cache is bounded in three ways, and what it holds right now is inside them.
+{
+    Check("F16: the extracted-subtitle cache has a size bound, an age bound and a memory bound",
+        SubtitleCache.MaxBytes == 512L * 1024 * 1024
+        && SubtitleCache.MaxAge == TimeSpan.FromDays(120)
+        && SubtitleCache.MaxMemoryEntries == 512
+        && SubtitleCache.MaxMemoryChars == 16L * 1024 * 1024,
+        $"disk={SubtitleCache.MaxBytes} age={SubtitleCache.MaxAge.TotalDays}d "
+        + $"memory={SubtitleCache.MaxMemoryEntries}/{SubtitleCache.MaxMemoryChars}");
+    SubtitleCache.Store("/media/zh-hygiene-check.mkv", "0", new string('x', 2048));
+    Check("F16: storing into it keeps the memory layer inside its bounds",
+        SubtitleCache.MemoryCount <= SubtitleCache.MaxMemoryEntries
+        && SubtitleCache.MemoryChars <= SubtitleCache.MaxMemoryChars,
+        $"{SubtitleCache.MemoryCount} entries, {SubtitleCache.MemoryChars} chars");
+    Check("F16: it reports what it holds, which is what the page shows",
+        !string.IsNullOrWhiteSpace(SubtitleCache.Describe()),
+        SubtitleCache.Describe());
+}
+
+// F30: a state file written by a longer-lived run is trimmed when it is loaded, not at the next restart of something.
+{
+    var f30Path = Path.Combine(Path.GetTempPath(), "subsync-sweep-" + Guid.NewGuid().ToString("N") + ".json");
+    var f30Oversized = new Dictionary<string, SweepEntry>();
+    for (var i = 0; i < SweepState.MaxEntries + 750; i++)
+    {
+        f30Oversized["/media/file-" + i + ".srt"] = new SweepEntry
+        {
+            SourcePath = "/media/file-" + i + ".srt",
+            LastTouchedUtc = DateTime.UtcNow.AddMinutes(-i)
+        };
+    }
+
+    File.WriteAllText(f30Path, JsonSerializer.Serialize(f30Oversized, new JsonSerializerOptions { WriteIndented = true }));
+    var f30State = new SweepState(f30Path);
+    Check("F30: a state file larger than the cap is trimmed as it is loaded",
+        f30State.Count <= SweepState.MaxEntries && SweepState.MaxEntries == 5000,
+        $"{f30State.Count} entries kept of {f30Oversized.Count} written");
+    Check("F30: what it keeps is the most recently touched end of the file",
+        f30State.Count == SweepState.MaxEntries
+        && f30State.Get("/media/file-0.srt") is not null
+        && f30State.Get("/media/file-" + (SweepState.MaxEntries + 749) + ".srt") is null,
+        $"{f30State.Count} entries kept, newest present={f30State.Get("/media/file-0.srt") is not null}");
+    File.Delete(f30Path);
+}
+
+// B26: the numbers the plugin reads out of the engine's own output do not depend on the server's locale.
+{
+    var b26Invariant = SubSyncService.ParseFfmpegProgressSeconds("out_time=00:00:33.000000");
+    var b26ScoreOk = SubSyncService.TryParseEngineScore("score: 12.5", out var b26Score);
+    var b26OffsetOk = SubSyncService.TryParseEngineOffset("offset seconds: -2.25", out var b26Offset);
+    var b26CommaScoreOk = SubSyncService.TryParseEngineScore("score: 12,5", out var b26CommaScore);
+    var b26CommaOffsetOk = SubSyncService.TryParseEngineOffset("offset seconds: -2,25", out var b26CommaOffset);
+    Check("B26: the engine's own numbers parse to the values it stated",
+        Math.Abs(b26Invariant - 33.0) < 0.0001
+        && b26ScoreOk && Math.Abs(b26Score - 12.5) < 0.0001
+        && b26OffsetOk && Math.Abs(b26Offset + 2.25) < 0.0001,
+        $"out_time={b26Invariant} score={b26Score} offset={b26Offset}");
+    Check("B26: a comma-decimal engine is read the same way as a dot-decimal one",
+        b26CommaScoreOk && Math.Abs(b26CommaScore - 12.5) < 0.0001
+        && b26CommaOffsetOk && Math.Abs(b26CommaOffset + 2.25) < 0.0001,
+        $"score={b26CommaScore} offset={b26CommaOffset}");
+
+    // The locale that motivates B26 is a comma-decimal one. This container has no ICU data, so a named culture such as
+    // sv-SE cannot be created; a clone of the invariant culture with a comma decimal separator can, always, and it is
+    // the shape that matters here: a runtime whose numbers are written "12,5".
+    var b26CommaCulture = (CultureInfo)CultureInfo.InvariantCulture.Clone();
+    b26CommaCulture.NumberFormat.NumberDecimalSeparator = ",";
+    b26CommaCulture.NumberFormat.NumberGroupSeparator = " ";
+    var b26Previous = CultureInfo.CurrentCulture;
+    try
+    {
+        CultureInfo.CurrentCulture = b26CommaCulture;
+        var b26UnderComma = SubSyncService.ParseFfmpegProgressSeconds("out_time=00:00:33.000000");
+        var b26CommaScoreUnderComma = SubSyncService.TryParseEngineScore("score: 12.5", out var b26ScoreUnderComma);
+        var b26CommaOffsetUnderComma = SubSyncService.TryParseEngineOffset("offset seconds: -2.25", out var b26OffsetUnderComma);
+        var b26MsUnderComma = SubSyncService.ParseFfmpegProgressSeconds("out_time_us=33000000");
+        Check("B26: with the server set to a comma-decimal locale the same lines parse to the same values",
+            Math.Abs(b26UnderComma - 33.0) < 0.0001
+            && Math.Abs(b26MsUnderComma - 33.0) < 0.0001
+            && b26CommaScoreUnderComma && Math.Abs(b26ScoreUnderComma - 12.5) < 0.0001
+            && b26CommaOffsetUnderComma && Math.Abs(b26OffsetUnderComma + 2.25) < 0.0001,
+            $"out_time={b26UnderComma} out_time_us={b26MsUnderComma} score={b26ScoreUnderComma} offset={b26OffsetUnderComma}");
+    }
+    finally
+    {
+        CultureInfo.CurrentCulture = b26Previous;
+    }
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4986,6 +5083,10 @@ def run_page_checks():
                                                'LanguageSupport.cs'), encoding='utf-8').read()
     srtwriter_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                          'SrtWriter.cs'), encoding='utf-8').read()
+    subtitlecache_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                             'SubtitleCache.cs'), encoding='utf-8').read()
+    sweepstate_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                          'SweepState.cs'), encoding='utf-8').read()
 
     # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
     report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
@@ -5054,6 +5155,36 @@ def run_page_checks():
            and 'private ObjectResult? RefuseUntargetable(Guid itemId)' in controller_source
            and 'public SyncTarget InspectSyncTarget(Guid itemId)' in service_source
            and 'internal static SyncTarget ClassifySyncTarget(Guid itemId, string? itemKind, bool isVideo)' in service_source)
+    report('F7: orphaned scratch directories are swept by the maintenance pass and once at startup',
+           'var scratchRemoved = ClearStaleJobDirectories();' in service_source
+           and 'sweep: removed {scratchRemoved} orphaned job scratch director(ies)' in service_source
+           and 'startup: removed {orphans} orphaned job scratch director(ies)' in service_source
+           and service_source.count('ClearStaleJobDirectories()') >= 3)
+
+    # B26: a numeric parse without an explicit culture is the bug this row is about, so the check is exhaustive rather
+    # than a sample: every Parse/TryParse of a number in the plugin has to say which culture it means.
+    numeric_parses = re.findall(
+        r'\b(?:double|float|decimal|int|long|short|uint|ulong)\.(?:Parse|TryParse)\([^;]*', '\n'.join(plugin_sources))
+    culture_less = [call.split('\n')[0][:70] for call in numeric_parses
+                    if 'CultureInfo' not in call and 'Invariant' not in call]
+    report('B26: every numeric parse in the plugin names the culture it means',
+           not culture_less,
+           f'{len(culture_less)} without a culture, first: {culture_less[0] if culture_less else "-"}')
+    report('B26: cache keys and their lookups are built with an invariant culture, so a locale cannot change a key',
+           'CultureInfo.InvariantCulture' in subtitlecache_source
+           and 'string.Create(CultureInfo.InvariantCulture,' in subtitlecache_source)
+
+    report('F16: the extracted-subtitle cache is described in the interface and reported by the status',
+           'SubtitleCacheSummary = SubtitleCache.Describe()' in service_source
+           and 'public string? SubtitleCacheSummary { get; set; }' in service_source
+           and 'ss-subtitlecache' in main_html
+           and 'extracted subtitle' in main_html
+           and 'SubtitleCacheSummary' in page_js)
+    report('F30: the sweep history has one cap, applied on load and on every write',
+           'public const int MaxEntries = 5000;' in sweepstate_source
+           and 'if (entries.Count > MaxEntries)' in sweepstate_source
+           and '_entries.Count > MaxEntries || _pendingWrites >= SaveBatchSize' in sweepstate_source)
+
     report('F2: the cancel endpoint names what it stops and refuses a request that names nothing',
            'var (targets, refusal) = ItemAccess.SelectKillTargets(' in controller_source
            and 'ItemAccess.KillRefusal.NothingSpecified => Fail(' in controller_source
@@ -5250,8 +5381,10 @@ def run_page_checks():
            'SubtitleCache.Store(videoPath, pair.Key' in service
            and 'SubtitleCache.Store(videoPath, subtitleOrdinal' in service)
 
-    report('clearing never deletes a running job\'s scratch folder',
-           '_jobs.ContainsKey(name)' in service and 'ref" continue' not in service)
+    report('clearing never deletes a running job\'s scratch folder, and does not keep a finished one\'s',
+           '_jobs.TryGetValue(name, out var tracked)' in service
+           and 'tracked.Status is SyncJobStatus.Queued or SyncJobStatus.Running' in service
+           and 'ref" continue' not in service)
     report('the button says what it clears',
            'Cached data' in pages['subsyncMain.html']
            and 'audio analysis' in pages['subsyncMain.html']

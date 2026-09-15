@@ -637,6 +637,15 @@
             var cacheEl = $('ss-speechcache');
             if (cacheEl) {
                 var summary = s.SpeechCacheSummary || 'empty';
+
+                // What the extracted-subtitle cache holds, beside the audio line: the one cache the interface used to
+                // leave undescribed (F16).
+                var subtitleLine = document.getElementById('ss-subtitlecache');
+                if (subtitleLine) {
+                    subtitleLine.textContent = s.SubtitleCacheSummary
+                        ? 'Extracted subtitles: ' + s.SubtitleCacheSummary + '.'
+                        : '';
+                }
                 cacheEl.textContent = 'Audio analysis: ' + summary
                     + ' \u00b7 ' + (summary.indexOf('empty') === -1 ? 'ready to reuse' : 'nothing cached yet');
             }

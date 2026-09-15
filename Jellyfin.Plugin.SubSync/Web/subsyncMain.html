@@ -254,8 +254,12 @@
                                         file, holding the speech signal so the other subtitles of that file (and later runs) do not
                                         listen to the audio again; unused entries are removed after 30 days and the cache is capped at
                                         250 MB. The <strong>reference subtitle</strong> is the track a sync is aligned against, kept only
-                                        while that file's subtitles are being worked on. Clearing removes both, plus the scratch folders of
-                                        finished jobs — it only costs time, since everything is rebuilt when it is next needed.
+ while that file's subtitles are being worked on. The <strong>extracted subtitle</strong> is the
+ text taken out of each media file, so the same file is never read twice — kept for
+ 120 days, capped at 512 MB on disk, with a bounded number of entries held in memory for the
+ files being worked on right now. Clearing removes all of them, plus the scratch folders of
+ finished jobs — it only costs time, since everything is rebuilt when it is next needed.
+ <span id="ss-subtitlecache"></span>
                                     </div>
                                 </div>
 
