@@ -4,6 +4,63 @@ All notable changes to this plugin are documented here. Versions follow
 `MAJOR.MINOR.PATCH`; the plugin version is also what Jellyfin shows in the plugin list
 (release zips are named `Jellyfin.Plugin.SubSync_<version>.0.zip`).
 
+## 2.0.39 (beta)
+
+A subtitle is no longer synced against a reference track that the film's own audio contradicts.
+
+**Why (the Alex class).** A sibling subtitle can pass every check the plugin had - cue count, span against the
+file, a demanded shift under the 30 s ceiling - and still not be this film's timeline. Reproduced on the rig with
+a real 50-minute episode whose sibling track was the same episode from a 2 % longer cut:
+
+    reference: method=subtitle cues=803 track=s:1
+    note: aligned to the reference subtitle s:1 at 24170 ms - check the result; a shift this size usually means
+          that track is not the same cut
+    job ... completed: output=.../S31 Episode (2026).SYNCED.eng.srt change=+24170 ms
+
+The plugin said the track looked wrong and wrote the file anyway, reporting Completed. The right answer for that
+fixture is -5,08 s, measured independently against the film's own audio; the ruler asked for +24,17 s, so the
+output was ~29 s wrong with nothing in the job record to show it.
+
+**What changed.**
+
+- **The engine's own alignment score is captured and logged**, for both reference paths. It was printed on every
+  run and thrown away: `[job] ffsubsync alignment: score=66451 offset=24.170 s against reference subtitle s:1`,
+  and it says when the engine itself calls a sync unsuccessful (a negative score).
+- **A suspicious subtitle ruler is cross-checked against the film's own audio before anything is written.** When
+  the demanded shift crosses a third of `MaxSubtitleReferenceOffsetSeconds` (10 s at the default), the same
+  subtitle is aligned against the film's audio as well and the two answers are compared. Disagree by more than a
+  tenth of that ceiling (3 s) and that track is not this film's timeline: it is discarded as a ruler and the
+  audio's answer is written. Agree, and the reference's answer stands - a correct 20 s shift is *confirmed*, not
+  refused. Both fractions derive from the setting the user controls, so the default behaviour is the one the log
+  already described.
+- **A ruler whose cues did not move together is refused outright** - the same track from a 2 % longer cut measured
+  an interquartile spread of 27,76 s where the file's real sibling measured 0,00 s.
+- **The cross-check forces `--vad webrtc` for its one run.** With the default `subs_then_webrtc` the engine takes
+  the video's *embedded subtitles* as its speech signal, so the "audio" ruler can be the very track under
+  suspicion - measured: it returned the ruler's own answer, the same score to three decimals. That the general
+  audio path has the same trap is filed as a finding and is the next item of work.
+
+**Verified on the rig, both directions,** one command each:
+
+    python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler --s31-ruler other-cut    # 5 of 5 assertions
+    python3 tests/rig/run_scenario.py --scenario s31-wrong-ruler --s31-ruler correct     # 5 of 5 assertions
+
+    other-cut: the reference subtitle s:1 and the film's own audio disagree (24170 ms against -5080 ms, over the
+               3 s they are allowed to differ) - that track is not this film's timeline, so it is discarded as a
+               ruler and the audio's answer is written
+    correct:   the reference subtitle's shift (-20000 ms) is confirmed by the film's own audio (-20080 ms, within
+               3 s) - keeping the reference's answer
+
+The wrong ruler's answer is not written: with the ruler discarded the file has no second track to verify against,
+so the job reports `UNVERIFIED: the audio was the only ruler (-5080 ms offset) ... nothing written, source
+untouched`. The audio's -5080 ms is the fixture's truth, measured independently (the film's own audio puts the
+extracted track at -0,08 s and the target is that track +5 s).
+
+**Checks:** 642 in the suite, green before this commit; thirteen of them new.
+
+**Rollback:** if this misbehaves, the previous build is still served -
+`https://makeitmakesencethen.github.io/jellysubsync/beta/Jellyfin.Plugin.SubSync_2.0.38.0.zip`
+
 ## 2.0.38 (beta)
 
 A volume's first measurement is a median of three reads, and one read can no longer call a volume thrashing.
