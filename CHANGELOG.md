@@ -1,3 +1,44 @@
+## 2.0.50 (beta)
+
+Four lifecycle fixes, all exercised against real processes rather than reasoned about.
+
+**B14 — stopping the server stops the work.** A teardown cancelled the lane token and then let the service go: no
+child process was killed, no lane was waited for, so a plugin update or a server restart with jobs in flight could
+leave ffmpeg and ffsubsync children reading the share for a service that no longer existed. The teardown now reads
+what is tracked *before* it cancels anything, cancels every run token, kills the trees it still tracks, waits a
+bounded 5 seconds for the lanes and the pump, clears the (process-wide) registry and says what it found.
+Measured against a rig with a run in flight: two child processes alive at the signal,
+`teardown: tracked=2 stopped=2 killedDirect=0 exitedDirect=0 aliveAfter=0 tasksDone=4/4 trackedLeft=0`, and nothing
+of the rig left running on the host. Writing that probe found a second hole: the fifth process runner
+(`ffsubsync --version`, `python3 -m venv`, `pip install`, `apt-get install`) started children that were never
+registered, so no kill or teardown could see them — every runner registers now.
+
+**B31 — a failing pass no longer ends the queue.** `PumpAsync`'s body had no guard at all, so one exception would
+have ended the pump silently: every queued job left waiting, with no line in the plugin log. The body is now
+`PumpOnceAsync` and the loop is `RunPumpLoopAsync`, which counts a failed pass, writes it to the plugin log
+(`pump: pass failed (IOException: the media share went away), fault #N; the queue keeps running`) and to Jellyfin's
+log, and carries on after a pause that doubles from 250 ms to a cap of 8 s. Writing the checks exposed a defect in
+the fix itself — the fault handler threw when a service has no logger, i.e. it would have ended the loop it
+protects — so it counts the fault first and guards each log target.
+
+**B20 — a killed extraction is a cancellation, not a failure.** A stopped pass and an unreadable file both come
+back as "no text", and the chain treated them the same: it went on to the next engine — minutes of work on a file
+the user had just stopped — and ended with the job marked failed. Each boundary of the chain now stops on a
+cancellation, logs `extract: <pass> was stopped (killed by the user) — no fallback attempted`, and the job ends as
+`Cancelled`.
+
+**B21 — a failed prefetch reports the fault that happened.** `Parallel.For` reported it as an
+`AggregateException` whose own message is "One or more errors occurred.", and a cancelled read came back as a
+fault — which is part of why a kill could end up on the fallback path. One shared `ExceptionDiagnostics.RootCause`
+now unwraps it (a cancellation wins, a single fault is returned as itself, several are named), the log line names
+the fault and its wrapper, and the caller sees the real exception.
+
+Verification: `python3 tests/run_checks.py` passes (856 checks, 0 failures) with 33 new ones — real child
+processes killed and counted, a bounded wait that does not claim an unfinished lane, the pump's loop driven with
+throwing bodies, the extraction-report rule coupled to the reader's own reason string, and the unwrapping of nested
+aggregates — plus `tests/backend/b14_teardown_probe.py`, which stops a real server with work in flight and checks
+both the log and the host (ALL PASS).
+
 ## 2.0.49 (beta)
 
 Four interface fixes, all measured in a real browser or against a running Jellyfin 12 rather than reasoned about.

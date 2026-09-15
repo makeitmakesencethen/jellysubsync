@@ -2882,42 +2882,58 @@ public static class MkvSubtitleExtractor
 
             // RandomAccess.Read is position based and safe from several threads, which is what lets
             // these run together on one file handle.
-            Parallel.For(0, workers, new ParallelOptions { CancellationToken = cancellationToken }, worker =>
+            try
             {
-                var mine = buckets[worker];
-                for (var i = worker; i < ranges.Count; i += workers)
+                Parallel.For(0, workers, new ParallelOptions { CancellationToken = cancellationToken }, worker =>
                 {
-                    var (start, length) = ranges[i];
-                    if (length <= 0 || start < 0 || start >= Length)
+                    var mine = buckets[worker];
+                    for (var i = worker; i < ranges.Count; i += workers)
                     {
-                        continue;
-                    }
+                        var (start, length) = ranges[i];
+                        if (length <= 0 || start < 0 || start >= Length)
+                        {
+                            continue;
+                        }
 
-                    var count = (int)Math.Min(length, Length - start);
-                    var buffer = new byte[count];
-                    var read = RandomAccess.Read(handle, buffer, start);
-                    if (read <= 0)
-                    {
-                        continue;
-                    }
+                        var count = (int)Math.Min(length, Length - start);
+                        var buffer = new byte[count];
+                        var read = RandomAccess.Read(handle, buffer, start);
+                        if (read <= 0)
+                        {
+                            continue;
+                        }
 
-                    if (read < count)
-                    {
-                        Array.Resize(ref buffer, read);
-                    }
+                        if (read < count)
+                        {
+                            Array.Resize(ref buffer, read);
+                        }
 
-                    // Recorded on this thread and kept with the bytes it came from: the ledger is the
-                    // record of what the pass has paid for, and a fetch that no read uses is waste it names.
-                    lock (Ledger)
-                    {
-                        Ledger.RecordFetchedRange(start, read);
-                    }
+                        // Recorded on this thread and kept with the bytes it came from: the ledger is the
+                        // record of what the pass has paid for, and a fetch that no read uses is waste it names.
+                        lock (Ledger)
+                        {
+                            Ledger.RecordFetchedRange(start, read);
+                        }
 
-                    mine.Add((start, buffer));
-                    Interlocked.Add(ref fetched, read);
-                    Interlocked.Increment(ref calls);
-                }
-            });
+                        mine.Add((start, buffer));
+                        Interlocked.Add(ref fetched, read);
+                        Interlocked.Increment(ref calls);
+                    }
+                });
+            }
+            catch (AggregateException aggregate)
+            {
+                // A read that throws inside the loop leaves Parallel.For as an AggregateException ("One or more
+                // errors occurred.") carrying the fault that matters - the share went away, the file was replaced,
+                // the handle was closed - so it is unwrapped here: what is logged and what the caller catches is
+                // the real exception, and a cancelled prefetch is rethrown as the cancellation it is rather than
+                // being mistaken for a fault (B21).
+                var real = ExceptionDiagnostics.RootCause(aggregate);
+                PluginLog.Warn($"prefetch: {ExceptionDiagnostics.Describe(aggregate)} "
+                    + $"— {aggregate.InnerExceptions.Count} fault(s) fetching {ranges.Count} range(s) "
+                    + $"of {System.IO.Path.GetFileName(Path)}");
+                throw real;
+            }
 
             foreach (var bucket in buckets)
             {

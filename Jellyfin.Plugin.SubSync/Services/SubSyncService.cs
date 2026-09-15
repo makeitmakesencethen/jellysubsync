@@ -416,6 +416,11 @@ public class SubSyncService : IDisposable
     private readonly object _queueLock = new();
     private readonly List<SyncJob> _runOrder = new();
     private Task? _pumpTask;
+
+    /// <summary>Gets how many pump passes have failed since start-up (B31), so a repeated fault is visible.</summary>
+    internal int PumpFaults => _pumpFaults;
+
+    private int _pumpFaults;
     // Unbounded on purpose. With a bounded semaphore, several wakes collapse into one and the pump
     // can consume the signal before the job that needed it finishes, so the next completion had to
     // wait for something else to wake it - dispatch lines 19 seconds apart while eight slots sat
@@ -1661,30 +1666,11 @@ public class SubSyncService : IDisposable
             // Shutdown already took it.
         }
 
-        var processesAskedToStop = 0;
-        var toKill = new List<Process>();
-        foreach (var process in _liveProcesses.Values.ToList())
-        {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    processesAskedToStop++;
-                    toKill.Add(process);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not kill process {Pid}", process.Id);
-            }
-        }
-
         // What is reported is what actually exited, not what was asked to (B16): the count used to be the
         // larger of "process trees killed" and "run tokens cancelled", which is a number nobody measured - the
         // interface said "N stopped" for processes that were still alive. Each killed process is awaited on its
-        // own handle with a deadline, so this is a wait rather than a poll.
-        var processesStopped = CountExited(toKill, KillWaitMs);
+        // own handle with a deadline, so this is a wait rather than a poll. Shared with teardown (B14).
+        var (processesAskedToStop, processesStopped) = KillChildProcesses();
         var survivors = _liveProcesses.Values.Count(p => !SafeHasExited(p));
         _logger.LogInformation(
             "Kill requested: {Queued} queued task(s) cancelled, {Running} run token(s) cancelled, {Killed} process tree(s) killed, {Survivors} still alive",
@@ -3635,256 +3621,358 @@ public class SubSyncService : IDisposable
     /// bursts. Here a worker occupies a slot: the moment it finishes, the next queued job starts,
     /// and a job needing the same media file as a running one waits only for that file.
     /// </summary>
+    /// <summary>
+    /// The sync pump's loop: one pass at a time, and a pass that throws does not end the pump (B31).
+    /// </summary>
+    /// <remarks>
+    /// A count of failed passes is kept, and the pause between them grows, so a body that fails on every pass
+    /// costs the server a little rather than all of it.
+    /// </remarks>
+    /// <param name="keepGoing">Asked before each pass; false ends the loop.</param>
+    /// <param name="body">One pass.</param>
+    /// <param name="onFault">Called with whatever a pass threw.</param>
+    /// <param name="maxIterations">Stop after this many passes (used by the checks; the pump passes int.MaxValue).</param>
+    /// <returns>A task that ends when the loop does.</returns>
+    internal static async Task RunPumpLoopAsync(
+        Func<bool> keepGoing,
+        Func<Task> body,
+        Action<Exception> onFault,
+        int maxIterations = int.MaxValue)
+    {
+        var consecutiveFaults = 0;
+        var iterations = 0;
+        while (keepGoing() && iterations < maxIterations)
+        {
+            iterations++;
+            try
+            {
+                await body().ConfigureAwait(false);
+                consecutiveFaults = 0;
+            }
+            catch (Exception ex)
+            {
+                // Deliberately everything: the pump dispatches every queued job, so an exception here that ended the
+                // loop would leave the queue running with nobody to start it - the same silence B6 fixed for a job
+                // stuck in Running. It is logged with the fault that actually happened and the loop carries on after
+                // a growing pause, so a body that fails immediately cannot spin.
+                consecutiveFaults++;
+                onFault(ex);
+                await Task.Delay(PumpFaultBackoffMs(consecutiveFaults)).ConfigureAwait(false);
+            }
+        }
+    }
+
+    /// <summary>
+    /// How long the pump waits after a failed pass, doubling with consecutive failures up to eight seconds (B31).
+    /// </summary>
+    /// <param name="consecutiveFaults">How many passes have failed in a row.</param>
+    /// <returns>The pause in milliseconds.</returns>
+    internal static int PumpFaultBackoffMs(int consecutiveFaults)
+        => Math.Min(250 * (1 << Math.Clamp(consecutiveFaults - 1, 0, 5)), 8000);
+
     private async Task PumpAsync()
     {
         var inFlight = new Dictionary<Task, SyncJob>();
+        await RunPumpLoopAsync(
+            () => !_disposing,
+            () => PumpOnceAsync(inFlight),
+            NotePumpFault).ConfigureAwait(false);
+    }
 
-        while (!_disposing)
+    /// <summary>
+    /// Records and reports a pass that threw (B31). Internal so the loop's fault path can be driven by name.
+    /// </summary>
+    /// <remarks>
+    /// Nothing here may throw. This runs inside the pump's own fault path, so an exception escaping it would end the
+    /// very loop it exists to keep alive - and both things it writes to can fail: the plugin log writes to a file on
+    /// a media share that may have gone away, and a service built without a logger has none at all. The count is
+    /// incremented first, so even a report that cannot be written leaves the fault visible in the interface.
+    /// </remarks>
+    /// <param name="exception">What the pass threw.</param>
+    internal void NotePumpFault(Exception exception)
+    {
+        _pumpFaults++;
+        var line = $"pump: pass failed ({ExceptionDiagnostics.Describe(exception)}), fault #{_pumpFaults}; "
+            + "the queue keeps running";
+        try
         {
-            List<SyncJob> toStart;
-            var limit = 1;
-            var running = 0;
-            List<(string? VideoPath, bool StillNeeded)> finishedVideos;
+            PluginLog.Error(line);
+        }
+        catch (Exception logFailure)
+        {
+            // No plugin log to write to: the Jellyfin log below is the remaining chance to say what happened.
+            _ = logFailure;
+        }
 
-            LogWorkerLimit();
-            MaybeLogProgress();
-            MaybePersistBatchHistory();
+        try
+        {
+            _logger?.LogError(
+                ExceptionDiagnostics.RootCause(exception),
+                "The sync pump's pass failed for the {Count}(th) time; the pump keeps running",
+                _pumpFaults);
+        }
+        catch (Exception)
+        {
+            // Same reasoning: a report that cannot be written must not take the pump down with it.
+        }
+    }
 
-            // A job that has stopped making progress is stopped here, so a run cannot hang on it (B6). It
-            // runs on the scheduler's own thread and is throttled inside, so this is a cheap call per pass.
-            ReapStuckJobs();
+    /// <summary>
+    /// Runs one pass of the queue: settle what finished, start what fits, then park until woken (B31).
+    /// </summary>
+    /// <param name="inFlight">Jobs whose run is under way, keyed by their task.</param>
+    /// <remarks>
+    /// This is the pump's body, separated from the loop so the loop can guard it. Everything it needs that used
+    /// to be a local of the loop is passed in; a pass that decides there is nothing to do returns instead of
+    /// continuing, which is the same thing from the loop's point of view.
+    /// </remarks>
+    private async Task PumpOnceAsync(Dictionary<Task, SyncJob> inFlight)
+    {
+                List<SyncJob> toStart;
+                var limit = 1;
+                var running = 0;
+                List<(string? VideoPath, bool StillNeeded)> finishedVideos;
 
-            // Recovery for the stores a run leaves behind (B12), throttled to a directory walk every few
-            // minutes - and, like the watchdog, run from the cleanup timer as well as from here.
-            SweepLongLivedStores();
+                LogWorkerLimit();
+                MaybeLogProgress();
+                MaybePersistBatchHistory();
 
-            // The lock now covers bookkeeping and a snapshot, and nothing else.
-            //
-            // Planning inside it is what the enqueue path waits on: the enqueue takes this same lock to add its
-            // job to the run order (and WakeExtractor takes it again), so every queued item waited for whatever
-            // the pump was doing. Measured with `--scenario s40-enqueue` - 56 tasks, the field's shape - the
-            // worst enqueue spent every one of its 49 ms in this lock, while the plugin-log write and the pump
-            // wake cost nothing at all (S40). On a loaded share that wait is the field's 8-21 s per queued item.
-            // Everything the plan reads is therefore snapshotted here (the pump is the only writer of inFlight
-            // and the only dispatcher, so the snapshot cannot go stale underneath it) and the plan runs after.
-            List<SyncJob> queuedSnapshot;
-            List<SyncJob> runningSnapshot;
-            List<(SyncJob Job, string? VideoPath)> liveJobs;
-            var snapshotHold = System.Diagnostics.Stopwatch.StartNew();
-            lock (_queueLock)
-            {
-                finishedVideos = new List<(string?, bool)>();
+                // A job that has stopped making progress is stopped here, so a run cannot hang on it (B6). It
+                // runs on the scheduler's own thread and is throttled inside, so this is a cheap call per pass.
+                ReapStuckJobs();
 
-                foreach (var finished in inFlight.Where(kvp => kvp.Key.IsCompleted).Select(kvp => kvp.Key).ToList())
-                {
-                    var finishedJob = inFlight[finished];
-                    inFlight.Remove(finished);
-                    finishedVideos.Add((
-                        _jobContexts.TryGetValue(finishedJob.Id, out var finishedContext)
-                            ? finishedContext.Video.Path
-                            : null,
-                        false));
-                }
+                // Recovery for the stores a run leaves behind (B12), throttled to a directory walk every few
+                // minutes - and, like the watchdog, run from the cleanup timer as well as from here.
+                SweepLongLivedStores();
 
-                // A reference is only worth keeping while another subtitle of that same media file is still going
-                // to use it - queued *or* already running. Counting only the queued jobs deleted the tree out
-                // from under the running ones: the last queued task of a batch is dispatched while up to
-                // `ParallelWorkers` jobs of that very file sit in ffsubsync reading the reference it just
-                // removed, and the losers of that race either failed ("unable to read reference") or were handed
-                // the whole container to demux instead. Once no job of the file is queued or running, this run's
-                // copy goes: a wrong reference must not be able to poison a later run of the file.
-                liveJobs = _runOrder
-                    .Where(j => j.Status == SyncJobStatus.Queued || j.Status == SyncJobStatus.Running)
-                    .Select(j => (j, _jobContexts.TryGetValue(j.Id, out var liveContext)
-                        ? liveContext.Video.Path
-                        : null))
-                    .ToList();
-
-                queuedSnapshot = _runOrder.Where(j => j.Status == SyncJobStatus.Queued).ToList();
-                runningSnapshot = inFlight.Values.ToList();
-                running = inFlight.Count;
-            }
-
-            snapshotHold.Stop();
-            LogLockHold("pump-snapshot", snapshotHold.ElapsedMilliseconds);
-            var planHold = System.Diagnostics.Stopwatch.StartNew();
-
-            // Which finished files still have a job of their own: the same question the old per-job scan asked,
-            // answered from one list instead of re-walking the run order for every finished job.
-            finishedVideos = finishedVideos
-                .Select(row => (
-                    row.Item1,
-                    row.Item1 is not null
-                    && liveJobs.Any(live => string.Equals(live.VideoPath, row.Item1, StringComparison.Ordinal))))
-                .ToList();
-
-            toStart = new List<SyncJob>();
-            var head = queuedSnapshot.FirstOrDefault();
-            if (head is not null)
-            {
-                var config = Services.SettingsSource.Current();
-                var headMode = ResolveModeForBatch(head);
-                limit = IsParallelMode(headMode)
-                    ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
-                    : 1;
-
-                toStart = PlanStart(
-                    queuedSnapshot,
-                    runningSnapshot,
-                    headMode,
-                    head.BatchId,
-                    limit,
-                    job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var volumeContext)
-                        ? volumeContext.Video.Path
-                        : null),
-                    job => JobNeedsHeavyIo(job, headMode),
-                    // Only start a job whose subtitle is already out of the file. The old gate ("may this job
-                    // share the file with a running one?") still let jobs through once a reference existed, and
-                    // each of them then ran its own pass: measured on a real episode, the lane produced six
-                    // subtitles in one pass of 448 MB and the six jobs then ran four more passes of ~350 MB
-                    // each, 2 GB of reading for nothing. The lane runs extraction; a job that is not ready waits
-                    // in the queue instead of duplicating the work. The one exception is a lane that is not
-                    // running at all (disposed, or died), where jobs must be able to extract for themselves
-                    // rather than never start.
-                    // canShareMediaFile: a second job may join a file whose subtitle is already out.
-                    job => ExtractionReady(job),
-                    // MayStart: the same, plus the escape hatch for a lane that is gone.
-                    job => ExtractionReady(job)
-                        || (!LaneAlive
-                            && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)),
-                    walkCapOf: job => WalkCapOfPath(_jobContexts.TryGetValue(job.Id, out var capContext)
-                        ? capContext.Video.Path
-                        : null));
-            }
-
-            // The plan runs on this thread without the lock, and is reported for the same reason the critical
-            // sections are: it used to be inside them, and this line is what shows it is not any more (S40).
-            planHold.Stop();
-            LogLockHold("pump-plan-outside-lock", planHold.ElapsedMilliseconds);
-
-            // Filesystem work stays outside the queue lock: releasing a reference may delete a whole
-            // directory, and this lock is what the enqueue path waits on.
-            foreach (var (finishedVideo, stillNeededForIt) in finishedVideos)
-            {
-                ReferenceStore.EndJob(finishedVideo, stillNeededForIt);
-
-                // The file is done: nothing of this run will need its reference gate again, so it
-                // does not sit in the dictionary until the next restart.
-                if (!stillNeededForIt && finishedVideo is not null)
-                {
-                    _referenceGates.TryRemove(finishedVideo, out _);
-                }
-            }
-
-            // Every job that is still waiting says *why*, in the interface. "waiting to start" told the user
-            // nothing, and on network storage the wait they were looking at was the file's extraction pass
-            // (measured: 46-96 s before the first job of a file can start). The planner already knows both
-            // reasons, so it hands them to the job's phase.
-            foreach (var waiting in _runOrder)
-            {
-                if (waiting.Status == SyncJobStatus.Queued)
-                {
-                    waiting.Phase = QueuedReason(waiting, running, limit);
-                }
-            }
-
-            if (toStart.Count == 0)
-            {
-                if (_disposing)
-                {
-                    break;
-                }
-
-                // A drained queue is the one point a batch's sweep records are known to be complete, and they
-                // are written in batches. Flushing here costs one write per idle transition, not one per record,
-                // and it means a run that ended - or a server that is simply left alone afterwards - does not
-                // hold its last records in memory until the next batch happens to cross a batch boundary.
-                if (inFlight.Count == 0)
-                {
-                    _sweepState.Value.Flush();
-                }
-
-                // Nothing to start: either the slots are full (a finishing job wakes the pump) or
-                // the queue is empty (a new job wakes it) - or a job became startable without any
-                // event to signal it, which is what the bounded wait is for. An unbounded wait left
-                // the plugin completely idle with a full queue and free workers: measured on a real
-                // server, 46 s and then 83 s of silence with 225 jobs queued and four slots limit,
-                // while the UI showed "Extracting N subtitles in one pass" - the phase of a job that
-                // was only waiting. Re-planning every three quarters of a second costs nothing
-                // (the predicates are memoised) and turns a stall into a no-op pass.
-                await _wakePump.WaitAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
-                continue;
-            }
-
-            _logger.LogInformation(
-                "Dispatching {Count} job(s) — {Running} running, limit {Limit}, {Queued} queued, batch {Batch}",
-                toStart.Count,
-                running,
-                limit,
-                CountQueued(),
-                toStart[0].BatchId ?? "(standalone)");
-
-            // The plugin log records the dispatch decision, including the reason a parallel run can
-            // start fewer jobs than the limit: a job waits for another subtitle of the same media file
-            // (they share one audio analysis), so a batch of ten tracks over two episodes runs two,
-            // not ten. Without this line that looks like parallelism being ignored.
-            var queuedNow = CountQueued();
-            var headReason = string.Empty;
-            if (limit > 1 && running + toStart.Count < limit && queuedNow > toStart.Count)
-            {
-                var queuedMediaFiles = _runOrder
-                    .Where(j => j.Status == SyncJobStatus.Queued)
-                    .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .Distinct(StringComparer.Ordinal)
-                    .Count();
-                var runningMediaFiles = inFlight.Values
-                    .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
-                    .Where(p => !string.IsNullOrEmpty(p))
-                    .Distinct(StringComparer.Ordinal)
-                    .Count();
-                headReason = $" — starting {toStart.Count} of {limit}: {queuedNow} queued across {queuedMediaFiles} media file(s), {running} running from {runningMediaFiles} file(s) (a second subtitle of a running file waits for its audio analysis)";
-            }
-
-            PluginLog.Info(
-                $"dispatch: starting {toStart.Count}, running {running}, limit {limit}, queued {queuedNow}, batch {toStart[0].BatchId ?? "(standalone)"}{headReason}");
-
-            for (var i = 0; i < toStart.Count; i++)
-            {
-                var job = toStart[i];
+                // The lock now covers bookkeeping and a snapshot, and nothing else.
+                //
+                // Planning inside it is what the enqueue path waits on: the enqueue takes this same lock to add its
+                // job to the run order (and WakeExtractor takes it again), so every queued item waited for whatever
+                // the pump was doing. Measured with `--scenario s40-enqueue` - 56 tasks, the field's shape - the
+                // worst enqueue spent every one of its 49 ms in this lock, while the plugin-log write and the pump
+                // wake cost nothing at all (S40). On a loaded share that wait is the field's 8-21 s per queued item.
+                // Everything the plan reads is therefore snapshotted here (the pump is the only writer of inFlight
+                // and the only dispatcher, so the snapshot cannot go stale underneath it) and the plan runs after.
+                List<SyncJob> queuedSnapshot;
+                List<SyncJob> runningSnapshot;
+                List<(SyncJob Job, string? VideoPath)> liveJobs;
+                var snapshotHold = System.Diagnostics.Stopwatch.StartNew();
                 lock (_queueLock)
                 {
-                    if (job.Status != SyncJobStatus.Queued)
+                    finishedVideos = new List<(string?, bool)>();
+
+                    foreach (var finished in inFlight.Where(kvp => kvp.Key.IsCompleted).Select(kvp => kvp.Key).ToList())
                     {
-                        continue;
+                        var finishedJob = inFlight[finished];
+                        inFlight.Remove(finished);
+                        finishedVideos.Add((
+                            _jobContexts.TryGetValue(finishedJob.Id, out var finishedContext)
+                                ? finishedContext.Video.Path
+                                : null,
+                            false));
                     }
 
-                    // Claimed under the lock so the running count is right for the next pass.
-                    job.Status = SyncJobStatus.Running;
-                    job.StartedAtUtc = DateTime.UtcNow;
+                    // A reference is only worth keeping while another subtitle of that same media file is still going
+                    // to use it - queued *or* already running. Counting only the queued jobs deleted the tree out
+                    // from under the running ones: the last queued task of a batch is dispatched while up to
+                    // `ParallelWorkers` jobs of that very file sit in ffsubsync reading the reference it just
+                    // removed, and the losers of that race either failed ("unable to read reference") or were handed
+                    // the whole container to demux instead. Once no job of the file is queued or running, this run's
+                    // copy goes: a wrong reference must not be able to poison a later run of the file.
+                    liveJobs = _runOrder
+                        .Where(j => j.Status == SyncJobStatus.Queued || j.Status == SyncJobStatus.Running)
+                        .Select(j => (j, _jobContexts.TryGetValue(j.Id, out var liveContext)
+                            ? liveContext.Video.Path
+                            : null))
+                        .ToList();
+
+                    queuedSnapshot = _runOrder.Where(j => j.Status == SyncJobStatus.Queued).ToList();
+                    runningSnapshot = inFlight.Values.ToList();
+                    running = inFlight.Count;
                 }
 
-                var task = Task.Run(() => RunSyncJobWithContext(job));
-                lock (_queueLock)
+                snapshotHold.Stop();
+                LogLockHold("pump-snapshot", snapshotHold.ElapsedMilliseconds);
+                var planHold = System.Diagnostics.Stopwatch.StartNew();
+
+                // Which finished files still have a job of their own: the same question the old per-job scan asked,
+                // answered from one list instead of re-walking the run order for every finished job.
+                finishedVideos = finishedVideos
+                    .Select(row => (
+                        row.Item1,
+                        row.Item1 is not null
+                        && liveJobs.Any(live => string.Equals(live.VideoPath, row.Item1, StringComparison.Ordinal))))
+                    .ToList();
+
+                toStart = new List<SyncJob>();
+                var head = queuedSnapshot.FirstOrDefault();
+                if (head is not null)
                 {
-                    inFlight[task] = job;
+                    var config = Services.SettingsSource.Current();
+                    var headMode = ResolveModeForBatch(head);
+                    limit = IsParallelMode(headMode)
+                        ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
+                        : 1;
+
+                    toStart = PlanStart(
+                        queuedSnapshot,
+                        runningSnapshot,
+                        headMode,
+                        head.BatchId,
+                        limit,
+                        job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var volumeContext)
+                            ? volumeContext.Video.Path
+                            : null),
+                        job => JobNeedsHeavyIo(job, headMode),
+                        // Only start a job whose subtitle is already out of the file. The old gate ("may this job
+                        // share the file with a running one?") still let jobs through once a reference existed, and
+                        // each of them then ran its own pass: measured on a real episode, the lane produced six
+                        // subtitles in one pass of 448 MB and the six jobs then ran four more passes of ~350 MB
+                        // each, 2 GB of reading for nothing. The lane runs extraction; a job that is not ready waits
+                        // in the queue instead of duplicating the work. The one exception is a lane that is not
+                        // running at all (disposed, or died), where jobs must be able to extract for themselves
+                        // rather than never start.
+                        // canShareMediaFile: a second job may join a file whose subtitle is already out.
+                        job => ExtractionReady(job),
+                        // MayStart: the same, plus the escape hatch for a lane that is gone.
+                        job => ExtractionReady(job)
+                            || (!LaneAlive
+                                && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)),
+                        walkCapOf: job => WalkCapOfPath(_jobContexts.TryGetValue(job.Id, out var capContext)
+                            ? capContext.Video.Path
+                            : null));
                 }
 
-                // Freeing a slot must wake the pump immediately, not at the end of a group.
-                _ = task.ContinueWith(
-                    _ => WakePump(),
-                    CancellationToken.None,
-                    TaskContinuationOptions.ExecuteSynchronously,
-                    TaskScheduler.Default);
+                // The plan runs on this thread without the lock, and is reported for the same reason the critical
+                // sections are: it used to be inside them, and this line is what shows it is not any more (S40).
+                planHold.Stop();
+                LogLockHold("pump-plan-outside-lock", planHold.ElapsedMilliseconds);
 
-                // Small stagger between starts in the same dispatch so several workers do not
-                // hit the disk in the same instant.
-                if (i + 1 < toStart.Count)
+                // Filesystem work stays outside the queue lock: releasing a reference may delete a whole
+                // directory, and this lock is what the enqueue path waits on.
+                foreach (var (finishedVideo, stillNeededForIt) in finishedVideos)
                 {
-                    await Task.Delay(400).ConfigureAwait(false);
+                    ReferenceStore.EndJob(finishedVideo, stillNeededForIt);
+
+                    // The file is done: nothing of this run will need its reference gate again, so it
+                    // does not sit in the dictionary until the next restart.
+                    if (!stillNeededForIt && finishedVideo is not null)
+                    {
+                        _referenceGates.TryRemove(finishedVideo, out _);
+                    }
                 }
-            }
-        }
+
+                // Every job that is still waiting says *why*, in the interface. "waiting to start" told the user
+                // nothing, and on network storage the wait they were looking at was the file's extraction pass
+                // (measured: 46-96 s before the first job of a file can start). The planner already knows both
+                // reasons, so it hands them to the job's phase.
+                foreach (var waiting in _runOrder)
+                {
+                    if (waiting.Status == SyncJobStatus.Queued)
+                    {
+                        waiting.Phase = QueuedReason(waiting, running, limit);
+                    }
+                }
+
+                if (toStart.Count == 0)
+                {
+                    if (_disposing)
+                    {
+                        // The loop asks whether to keep going before the next pass, so a pass that finds the service
+                        // going away simply returns and the loop ends (B31).
+                        return;
+                    }
+
+                    // A drained queue is the one point a batch's sweep records are known to be complete, and they
+                    // are written in batches. Flushing here costs one write per idle transition, not one per record,
+                    // and it means a run that ended - or a server that is simply left alone afterwards - does not
+                    // hold its last records in memory until the next batch happens to cross a batch boundary.
+                    if (inFlight.Count == 0)
+                    {
+                        _sweepState.Value.Flush();
+                    }
+
+                    // Nothing to start: either the slots are full (a finishing job wakes the pump) or
+                    // the queue is empty (a new job wakes it) - or a job became startable without any
+                    // event to signal it, which is what the bounded wait is for. An unbounded wait left
+                    // the plugin completely idle with a full queue and free workers: measured on a real
+                    // server, 46 s and then 83 s of silence with 225 jobs queued and four slots limit,
+                    // while the UI showed "Extracting N subtitles in one pass" - the phase of a job that
+                    // was only waiting. Re-planning every three quarters of a second costs nothing
+                    // (the predicates are memoised) and turns a stall into a no-op pass.
+                    await _wakePump.WaitAsync(TimeSpan.FromMilliseconds(750)).ConfigureAwait(false);
+                    return;
+                }
+
+                _logger.LogInformation(
+                    "Dispatching {Count} job(s) — {Running} running, limit {Limit}, {Queued} queued, batch {Batch}",
+                    toStart.Count,
+                    running,
+                    limit,
+                    CountQueued(),
+                    toStart[0].BatchId ?? "(standalone)");
+
+                // The plugin log records the dispatch decision, including the reason a parallel run can
+                // start fewer jobs than the limit: a job waits for another subtitle of the same media file
+                // (they share one audio analysis), so a batch of ten tracks over two episodes runs two,
+                // not ten. Without this line that looks like parallelism being ignored.
+                var queuedNow = CountQueued();
+                var headReason = string.Empty;
+                if (limit > 1 && running + toStart.Count < limit && queuedNow > toStart.Count)
+                {
+                    var queuedMediaFiles = _runOrder
+                        .Where(j => j.Status == SyncJobStatus.Queued)
+                        .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
+                        .Where(p => !string.IsNullOrEmpty(p))
+                        .Distinct(StringComparer.Ordinal)
+                        .Count();
+                    var runningMediaFiles = inFlight.Values
+                        .Select(j => _jobContexts.TryGetValue(j.Id, out var c) ? c.Video?.Path : null)
+                        .Where(p => !string.IsNullOrEmpty(p))
+                        .Distinct(StringComparer.Ordinal)
+                        .Count();
+                    headReason = $" — starting {toStart.Count} of {limit}: {queuedNow} queued across {queuedMediaFiles} media file(s), {running} running from {runningMediaFiles} file(s) (a second subtitle of a running file waits for its audio analysis)";
+                }
+
+                PluginLog.Info(
+                    $"dispatch: starting {toStart.Count}, running {running}, limit {limit}, queued {queuedNow}, batch {toStart[0].BatchId ?? "(standalone)"}{headReason}");
+
+                for (var i = 0; i < toStart.Count; i++)
+                {
+                    var job = toStart[i];
+                    lock (_queueLock)
+                    {
+                        if (job.Status != SyncJobStatus.Queued)
+                        {
+                            continue;
+                        }
+
+                        // Claimed under the lock so the running count is right for the next pass.
+                        job.Status = SyncJobStatus.Running;
+                        job.StartedAtUtc = DateTime.UtcNow;
+                    }
+
+                    var task = Task.Run(() => RunSyncJobWithContext(job));
+                    lock (_queueLock)
+                    {
+                        inFlight[task] = job;
+                    }
+
+                    // Freeing a slot must wake the pump immediately, not at the end of a group.
+                    _ = task.ContinueWith(
+                        _ => WakePump(),
+                        CancellationToken.None,
+                        TaskContinuationOptions.ExecuteSynchronously,
+                        TaskScheduler.Default);
+
+                    // Small stagger between starts in the same dispatch so several workers do not
+                    // hit the disk in the same instant.
+                    if (i + 1 < toStart.Count)
+                    {
+                        await Task.Delay(400).ConfigureAwait(false);
+                    }
+                }
     }
 
     /// <summary>Counts queued jobs, for log lines.</summary>
@@ -6578,6 +6666,120 @@ public class SubSyncService : IDisposable
             && job.SubtitleIndex == subtitleIndex
             && job.Status is SyncJobStatus.Queued or SyncJobStatus.Running);
 
+    /// <summary>How long teardown waits for the lanes and the pump to leave (B14).</summary>
+    internal const int ShutdownWaitMs = 5000;
+
+    /// <summary>
+    /// Kills every child process this service started and reports how many really exited.
+    /// </summary>
+    /// <remarks>
+    /// Cancelling a token only stops what polls it; ffsubsync spawns ffmpeg, and both hold the media file, so the
+    /// trees are killed directly. Used by <see cref="KillAll"/> and by <c>Dispose</c> (B14).
+    /// </remarks>
+    /// <returns>How many trees were asked to stop, and how many had exited by the deadline.</returns>
+    internal (int Asked, int Stopped) KillChildProcesses()
+    {
+        var asked = 0;
+        var toKill = new List<Process>();
+        foreach (var process in _liveProcesses.Values.ToList())
+        {
+            try
+            {
+                if (!process.HasExited)
+                {
+                    process.Kill(entireProcessTree: true);
+                    asked++;
+                    toKill.Add(process);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Could not kill process {Pid}", process.Id);
+            }
+        }
+
+        return (asked, CountExited(toKill, KillWaitMs));
+    }
+
+    /// <summary>
+    /// Tracks a child process so a kill or a teardown can find it (B14).
+    /// </summary>
+    /// <param name="process">The process just started.</param>
+    internal void TrackChildProcess(Process process)
+    {
+        _liveProcesses[process.Id] = process;
+    }
+
+    /// <summary>
+    /// Waits, for a bounded time, for the extraction lanes and the pump to finish (B14).
+    /// </summary>
+    /// <param name="milliseconds">Deadline in milliseconds.</param>
+    /// <returns>How many of those tasks had completed by the deadline.</returns>
+    internal int WaitForLanes(int milliseconds)
+        => WaitForTasks(
+            _pumpTask is null ? _laneTasks : _laneTasks.Concat(new[] { _pumpTask }),
+            milliseconds);
+
+    /// <summary>
+    /// Waits for a set of tasks, for a bounded time, and reports how many finished (B14).
+    /// </summary>
+    /// <param name="tasks">The tasks to wait for.</param>
+    /// <param name="milliseconds">Deadline in milliseconds.</param>
+    /// <returns>How many of those tasks had completed by the deadline.</returns>
+    internal static int WaitForTasks(IEnumerable<Task> tasks, int milliseconds)
+    {
+        var list = tasks.ToList();
+        if (list.Count == 0)
+        {
+            return 0;
+        }
+
+        try
+        {
+            Task.WaitAll(list.ToArray(), milliseconds);
+        }
+        catch (AggregateException)
+        {
+            // A task that faulted is finished either way; the count below says how many got there.
+        }
+
+        return list.Count(task => task.IsCompleted);
+    }
+
+    /// <summary>
+    /// True when an extraction attempt that produced no subtitle was stopped rather than failing (B20).
+    /// </summary>
+    /// <remarks>
+    /// A killed pass and a pass that genuinely could not read the file both come back as "no text", and the reader
+    /// reports the first as the reason <c>cancelled</c>. Treating the two the same sends a cancelled attempt down
+    /// every remaining engine - more minutes of engine work on a file the user just asked it to stop reading - and
+    /// ends with the job marked failed, which names an action nobody took.
+    /// </remarks>
+    /// <param name="reason">The reason the attempt reported.</param>
+    /// <param name="token">The job's cancellation token.</param>
+    /// <returns>True when this attempt was cancelled.</returns>
+    internal static bool IsCancelledExtraction(string reason, CancellationToken token)
+        => token.IsCancellationRequested
+            || string.Equals(reason, "cancelled", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Stops the extraction chain when the attempt was cancelled, instead of trying the next engine (B20).
+    /// </summary>
+    /// <param name="reason">The reason the attempt reported.</param>
+    /// <param name="token">The job's cancellation token.</param>
+    /// <param name="where">Which attempt this was, for the log.</param>
+    /// <exception cref="OperationCanceledException">Thrown when the attempt was cancelled.</exception>
+    private void StopChainIfCancelled(string reason, CancellationToken token, string where)
+    {
+        if (!IsCancelledExtraction(reason, token))
+        {
+            return;
+        }
+
+        PluginLog.Info($"extract: {where} was stopped (killed by the user) — no fallback attempted");
+        throw new OperationCanceledException(token);
+    }
+
     /// <summary>How long a finished job's row stays in the interface.</summary>
     private static readonly TimeSpan JobRetention = TimeSpan.FromHours(1);
 
@@ -6853,9 +7055,46 @@ public class SubSyncService : IDisposable
         // Last write wins on shutdown, so the history a restart comes back to is the one just left.
         BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());
 
-        // A pass in flight is reading the media share; shutdown must not wait for it.
+        // A pass in flight is reading the media share; teardown must not wait for it forever - but it does have to
+        // stop it (B14). Cancelling the lane token only asks, and until this block existed nothing killed the child
+        // processes or waited for a lane at all, so a plugin update or a server restart with jobs in flight left
+        // ffmpeg and ffsubsync children reading the share for a service that no longer existed.
         try { _laneStop.Cancel(); }
         catch (ObjectDisposedException) { /* already cancelled */ }
+
+        // Read before anything is cancelled: cancelling a run token fires the runner's own kill callback, and the
+        // runner then removes its entry, so a count taken later would say "nothing was running" about a run that was.
+        var trackedAtStart = _liveProcesses.Count;
+
+        foreach (var entry in _jobCancellation)
+        {
+            try { entry.Value.Cancel(); }
+            catch (ObjectDisposedException) { /* the run finished first */ }
+        }
+
+        var (childrenAsked, childrenStopped) = KillChildProcesses();
+        var tasksWaited = _laneTasks.Count + (_pumpTask is null ? 0 : 1);
+        var tasksDone = WaitForLanes(ShutdownWaitMs);
+        var trackedLeft = JobProcessRegistry.LiveProcesses;
+        var childrenLeft = _liveProcesses.Values.Count(process => !SafeHasExited(process));
+
+        // What the teardown can honestly claim: how many children it knew about, how many of those are not alive now,
+        // and how many it had to kill itself. The rest were stopped by their own runner's cancellation callback, which
+        // is the normal path for a run in flight - reporting only the direct kills would say "0 stopped" about a
+        // teardown that stopped two.
+        var childrenGone = trackedAtStart - childrenLeft;
+
+        // The registry is process-wide and outlives this instance, so a reloaded plugin must not inherit entries for
+        // jobs that ended with the old one.
+        JobProcessRegistry.Clear();
+
+        _logger.LogInformation(
+            "SubSync teardown: {Started} process(es) tracked, {Gone} stopped ({Killed} killed here), {Left} alive, {Done}/{Tasks} lane(s) and pump finished",
+            trackedAtStart, childrenGone, childrenAsked, childrenLeft, tasksDone, tasksWaited);
+        PluginLog.Info(
+            $"teardown: tracked={trackedAtStart} stopped={childrenGone} killedDirect={childrenAsked} "
+            + $"exitedDirect={childrenStopped} aliveAfter={childrenLeft} "
+            + $"tasksDone={tasksDone}/{tasksWaited} trackedLeft={trackedLeft}");
 
         try { _cleanupTimer.Dispose(); }
         catch { /* already disposed */ }
@@ -7515,6 +7754,14 @@ public class SubSyncService : IDisposable
                     + $"memoryReads={manyStats.MemoryServedReads} msPerRead={manyStats.MeasuredMsPerRead:0.00} "
                     + $"mbPerSecond={manyStats.MeasuredMbPerSecond:0.0} ok={manyOk} reason={manyReason} file={videoPath}");
 
+                // A pass the user killed is not a reason to start another one (B20): the chain used to carry on to
+                // the per-track reader and then to ffmpeg, doing minutes of work on a file just stopped, and ending
+                // with the job marked failed.
+                if (!manyOk)
+                {
+                    StopChainIfCancelled(manyReason, cancellationToken, "shared pass");
+                }
+
                 // Which track a shared pass could not produce is something the log has to say (B2): the call
                 // succeeds with a gap in it otherwise, and the gap may be the language someone is waiting for.
                 if (manyStats.MissedTracks.Count > 0)
@@ -7576,6 +7823,8 @@ public class SubSyncService : IDisposable
                 return stats.Method;
             }
 
+            // A cancelled read is not "no subtitle in this file" (B20): stop here instead of trying the next reader.
+            StopChainIfCancelled(why, cancellationToken, "Matroska index pass");
             skipped.Add("matroska-index: " + why + " [" + stats + "]");
         }
 
@@ -7592,6 +7841,7 @@ public class SubSyncService : IDisposable
                 return "mp4-sample-table";
             }
 
+            StopChainIfCancelled(why, cancellationToken, "MP4 sample-table pass");
             skipped.Add("mp4-sample-table: " + why);
         }
 
@@ -7929,7 +8179,7 @@ public class SubSyncService : IDisposable
         }
 
         process.Start();
-        _liveProcesses[process.Id] = process;
+        TrackChildProcess(process);
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -7981,7 +8231,7 @@ public class SubSyncService : IDisposable
         }
 
         process.Start();
-        _liveProcesses[process.Id] = process;
+        TrackChildProcess(process);
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -8032,7 +8282,7 @@ public class SubSyncService : IDisposable
         }
 
         process.Start();
-        _liveProcesses[process.Id] = process;
+        TrackChildProcess(process);
 
         // Kill the process if cancellation is requested
         using var registration = cancellationToken.Register(() =>
@@ -8236,7 +8486,7 @@ public class SubSyncService : IDisposable
         }
 
         process.Start();
-        _liveProcesses[process.Id] = process;
+        TrackChildProcess(process);
         if (owner is not null)
         {
             JobProcessRegistry.Begin(owner);
@@ -8322,14 +8572,25 @@ public class SubSyncService : IDisposable
         }
 
         process.Start();
+        TrackChildProcess(process);
 
-        var stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-        var stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+        try
+        {
+            var stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
+            var stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
 
-        await process.WaitForExitAsync().ConfigureAwait(false);
+            await process.WaitForExitAsync().ConfigureAwait(false);
 
-        var output = string.Concat(stdout, stderr).Trim();
-        return (process.ExitCode, output);
+            var output = string.Concat(stdout, stderr).Trim();
+            return (process.ExitCode, output);
+        }
+        finally
+        {
+            // Registered like the other four runners (B14). This one was the exception, and it covers the provisioning
+            // and probe steps - `ffsubsync --version`, `python3 -m venv`, `pip install`, `apt-get install` - any of
+            // which can run for minutes, so a kill or a teardown had no handle on them.
+            _liveProcesses.TryRemove(process.Id, out _);
+        }
     }
 
     /// <summary>

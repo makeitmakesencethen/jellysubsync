@@ -118,9 +118,19 @@ internal static class JobProcessRegistry
     }
 
     /// <summary>
-    /// Forgets a job's entry, once nothing of it can be running any more.
+    /// Forgets every tracked job (B14).
     /// </summary>
-    /// <param name="jobId">The job to forget.</param>
+    /// <remarks>
+    /// The registry is static because the processes it tracks are process-wide, but the jobs belong to a service
+    /// instance. A plugin that is torn down and loaded again in the same process would otherwise start with entries
+    /// for jobs that ended with the previous one, and report process activity for work nobody is doing.
+    /// </remarks>
+    internal static void Clear() => Entries.Clear();
+
+    /// <summary>
+    /// Forgets one job.
+    /// </summary>
+    /// <param name="jobId">Job identifier.</param>
     internal static void Forget(string jobId)
     {
         if (!string.IsNullOrEmpty(jobId))

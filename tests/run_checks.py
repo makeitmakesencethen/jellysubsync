@@ -3464,6 +3464,26 @@ Check("B17: a restored history row is not judged as a job",
     SubSyncService.JobsToEvict(b17History, b17Now, TimeSpan.FromHours(1), 10, id => id == "restored").Count == 0);
 
 // B7: the walk honours the token at the next cluster boundary, and a cancelled pass stops.
+// B20 reads the reader's own reason for a killed pass; the extraction happens once, beside the fixture it needs.
+var b20Token = new CancellationToken(canceled: true);
+var b20Ok = MkvSubtitleExtractor.TryExtract(
+    Environment.GetEnvironmentVariable("MKV_FIX_WALK"), 0, out _, out var b20Reason, null, out _, null, null, b20Token);
+
+// B31's loop is also driven with bodies that succeed, so "no fault recorded" is measured rather than assumed.
+static async Task<int> CountFaultsAsync(int passes)
+{
+    var faults = 0;
+    await SubSyncService.RunPumpLoopAsync(() => true, () => Task.CompletedTask, _ => faults++, passes);
+    return faults;
+}
+
+static async Task<int> CountPassesAsync(bool keepGoing)
+{
+    var runs = 0;
+    await SubSyncService.RunPumpLoopAsync(() => keepGoing, () => { runs++; return Task.CompletedTask; }, _ => { }, 4);
+    return runs;
+}
+
 var b7Fixture = Environment.GetEnvironmentVariable("MKV_FIX_WALK");
 var b7Mixed = Environment.GetEnvironmentVariable("MKV_FIX_MIXED");
 if (string.IsNullOrEmpty(b7Fixture))
@@ -3597,6 +3617,145 @@ else
         && d10RefusalBody.Title == "Empty batch"
         && d10RefusalBody.Detail == "A batch must contain at least one task.",
         $"status={((Microsoft.AspNetCore.Mvc.ObjectResult)d10Refusal).StatusCode} title='{d10RefusalBody.Title}'");
+}
+
+// ---------------- B-series lifecycle and stability: what teardown stops, what a pump survives ----------------
+
+// B14: teardown stops what is running before the service goes away. The children are real processes and the wait
+// is bounded, so this is a claim about behaviour rather than about a line of code existing.
+{
+    JobProcessRegistry.Begin("b14-check");
+    var b14Tracked = JobProcessRegistry.LiveProcesses;
+    JobProcessRegistry.Clear();
+    Check("B14: teardown clears the process registry, so a reloaded plugin inherits no entries",
+        b14Tracked == 1 && JobProcessRegistry.LiveProcesses == 0,
+        $"before={b14Tracked} after={JobProcessRegistry.LiveProcesses}");
+
+    var b14Service = new SubSyncService(null!, null!, null!, null!);
+    var b14Child = System.Diagnostics.Process.Start(
+        new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60"));
+    b14Service.TrackChildProcess(b14Child!);
+    var b14Watch = System.Diagnostics.Stopwatch.StartNew();
+    var (b14Asked, b14Stopped) = b14Service.KillChildProcesses();
+    b14Watch.Stop();
+    Check("B14: a tracked child is killed by the teardown path and counted as exited",
+        b14Asked == 1 && b14Stopped == 1 && b14Child!.HasExited,
+        $"asked={b14Asked} stopped={b14Stopped} exited={b14Child!.HasExited} after {b14Watch.ElapsedMilliseconds} ms");
+    Check("B14: teardown with nothing running waits for nothing and claims nothing",
+        SubSyncService.WaitForTasks(Array.Empty<Task>(), 5000) == 0);
+
+    var b14Long = Task.Delay(60000);
+    var b14WaitWatch = System.Diagnostics.Stopwatch.StartNew();
+    var b14Finished = SubSyncService.WaitForTasks(new[] { b14Long }, 300);
+    b14WaitWatch.Stop();
+    Check("B14: the wait for lanes is bounded and does not claim an unfinished task finished",
+        b14Finished == 0 && b14WaitWatch.ElapsedMilliseconds >= 250 && b14WaitWatch.ElapsedMilliseconds < 5000,
+        $"{b14Finished} finished after {b14WaitWatch.ElapsedMilliseconds} ms against a 300 ms deadline");
+    Check("B14: a lane that has already finished is counted",
+        SubSyncService.WaitForTasks(new[] { Task.CompletedTask }, 300) == 1);
+    Check("B14: the deadline is a real bound rather than an unbounded wait",
+        SubSyncService.ShutdownWaitMs > 0 && SubSyncService.ShutdownWaitMs <= 30000,
+        $"ShutdownWaitMs={SubSyncService.ShutdownWaitMs}");
+}
+
+// B31: a pass that throws does not end the pump. The loop is driven here with bodies that throw, so "the pump keeps
+// going" is observed rather than asserted about the source.
+{
+    var b31Runs = 0;
+    var b31Faults = new List<Exception>();
+    await SubSyncService.RunPumpLoopAsync(
+        () => true,
+        () =>
+        {
+            b31Runs++;
+            throw new InvalidOperationException("pass " + b31Runs);
+        },
+        ex => b31Faults.Add(ex),
+        3);
+    Check("B31: three failed passes leave the loop alive and every pass runs",
+        b31Runs == 3 && b31Faults.Count == 3,
+        $"{b31Runs} pass(es) ran, {b31Faults.Count} fault(s) recorded, nothing escaped");
+    Check("B31: the fault reaches the handler as the exception that happened, not as a summary",
+        b31Faults.Count == 3 && b31Faults.All(f => f is InvalidOperationException)
+        && b31Faults[0].Message == "pass 1",
+        b31Faults.Count > 0 ? b31Faults[0].Message : "no faults");
+
+    var b31Service = new SubSyncService(null!, null!, null!, null!);
+    await SubSyncService.RunPumpLoopAsync(
+        () => true,
+        () => throw new IOException("the media share went away"),
+        b31Service.NotePumpFault,
+        2);
+    Check("B31: the service counts failed passes, so a repeated fault is visible",
+        b31Service.PumpFaults == 2,
+        $"PumpFaults={b31Service.PumpFaults}");
+    var b31ThrewItself = false;
+    try
+    {
+        // The fault path runs inside the loop it protects and both of its log targets can fail, so a report that
+        // throws would end the pump. Driven with no logger at all, which is what a service built for a check has.
+        b31Service.NotePumpFault(new IOException("the share is gone and the log lives on it"));
+    }
+    catch (Exception ex)
+    {
+        b31ThrewItself = true;
+        Console.WriteLine(ex.GetType().Name);
+    }
+
+    Check("B31: reporting a fault cannot itself take the pump down",
+        !b31ThrewItself && b31Service.PumpFaults == 3,
+        $"threw={b31ThrewItself} faults={b31Service.PumpFaults}");
+    Check("B31: passes that succeed record no fault",
+        await CountFaultsAsync(4) == 0);
+    Check("B31: the loop runs no pass at all once it is told not to keep going",
+        await CountPassesAsync(false) == 0);
+    Check("B31: the pause after a fault grows and is capped",
+        SubSyncService.PumpFaultBackoffMs(1) == 250
+        && SubSyncService.PumpFaultBackoffMs(2) == 500
+        && SubSyncService.PumpFaultBackoffMs(6) == 8000
+        && SubSyncService.PumpFaultBackoffMs(99) == 8000,
+        $"1={SubSyncService.PumpFaultBackoffMs(1)} 2={SubSyncService.PumpFaultBackoffMs(2)} "
+        + $"6={SubSyncService.PumpFaultBackoffMs(6)} 99={SubSyncService.PumpFaultBackoffMs(99)}");
+}
+
+// B20: a killed extraction is a cancellation, not a failure, so the chain stops instead of trying the next engine.
+{
+    Check("B20: the reader's own cancellation reason is what the chain's rule recognises",
+        !b20Ok && b20Reason == "cancelled" && SubSyncService.IsCancelledExtraction(b20Reason, b20Token),
+        $"ok={b20Ok} reason='{b20Reason}'");
+    Check("B20: a cancelled job token makes even an empty result a cancellation",
+        SubSyncService.IsCancelledExtraction(string.Empty, new CancellationToken(canceled: true)));
+    Check("B20: a real read failure is not mistaken for a cancellation",
+        !SubSyncService.IsCancelledExtraction("no subtitle blocks in this file", CancellationToken.None)
+        && !SubSyncService.IsCancelledExtraction(string.Empty, CancellationToken.None)
+        && SubSyncService.IsCancelledExtraction("Cancelled", CancellationToken.None));
+}
+
+// B21: the fault inside an AggregateException is what the caller and the log see.
+{
+    var b21Inner = new IOException("the share went away");
+    var b21Root = ExceptionDiagnostics.RootCause(new AggregateException(new AggregateException(b21Inner)));
+    Check("B21: a fault nested two aggregates deep is returned as the fault itself",
+        ReferenceEquals(b21Root, b21Inner),
+        b21Root.GetType().Name + ": " + b21Root.Message);
+    var b21Cancel = ExceptionDiagnostics.RootCause(
+        new AggregateException(new IOException("read failed"), new OperationCanceledException()));
+    Check("B21: a wrapped cancellation stays a cancellation, so a kill is not read as a fault",
+        b21Cancel is OperationCanceledException,
+        b21Cancel.GetType().Name);
+    var b21Many = ExceptionDiagnostics.RootCause(new AggregateException(
+        new IOException("one"), new IOException("two"), new IOException("three")));
+    Check("B21: several faults are named rather than collapsed into the aggregate's own sentence",
+        b21Many.Message.Contains("3 failures") && b21Many.Message.Contains("one")
+        && b21Many.Message.Contains("two")
+        && !b21Many.Message.Contains("One or more errors occurred"),
+        b21Many.Message);
+    Check("B21: an ordinary exception is returned as itself",
+        ReferenceEquals(ExceptionDiagnostics.RootCause(b21Inner), b21Inner));
+    var b21Line = ExceptionDiagnostics.Describe(new AggregateException(b21Inner));
+    Check("B21: the log line names the fault and says what it was wrapped in",
+        b21Line == "IOException: the share went away (wrapped in AggregateException)",
+        b21Line);
 }
 
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
@@ -4598,6 +4757,71 @@ def run_page_checks():
     # real fixtures (see the Matroska section) and across the shape x storage matrix.
     extractor_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                          'MkvSubtitleExtractor.cs'), encoding='utf-8').read()
+
+    # ---------------- B-series lifecycle and stability: teardown, the pump, cancellations, wrappers ----------------
+
+    registry_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                        'JobProcessRegistry.cs'), encoding='utf-8').read()
+    diagnostics_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                           'ExceptionDiagnostics.cs'), encoding='utf-8').read()
+
+    # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
+    report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
+           'var (childrenAsked, childrenStopped) = KillChildProcesses();' in service_source
+           and 'var tasksDone = WaitForLanes(ShutdownWaitMs);' in service_source
+           and 'JobProcessRegistry.Clear();' in service_source
+           and 'foreach (var entry in _jobCancellation)' in service_source
+           and 'teardown: tracked=' in service_source)
+    report('B14: the kill step and the bounded wait are shared with KillAll and testable on their own',
+           'internal (int Asked, int Stopped) KillChildProcesses()' in service_source
+           and 'internal static int WaitForTasks(IEnumerable<Task> tasks, int milliseconds)' in service_source
+           and 'internal void TrackChildProcess(Process process)' in service_source
+           and service_source.count('KillChildProcesses(') >= 2)
+    report('B14: the registry can be cleared, so a reloaded plugin inherits nothing',
+           'internal static void Clear() => Entries.Clear();' in registry_source)
+    report('B14: every child process the plugin starts is tracked, so a kill or a teardown can find it',
+           service_source.count('TrackChildProcess(process);') == service_source.count('process.Start();'),
+           f"{service_source.count('TrackChildProcess(process);')} registered of "
+           f"{service_source.count('process.Start();')} started")
+
+    # B31: the pump's pass runs inside a guarded loop that survives a failing pass and says so.
+    report('B31: the pump runs its pass through the guarded loop rather than a bare loop',
+           'await RunPumpLoopAsync(' in service_source
+           and '() => PumpOnceAsync(inFlight),' in service_source
+           and 'NotePumpFault)' in service_source
+           and 'private async Task PumpOnceAsync(Dictionary<Task, SyncJob> inFlight)' in service_source)
+    report('B31: a pass that throws is counted, logged in the plugin log, and the loop carries on',
+           'consecutiveFaults++;' in service_source
+           and 'onFault(ex);' in service_source
+           and 'pump: pass failed (' in service_source
+           and 'PluginLog.Error(' in service_source)
+    report('B31: the loop backs off, so a pass that fails immediately cannot spin',
+           'await Task.Delay(PumpFaultBackoffMs(consecutiveFaults)).ConfigureAwait(false);' in service_source
+           and 'internal static int PumpFaultBackoffMs(int consecutiveFaults)' in service_source)
+
+    # B20: a cancelled attempt ends the chain instead of trying the next engine.
+    report('B20: every fallback boundary stops the chain when the attempt was cancelled',
+           service_source.count('StopChainIfCancelled(') >= 4
+           and 'throw new OperationCanceledException(token);' in service_source
+           and 'no fallback attempted' in service_source)
+    report('B20: the rule reads the reader\'s own cancellation reason as well as the token',
+           'internal static bool IsCancelledExtraction(string reason, CancellationToken token)' in service_source
+           and 'string.Equals(reason, "cancelled", StringComparison.OrdinalIgnoreCase)' in service_source
+           and 'token.IsCancellationRequested' in service_source)
+
+    # B21: the prefetch reports the fault that actually happened.
+    report('B21: the prefetch unwraps its aggregate and rethrows the real fault',
+           'catch (AggregateException aggregate)' in extractor_source
+           and 'ExceptionDiagnostics.RootCause(aggregate)' in extractor_source
+           and 'throw real;' in extractor_source
+           and 'prefetch: ' in extractor_source)
+    report('B21: the log line names the fault and what it was wrapped in',
+           'ExceptionDiagnostics.Describe(aggregate)' in extractor_source
+           and 'internal static string Describe(Exception exception)' in diagnostics_source)
+    report('B21: one place decides what the real fault is, and a kill stays a kill',
+           'internal static Exception RootCause(Exception exception)' in diagnostics_source
+           and 'OfType<OperationCanceledException>().FirstOrDefault()' in diagnostics_source
+           and 'aggregate.Flatten().InnerExceptions' in diagnostics_source)
     policy_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                       'ReadPolicy.cs'), encoding='utf-8').read()
     report('a pass reads by the plan the policy made',
