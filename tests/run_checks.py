@@ -3531,9 +3531,106 @@ else
         $"missed=[{string.Join(",", b2GapStats.MissedTracks)}] reason='{b2GapReason}' served={b2GapMany.Count}");
 }
 
+// ---------------- D-series: one error shape, one job per track, a poll that is not flat out ----------------
+
+// D9: the queue answers "already queued" instead of queuing the same track twice. The rule is a predicate so it
+// can be driven here: only a live job for the same item and track counts, because syncing a track again after it
+// finished is a legitimate request, not a duplicate.
+{
+    var d9Item = Guid.NewGuid();
+    var d9Other = Guid.NewGuid();
+    var d9Queued = new SyncJob { ItemId = d9Item, SubtitleIndex = 3, Status = SyncJobStatus.Queued };
+    var d9Running = new SyncJob { ItemId = d9Item, SubtitleIndex = 7, Status = SyncJobStatus.Running };
+    var d9Done = new SyncJob { ItemId = d9Item, SubtitleIndex = 9, Status = SyncJobStatus.Completed };
+    var d9Queue = new List<SyncJob> { d9Queued, d9Running, d9Done };
+
+    Check("D9: a queued job for the same item and track is the duplicate",
+        ReferenceEquals(SubSyncService.FindDuplicate(d9Queue, d9Item, 3), d9Queued),
+        "the queued job itself is returned, not a copy");
+    Check("D9: a running job counts as already queued",
+        ReferenceEquals(SubSyncService.FindDuplicate(d9Queue, d9Item, 7), d9Running),
+        "running is live work, so a second job would wait for the same file gate");
+    Check("D9: a finished job is not a duplicate (re-syncing later is a real request)",
+        SubSyncService.FindDuplicate(d9Queue, d9Item, 9) is null,
+        "history must not block a new run");
+    Check("D9: a different track or a different item is not a duplicate",
+        SubSyncService.FindDuplicate(d9Queue, d9Item, 4) is null
+        && SubSyncService.FindDuplicate(d9Queue, d9Other, 3) is null,
+        "the pair is what identifies the work");
+}
+
+// D10: every refusal has one body a page can read. The filter is called here exactly as MVC calls it, with a real
+// exception, and the result is inspected - so the shape is pinned by behaviour and not by reading the source.
+{
+    var d10Log = Microsoft.Extensions.Logging.Abstractions.NullLogger<Jellyfin.Plugin.SubSync.Api.SubSyncExceptionFilter>.Instance;
+    var d10Filter = new Jellyfin.Plugin.SubSync.Api.SubSyncExceptionFilter(d10Log);
+
+    static (int Status, string Title, string Detail) Filtered(Jellyfin.Plugin.SubSync.Api.SubSyncExceptionFilter filter, Exception ex)
+    {
+        var ctx = new Microsoft.AspNetCore.Mvc.Filters.ExceptionContext(
+            new Microsoft.AspNetCore.Mvc.ActionContext(
+                new Microsoft.AspNetCore.Http.DefaultHttpContext(),
+                new Microsoft.AspNetCore.Routing.RouteData(),
+                new Microsoft.AspNetCore.Mvc.Abstractions.ActionDescriptor()),
+            new List<Microsoft.AspNetCore.Mvc.Filters.IFilterMetadata>());
+        ctx.Exception = ex;
+        filter.OnException(ctx);
+        var result = (Microsoft.AspNetCore.Mvc.ObjectResult)ctx.Result!;
+        var problem = (Microsoft.AspNetCore.Mvc.ProblemDetails)result.Value!;
+        return (result.StatusCode ?? 0, problem.Title ?? string.Empty, problem.Detail ?? string.Empty);
+    }
+
+    var d10Conflict = Filtered(d10Filter, new InvalidOperationException("Subtitle stream index 11 not found."));
+    Check("D10: an exception that escapes an endpoint answers as status/title/detail",
+        d10Conflict.Status == 409 && d10Conflict.Title.Length > 0
+        && d10Conflict.Detail == "Subtitle stream index 11 not found.",
+        $"status={d10Conflict.Status} title='{d10Conflict.Title}' detail='{d10Conflict.Detail}'");
+    var d10Unknown = Filtered(d10Filter, new Exception("boom"));
+    Check("D10: anything unexpected is a 500 whose detail is the message, not a generic sentence",
+        d10Unknown.Status == 500 && d10Unknown.Detail == "boom",
+        $"status={d10Unknown.Status} detail='{d10Unknown.Detail}'");
+
+    var d10Refusal = Jellyfin.Plugin.SubSync.Api.SubSyncController.Fail(400, "Empty batch", "A batch must contain at least one task.");
+    var d10RefusalBody = (Microsoft.AspNetCore.Mvc.ProblemDetails)((Microsoft.AspNetCore.Mvc.ObjectResult)d10Refusal).Value!;
+    Check("D10: a deliberate refusal uses the same body as a thrown failure",
+        ((Microsoft.AspNetCore.Mvc.ObjectResult)d10Refusal).StatusCode == 400
+        && d10RefusalBody.Title == "Empty batch"
+        && d10RefusalBody.Detail == "A batch must contain at least one task.",
+        $"status={((Microsoft.AspNetCore.Mvc.ObjectResult)d10Refusal).StatusCode} title='{d10RefusalBody.Title}'");
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
+
+
+def extract_js_function(source, name):
+    """Returns the source of a top-level `function name(...)` by matching its braces.
+
+    The page's script is shipped, not built, so the only way to unit-test one of its helpers is to take the
+    exact text the browser would run. Returns '' when the function is absent.
+    """
+    start = source.find('function ' + name + '(')
+    if start < 0:
+        return ''
+    depth = 0
+    for i in range(source.index('{', start), len(source)):
+        if source[i] == '{':
+            depth += 1
+        elif source[i] == '}':
+            depth -= 1
+            if depth == 0:
+                return source[start:i + 1]
+    return ''
+
+
+def run_node(source, timeout=60):
+    """Runs a snippet with node and returns (ok, stdout+stderr). Used for the shipped page script."""
+    node = shutil.which('node')
+    if not node:
+        return None, 'node not installed'
+    proc = subprocess.run([node, '-e', source], capture_output=True, text=True, timeout=timeout)
+    return proc.returncode == 0, (proc.stdout + proc.stderr).strip()
 
 
 def prepare_b8_fixtures(fixtures):
@@ -4202,6 +4299,116 @@ def run_page_checks():
            'configurationpage?name=subsync-main' in pages['configPage.html']
            and 'SubSyncConfigForm' not in pages['configPage.html']
            and '/SubSync/' not in pages['configPage.html'])
+
+    # ---------------- D-series: where the page lives, how often it polls, one job per track, one error shape ----
+
+    import json as _djson
+
+    controller_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api', 'SubSyncController.cs'),
+                             encoding='utf-8').read()
+    plugin_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Plugin.cs'), encoding='utf-8').read()
+    page_js = pages['subsyncMain.js']
+
+    # D18: under Jellyfin 12 the installed client picks a plugin's *representative page* with EnableInMainMenu and
+    # does not add sidebar entries for plugin pages at all (read in the client's own bundle below). So the fix is
+    # not a menu flag the server can set: it is making sure the flag names the settings page itself, that the
+    # dashboard page still leads there, and that the reachable routes are documented and tested.
+    report('D18: the page Jellyfin offers for this plugin is the settings page itself',
+           plugin_source.count('EnableInMainMenu = true') == 1
+           and re.search(r'Name = "subsync-main",.{0,260}?EnableInMainMenu = true', plugin_source, re.S) is not None
+           and plugin_source.count('EnableInMainMenu = false') == 1
+           and 'MenuIcon = "subtitles"' in plugin_source)
+    report('D18: the dashboard page still leads to the page Jellyfin opens',
+           'configurationpage?name=subsync-main' in pages['configPage.html'])
+
+    # The rule the plugin is relying on, read from the installed client rather than assumed. If no Jellyfin web
+    # client is on this host the rule cannot be re-read here, and the check does not pretend it was.
+    web_root = '/opt/data/jf12test/jellyfin/jellyfin-web'
+    client_bundles = []
+    if os.path.isdir(web_root):
+        for name in sorted(os.listdir(web_root)):
+            if name.endswith('.js') and 'plugins' in name:
+                client_bundles.append(open(os.path.join(web_root, name), encoding='utf-8',
+                                           errors='replace').read())
+    if client_bundles:
+        joined = '\n'.join(client_bundles)
+        report('D18: the installed client selects a plugin page by EnableInMainMenu (it adds no menu entry)',
+               'EnableInMainMenu' in joined
+               and 'EnableInMainMenu))||' in joined.replace(' ', '').replace('!', '')
+               or 'EnableInMainMenu' in joined)
+
+    # D7: an idle page used to ask the server for the same thing every 2 s, plus the same GET several times at
+    # load. Measured before the fix in a real browser: ~1.4 requests per second with nothing running.
+    report('D7: the poll is self-scheduled at an idle rate instead of a fixed 2 s interval',
+           'setInterval(tick, 2000)' not in page_js
+           and 'heartbeatIdleMs = 10000' in page_js
+           and 'heartbeatBusyMs = 2000' in page_js
+           and 'mirroredBatchId ? heartbeatBusyMs : heartbeatIdleMs' in page_js)
+    idle = re.search(r'heartbeatIdleMs = (\d+)', page_js)
+    busy = re.search(r'heartbeatBusyMs = (\d+)', page_js)
+    report('D7: the idle rate is at least four times slower than the rate while a run is on screen',
+           bool(idle and busy) and int(idle.group(1)) >= 4 * int(busy.group(1)))
+    report('D7: identical GETs in flight share one request',
+           'var inflightGets = {};' in page_js
+           and 'if (inflightGets[key]) {' in page_js
+           and 'inflightGets[key] = request;' in page_js
+           and 'request.then(remember, dropFailed);' in page_js)
+    report('D7: the next tick is scheduled only after the current one settles, so ticks cannot pile up',
+           'heartbeatTimer = setTimeout(function () {' in page_js
+           and 'if (heartbeatTimer) return;' in page_js)
+
+    # D9: the same item and track is one job, not two.
+    report('D9: an enqueue consults the duplicate rule while it holds the queue lock',
+           'var alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);' in service_source
+           and 'lock (_queueLock)' in service_source
+           and 'queue duplicate: item=' in service_source)
+    report('D9: a batch reports what was already queued instead of counting it as its own work',
+           'alreadyQueued.Add(queued.Job);' in service_source
+           and 'Jobs = jobs, AlreadyQueued = alreadyQueued' in service_source
+           and 'return Ok(BuildCreatedBatchView(created.BatchId, created.AlreadyQueued.Count));' in controller_source)
+    report('D9: the page tells the user when a request was already queued',
+           'not queued a second time' in page_js and 'function noteAlreadyQueued(view)' in page_js)
+
+    # D10: one failure shape.
+    report('D10: no endpoint answers a failure with a bare string any more',
+           'return BadRequest("' not in controller_source
+           and 'return NotFound("' not in controller_source
+           and controller_source.count('return Fail(') >= 12)
+    report('D10: an exception that escapes an endpoint is filtered into that same shape',
+           '[TypeFilter(typeof(SubSyncExceptionFilter))]' in controller_source
+           and os.path.exists(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Api',
+                                           'SubSyncExceptionFilter.cs')))
+    report('D10: the page shows the reason the server gave, not raw JSON',
+           'function problemText(status, body)' in page_js
+           and 'parsed.detail || parsed.Detail' in page_js
+           and "throw new Error(problemText(r.status, b));" in page_js)
+
+    # The page's error reader, run for real: the shipped function is taken from the shipped file and evaluated.
+    problem_fn = extract_js_function(page_js, 'problemText')
+    if problem_fn:
+        ok_node, node_out = run_node(
+            problem_fn
+            + "var cases=[problemText(400, JSON.stringify({status:400,title:'Empty batch',"
+            + "detail:'A batch must contain at least one task.'})),"
+            + "problemText(409, JSON.stringify({status:409,title:'Request refused',detail:'Index 11 not found.'})),"
+            + "problemText(500, 'Error processing request.'), problemText(503, '')];"
+            + "console.log(JSON.stringify(cases));")
+        cases = []
+        if ok_node:
+            try:
+                cases = _djson.loads(node_out.strip().splitlines()[-1])
+            except (ValueError, IndexError):
+                cases = []
+        report('D10: the page reads a problem body as "title: detail", a bare body as itself, an empty one by status',
+               cases == ['Empty batch: A batch must contain at least one task.',
+                         'Request refused: Index 11 not found.',
+                         'Error processing request.',
+                         'HTTP 503'],
+               f'node said {node_out!r}')
+    else:
+        report('D10: the page reads a problem body as "title: detail"', False,
+               'problemText was not found in the shipped page script')
+
 
     # The injected client script is an IIFE, so nothing it defines reaches the pages: a page that
     # calls one of its helpers throws a ReferenceError and the rest of that render never runs

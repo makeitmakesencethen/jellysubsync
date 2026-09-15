@@ -15,6 +15,7 @@ namespace Jellyfin.Plugin.SubSync.Api;
 [ApiController]
 [Authorize]
 [Route("SubSync")]
+[TypeFilter(typeof(SubSyncExceptionFilter))]
 public class SubSyncController : ControllerBase
 {
     /// <summary>
@@ -89,9 +90,7 @@ public class SubSyncController : ControllerBase
         if (userId is null)
         {
             PluginLog.Info("refused a bulk request: the request carries no account id");
-            return StatusCode(
-                StatusCodes.Status403Forbidden,
-                "This request could not be attributed to an account.");
+            return Fail(StatusCodes.Status403Forbidden, "Not permitted", "This request could not be attributed to an account.");
         }
 
         var denied = _syncService.FirstItemNotVisibleTo(userId.Value, itemIds);
@@ -99,9 +98,7 @@ public class SubSyncController : ControllerBase
         {
             PluginLog.Info(
                 $"refused a bulk request for account {userId.Value}: item {denied.Value} is not in a library that account can see");
-            return StatusCode(
-                StatusCodes.Status403Forbidden,
-                "One or more items in this request are not available to this account.");
+            return Fail(StatusCodes.Status403Forbidden, "Not permitted", "One or more items in this request are not available to this account.");
         }
 
         return null;
@@ -126,13 +123,13 @@ public class SubSyncController : ControllerBase
     {
         if (!CallerMayActOn(itemId))
         {
-            return NotFound("Item not found or not available to this account.");
+            return Fail(404, "Item not found", "The item was not found or is not available to this account.");
         }
 
         var subtitles = _syncService.ListSubtitles(itemId);
         if (subtitles is null)
         {
-            return NotFound("Item not found or is not a video.");
+            return Fail(404, "Not a video", "The item was not found or is not a video.");
         }
 
         return Ok(subtitles);
@@ -151,7 +148,7 @@ public class SubSyncController : ControllerBase
     {
         if (!CallerMayActOn(request.ItemId))
         {
-            return NotFound("Item not found or not available to this account.");
+            return Fail(404, "Item not found", "The item was not found or is not available to this account.");
         }
 
         try
@@ -161,11 +158,11 @@ public class SubSyncController : ControllerBase
         }
         catch (FileNotFoundException ex)
         {
-            return NotFound(ex.Message);
+            return Fail(404, "Job not found", ex.Message);
         }
         catch (InvalidOperationException ex)
         {
-            return BadRequest(ex.Message);
+            return Fail(400, "Request refused", ex.Message);
         }
     }
 
@@ -182,7 +179,7 @@ public class SubSyncController : ControllerBase
         var job = _syncService.GetJob(jobId);
         if (job is null)
         {
-            return NotFound("Job not found.");
+            return Fail(404, "Job not found", "No job with that identifier.");
         }
 
         return Ok(job);
@@ -213,12 +210,12 @@ public class SubSyncController : ControllerBase
     {
         if (request.Tasks is null || request.Tasks.Count == 0)
         {
-            return BadRequest("Batch must contain at least one task.");
+            return Fail(400, "Empty batch", "A batch must contain at least one task.");
         }
 
         if (request.Tasks.Count > 1000)
         {
-            return BadRequest("Batch is too large (max 1000 tasks).");
+            return Fail(400, "Batch too large", "A batch carries at most 1000 tasks.");
         }
 
         var refused = RefuseInvisibleItems(request.Tasks.Select(t => t.ItemId));
@@ -231,10 +228,21 @@ public class SubSyncController : ControllerBase
             .Select(t => (t.ItemId, t.SubtitleIndex, Title: t.Title))
             .ToList();
 
-        var jobs = _syncService.CreateBatch(request.Label ?? string.Empty, tasks, request.Mode);
-        var batchId = jobs[0].BatchId!;
-        return Ok(BuildBatchView(batchId));
+        var created = _syncService.CreateBatch(request.Label ?? string.Empty, tasks, request.Mode);
+        return Ok(BuildCreatedBatchView(created.BatchId, created.AlreadyQueued.Count));
     }
+
+    /// <summary>
+    /// Builds the body every failed SubSync request has: the status, a short title, and a detail the page can
+    /// show (D10). Deliberate refusals used to answer with a bare string while a thrown failure answered with
+    /// Jellyfin's "Error processing request." - two shapes, one of which said nothing.
+    /// </summary>
+    /// <param name="status">HTTP status code.</param>
+    /// <param name="title">Short summary of what was refused.</param>
+    /// <param name="detail">The specific reason, suitable to show to the user.</param>
+    /// <returns>The response body as an <see cref="ObjectResult"/>.</returns>
+    internal static ObjectResult Fail(int status, string title, string detail)
+        => new(new ProblemDetails { Status = status, Title = title, Detail = detail }) { StatusCode = status };
 
     /// <summary>
     /// Gets the current view of a batch (tasks + aggregate progress).
@@ -298,7 +306,47 @@ public class SubSyncController : ControllerBase
         return view is null ? NotFound("Batch not found.") : Ok(view);
     }
 
-    private BatchView? BuildBatchView(string batchId)
+    /// <summary>
+    /// Builds the view of a batch.
+    /// </summary>
+    /// <param name="batchId">Batch identifier.</param>
+    /// <param name="alreadyQueuedCount">How many requested tasks the queue already held (D9), reported once on creation.</param>
+    /// <returns>The view, or null when the batch has no jobs.</returns>
+    private BatchView? BuildBatchView(string batchId, int alreadyQueuedCount = 0)
+    {
+        var view = BuildBatchViewCore(batchId);
+        if (view is not null && alreadyQueuedCount > 0)
+        {
+            view.AlreadyQueuedCount = alreadyQueuedCount;
+        }
+
+        return view;
+    }
+
+    /// <summary>
+    /// Builds the view returned when a batch is created, including a batch whose every task was already queued (D9).
+    /// </summary>
+    /// <remarks>
+    /// The batch view is null when a batch has no jobs, which is how a request for an unknown batch is answered with
+    /// 404. Creating such a batch is not an error - it means the work was already queued - so it answers with an empty
+    /// view that carries the count, and the page can say "nothing new, N already queued" instead of showing nothing.
+    /// </remarks>
+    /// <param name="batchId">Batch identifier.</param>
+    /// <param name="alreadyQueuedCount">How many tasks the queue already held.</param>
+    /// <returns>The view of the batch that was just created.</returns>
+    private BatchView BuildCreatedBatchView(string batchId, int alreadyQueuedCount)
+    {
+        var view = BuildBatchViewCore(batchId) ?? new BatchView { Id = batchId, Status = "Completed" };
+        view.AlreadyQueuedCount = alreadyQueuedCount;
+        return view;
+    }
+
+    /// <summary>
+    /// Builds the view of a batch from its jobs.
+    /// </summary>
+    /// <param name="batchId">Batch identifier.</param>
+    /// <returns>The view, or null when the batch has no jobs.</returns>
+    private BatchView? BuildBatchViewCore(string batchId)
     {
         var jobs = _syncService.GetBatchJobs(batchId).ToList();
         if (jobs.Count == 0)
@@ -435,11 +483,11 @@ public class SubSyncController : ControllerBase
         }
         catch (InvalidOperationException ex) when (ex.Message.Contains("already in progress"))
         {
-            return StatusCode(StatusCodes.Status503ServiceUnavailable, ex.Message);
+            return Fail(StatusCodes.Status503ServiceUnavailable, "Not available", ex.Message);
         }
         catch (Exception ex)
         {
-            return BadRequest($"Installation failed: {ex.Message}");
+            return Fail(400, "Installation failed", ex.Message);
         }
     }
 
@@ -487,12 +535,12 @@ public class SubSyncController : ControllerBase
     {
         if (request.ItemIds is null || request.ItemIds.Count == 0)
         {
-            return BadRequest("No item ids supplied.");
+            return Fail(400, "No items", "No item ids were supplied.");
         }
 
         if (request.ItemIds.Count > 500)
         {
-            return BadRequest("Too many items in one request (max 500).");
+            return Fail(400, "Too many items", "At most 500 items can be scanned in one request.");
         }
 
         var refused = RefuseInvisibleItems(request.ItemIds);
@@ -579,7 +627,7 @@ public class SubSyncController : ControllerBase
         var js = GetEmbeddedResource("Jellyfin.Plugin.SubSync.Web.subsync.js");
         if (js is null)
         {
-            return NotFound();
+            return Fail(404, "Not found", "No such SubSync resource.");
         }
 
         return Content(js, "application/javascript");
@@ -622,12 +670,12 @@ public class SubSyncController : ControllerBase
         }
         catch (JsonException ex)
         {
-            return BadRequest($"The configuration could not be read: {ex.Message}");
+            return Fail(400, "Configuration unreadable", ex.Message);
         }
 
         if (wanted is null)
         {
-            return BadRequest("No configuration in the body.");
+            return Fail(400, "Empty body", "The request body carried no configuration.");
         }
 
         // One validation path for the settings: what cannot mean anything is brought into range here rather
@@ -704,7 +752,7 @@ public class SubSyncController : ControllerBase
         var js = GetEmbeddedResource("Jellyfin.Plugin.SubSync.Web.subsyncMain.js");
         if (js is null)
         {
-            return NotFound();
+            return Fail(404, "Not found", "No such SubSync resource.");
         }
 
         return Content(js, "application/javascript");
@@ -838,6 +886,12 @@ public class BatchView
 {
     /// <summary>Gets or sets the batch identifier.</summary>
     public string Id { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Gets or sets how many of the requested tasks were already queued or running when the batch was created and
+    /// were therefore not queued twice (D9). Shown by the page so a smaller-than-expected run is explained.
+    /// </summary>
+    public int AlreadyQueuedCount { get; set; }
 
     /// <summary>Gets or sets the multi-subtitle mode this batch runs in.</summary>
     public string Mode { get; set; } = Services.SyncJobMode.Normal;

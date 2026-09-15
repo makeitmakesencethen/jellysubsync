@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Six B-series fixes: ffmpeg's out_time_ms read as microseconds (the bar no longer jumps to 100%); the scratch clear restricted to job-id directories inside the root; the kill report counting processes that exited rather than an estimate; Kill interrupting a Matroska walk at a cluster boundary; job history kept by age instead of dropped past 50; and the shared pass naming tracks it could not produce",
+  "changelog": "D-series interface fixes: the idle page polls five times less often and shares duplicate requests; the same item and track cannot be queued twice; every refusal answers with one error body the page can read; and the routes to the settings page under Jellyfin 12 are verified and documented",
   "description": "Synchronize subtitles with video audio using ffsubsync",
   "guid": "c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2",
   "name": "SubSync",
@@ -8,7 +8,7 @@
   "owner": "jellysubsync",
   "targetAbi": "12.0.0.0",
   "timestamp": "2026-09-15T18:00:42.0000000Z",
-  "version": "2.0.48.0",
+  "version": "2.0.49.0",
   "status": "Active",
   "autoUpdate": false,
   "imagePath": "",

@@ -1076,8 +1076,11 @@ public class SubSyncService : IDisposable
     /// <param name="batchLabel">Batch label.</param>
     /// <param name="batchIndex">Position within the batch.</param>
     /// <param name="mode">Requested mode.</param>
-    /// <returns>The queued job and the cost of each part.</returns>
-    internal (SyncJob Job, string Timing) EnqueueSyncTimed(
+    /// <returns>
+    /// The queued job, the cost of each part, and whether the queue already held a job for this item and track
+    /// (in which case that job is the one returned - D9).
+    /// </returns>
+    internal (SyncJob Job, string Timing, bool Duplicate) EnqueueSyncTimed(
         Guid itemId,
         int subtitleIndex,
         string? label,
@@ -1147,6 +1150,22 @@ public class SubSyncService : IDisposable
             "Queued sync: item {ItemId} subtitle stream {SubtitleIndex} — output mode: {Mode}",
             itemId, subtitleIndex, config.SyncModeCopy ? "copy (.SYNCED.srt)" : "replace original in place");
 
+        // One job per item and track (D9): asking twice used to queue two jobs, so the same subtitle was read,
+        // synced and written twice while the second waited for the first one's file gate. The queued job is
+        // returned instead, and the caller can say "already queued" instead of implying a second run exists.
+        lock (_queueLock)
+        {
+            var alreadyQueued = FindDuplicate(_runOrder, itemId, subtitleIndex);
+            if (alreadyQueued is not null)
+            {
+                total.Stop();
+                PluginLog.Info(
+                    $"queue duplicate: item={itemId} stream={subtitleIndex} existing={alreadyQueued.Id} "
+                    + $"status={alreadyQueued.Status} batch={alreadyQueued.BatchId ?? "(standalone)"}");
+                return (alreadyQueued, $"totalMs={total.ElapsedMilliseconds} duplicate=1", true);
+            }
+        }
+
         var job = new SyncJob
         {
             ItemId = itemId,
@@ -1206,7 +1225,7 @@ public class SubSyncService : IDisposable
                 + $"video={video.Path}");
         }
 
-        return (job, timing);
+        return (job, timing, false);
     }
 
     /// <summary>
@@ -1216,12 +1235,13 @@ public class SubSyncService : IDisposable
     /// <param name="label">Scope label shown in history (e.g. "Series · Season 2").</param>
     /// <param name="tasks">The task list (item, subtitle index, display title).</param>
     /// <param name="mode">Multi-subtitle mode for the whole batch (normal | parallel | fast).</param>
-    /// <returns>The created batch jobs (includes pre-failed entries).</returns>
-    public IReadOnlyList<SyncJob> CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks, string? mode = null)
+    /// <returns>What the bulk enqueue created, and which requested tasks were already queued (D9).</returns>
+    public BatchCreation CreateBatch(string label, IReadOnlyList<(Guid ItemId, int SubtitleIndex, string? Title)> tasks, string? mode = null)
     {
         var batchId = Guid.NewGuid().ToString("N");
         var resolvedMode = NormalizeMode(mode ?? Services.SettingsSource.Current()?.MultiSyncMode);
         var jobs = new List<SyncJob>(tasks.Count);
+        var alreadyQueued = new List<SyncJob>();
         var batchWatch = System.Diagnostics.Stopwatch.StartNew();
         var slowestMs = 0L;
         var slowestIndex = -1;
@@ -1240,7 +1260,16 @@ public class SubSyncService : IDisposable
             {
                 var queued = EnqueueSyncTimed(task.ItemId, task.SubtitleIndex, task.Title, batchId, label, i, resolvedMode);
                 detail = queued.Timing;
-                jobs.Add(queued.Job);
+                if (queued.Duplicate)
+                {
+                    // Already queued or running: not counted as a task of this batch, because the job belongs to
+                    // the batch that queued it and counting it here would show the same work twice (D9).
+                    alreadyQueued.Add(queued.Job);
+                }
+                else
+                {
+                    jobs.Add(queued.Job);
+                }
             }
             catch (Exception ex) when (ex is InvalidOperationException or FileNotFoundException or ArgumentException)
             {
@@ -1282,7 +1311,7 @@ public class SubSyncService : IDisposable
             $"batch {batchId} queued: tasks={tasks.Count} mode={resolvedMode} label='{label}' "
             + $"totalMs={batchWatch.ElapsedMilliseconds} slowestTaskMs={slowestMs} (index {slowestIndex}: {slowestDetail})");
 
-        return jobs;
+        return new BatchCreation { BatchId = batchId, Jobs = jobs, AlreadyQueued = alreadyQueued };
     }
 
     /// <summary>
@@ -4073,11 +4102,22 @@ public class SubSyncService : IDisposable
         }
 
         var batchLabel = $"Library sweep — {DateTime.Now:yyyy-MM-dd HH:mm}";
-        var batchJobs = CreateBatch(batchLabel, tasks);
-        var batchId = batchJobs.FirstOrDefault()?.BatchId;
-        if (string.IsNullOrEmpty(batchId))
+        var created = CreateBatch(batchLabel, tasks);
+        var batchId = created.Jobs.FirstOrDefault()?.BatchId ?? created.BatchId;
+        if (created.Jobs.Count == 0)
         {
-            result.FailedOrCancelled = tasks.Count;
+            // Every task was already queued or running (D9): there is nothing new for this sweep to run, which is
+            // not a failure and must not be reported as one.
+            if (created.AlreadyQueued.Count > 0)
+            {
+                PluginLog.Info($"sweep: nothing new — {created.AlreadyQueued.Count} task(s) were already queued");
+                result.FailedOrCancelled = 0;
+            }
+            else
+            {
+                result.FailedOrCancelled = tasks.Count;
+            }
+
             progress.Report(1.0);
             return result;
         }
@@ -6502,6 +6542,41 @@ public class SubSyncService : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// The outcome of a bulk enqueue (D9): what was created, and what the queue already held.
+    /// </summary>
+    public sealed class BatchCreation
+    {
+        /// <summary>Gets the batch identifier, set whether or not any task was new.</summary>
+        public string BatchId { get; init; } = string.Empty;
+
+        /// <summary>Gets the jobs this call created (validation failures appear as failed rows).</summary>
+        public IReadOnlyList<SyncJob> Jobs { get; init; } = Array.Empty<SyncJob>();
+
+        /// <summary>
+        /// Gets the jobs the queue already held for the requested item and track, which were therefore not
+        /// queued a second time.
+        /// </summary>
+        public IReadOnlyList<SyncJob> AlreadyQueued { get; init; } = Array.Empty<SyncJob>();
+    }
+
+    /// <summary>
+    /// Finds the queued or running job for the same item and subtitle track, if there is one (D9).
+    /// </summary>
+    /// <remarks>
+    /// A second job for the same track is not a second opinion: it reads the same subtitle, runs the same
+    /// alignment and writes the same output, while the first job's file gate makes it wait. Only live jobs
+    /// count - a finished job is history, and syncing the same track again later is a legitimate request.
+    /// </remarks>
+    /// <param name="jobs">Jobs in queue order.</param>
+    /// <param name="itemId">Media item.</param>
+    /// <param name="subtitleIndex">Subtitle stream index.</param>
+    /// <returns>The job already queued for that track, or null.</returns>
+    internal static SyncJob? FindDuplicate(IEnumerable<SyncJob> jobs, Guid itemId, int subtitleIndex)
+        => jobs.FirstOrDefault(job => job.ItemId == itemId
+            && job.SubtitleIndex == subtitleIndex
+            && job.Status is SyncJobStatus.Queued or SyncJobStatus.Running);
 
     /// <summary>How long a finished job's row stays in the interface.</summary>
     private static readonly TimeSpan JobRetention = TimeSpan.FromHours(1);

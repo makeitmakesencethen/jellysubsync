@@ -1,0 +1,61 @@
+{
+  "label": "d7-d18",
+  "windowMs": 20000,
+  "idle": {
+    "seconds": 20,
+    "requests": 4,
+    "perSecond": 0.2,
+    "calls": [
+      "GET /SubSync/Active",
+      "GET /SubSync/Batches",
+      "GET /SubSync/Active",
+      "GET /SubSync/Batches"
+    ]
+  },
+  "load": [
+    {
+      "call": "GET /SubSync/MainScript",
+      "t": 1789496753823
+    },
+    {
+      "call": "GET /SubSync/InstallationStatus",
+      "t": 1789496753865
+    },
+    {
+      "call": "GET /SubSync/Configuration",
+      "t": 1789496753867
+    },
+    {
+      "call": "GET /SubSync/Batches",
+      "t": 1789496753867
+    },
+    {
+      "call": "GET /SubSync/Active",
+      "t": 1789496753868
+    }
+  ],
+  "menuEntries": [
+    "SubSync Fixtures",
+    "SubSync Fixtures",
+    "SubSync Fixtures",
+    "SubSync Fixtures",
+    "Recently Added in SubSync Fixtures"
+  ],
+  "routes": {
+    "dashboardListsPlugin": true,
+    "pageRenders": true,
+    "pageText": "SubSync\nplaylist_playSync\nhistoryHistory\ntuneSettings\nSome parts of this page could not load — settings: HTTP 403\nSync f",
+    "pointerReachesMainPage": true
+  },
+  "loadWindow": {
+    "requests": 5,
+    "duplicates": [],
+    "calls": [
+      "GET /SubSync/MainScript",
+      "GET /SubSync/InstallationStatus",
+      "GET /SubSync/Configuration",
+      "GET /SubSync/Batches",
+      "GET /SubSync/Active"
+    ]
+  }
+}

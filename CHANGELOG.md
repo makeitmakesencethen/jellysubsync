@@ -1,3 +1,40 @@
+## 2.0.49 (beta)
+
+Four interface fixes, all measured in a real browser or against a running Jellyfin 12 rather than reasoned about.
+
+**D7 — an idle settings page stopped hammering the server.** It polled every 2 s with nothing running, and asked
+the same question several times when it loaded. Measured before: about 1.4 requests per second on an idle page.
+Measured after: **4 requests in 20 seconds (0.20 req/s)** — one tick per 10 s — and the load window went from
+7 requests (three of them the same `/SubSync/Batches`, two inside 500 ms) to 5 with **no duplicate**. The poll is
+self-scheduled (10 s idle, 2 s while a run is on screen), GETs in flight share one request, a fresh answer is
+reused for 500 ms and any write throws that reuse away, and a hidden tab still skips its tick and catches up when
+it comes back.
+
+**D9 — the same subtitle can no longer be queued twice.** Asking for the same item and track now queues one job:
+the first request answers `total=1, alreadyQueued=0`, the second answers `total=0, alreadyQueued=1` (in a batch of
+its own), the first batch still holds exactly one task, and the log names the duplicate it refused. A *finished*
+job is not a duplicate, so syncing a track again later still works, and a library sweep whose items are already
+queued reports "nothing new" instead of counting them as failures. The page says so too.
+
+**D10 — one error shape for every failure.** Refusal by a check and an exception that escapes an endpoint now
+answer the same way: `{ status, title, detail }`. Thirteen places that answered with a bare string were converted,
+and `SubSyncExceptionFilter` covers whatever is thrown (409 for a state conflict, 400 for an argument, 500
+otherwise). The page reads `detail` instead of showing raw JSON. An empty batch answers "Empty batch: A batch must
+contain at least one task."; an item the account cannot see answers "Not permitted: One or more items in this
+request are not available to this account."
+
+**D18 — where the page lives under Jellyfin 12, verified.** The installed client picks a plugin's *representative
+page* with `EnableInMainMenu` and does not build sidebar entries from plugin pages, so no server-side flag can put
+the plugin in the main menu — the main menu was measured and holds no plugin entry. What the plugin controls now
+works: the flag sits on the settings page itself, the page is served at
+`/web/configurationpage?name=subsync-main` (HTTP 200, 31 598 bytes, rendered), and the dashboard page both lists
+the plugin and links there.
+
+Verification: `python3 tests/run_checks.py` passes (823 checks, 0 failures) with 21 new ones, plus two probes that
+run against a real Jellyfin: `tests/backend/d_series_probe.py` (10 checks: the two refusals, the duplicate
+refusal end to end, both page routes) and `tests/gui/d7-d18-probe.js` (the poll rate and the main menu in a real
+browser). Both probes pass in full.
+
 ## 2.0.48 (beta)
 
 Six fixes from the B series, where the plugin either said something it had not measured or did nothing when asked.

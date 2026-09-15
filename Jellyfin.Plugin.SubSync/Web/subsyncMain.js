@@ -178,22 +178,79 @@
         return (typeof ApiClient !== 'undefined' && ApiClient.getUrl) ? ApiClient.getUrl(path) : '/' + path;
     }
 
+    // One shape for a failure, so the page can show the reason the server gave (D10). Every failing SubSync
+    // endpoint answers with { status, title, detail }; a bare body is still possible (a proxy, an older build) and
+    // is shown as it arrived rather than hidden.
+    function problemText(status, body) {
+        var text = (body || '').trim();
+        if (text) {
+            try {
+                var parsed = JSON.parse(text);
+                var detail = parsed && (parsed.detail || parsed.Detail);
+                var title = parsed && (parsed.title || parsed.Title);
+                if (detail && title && detail !== title) return title + ': ' + detail;
+                if (detail || title) return detail || title;
+            } catch (ex) {
+                // Not JSON: whatever the server said is the message.
+            }
+            return text;
+        }
+        return 'HTTP ' + status;
+    }
+
+    // Requests in flight, so several callers wanting the same thing in the same moment share one round trip (D7).
+    // A page load used to fire the same `/SubSync/Batches` several times: the four load signals, the initial
+    // refresh, and the heartbeat's first tick all asked for it independently, and on a slow server each answer
+    // arrived after the next question had been sent.
+    var inflightGets = {};
+
+    // A GET answer is also good for a moment after it arrives, so the second and third caller of a page load do not
+    // ask the same question again (measured at load before this: the same `/SubSync/Batches` three times, because the
+    // initial refresh, the load signals and the heartbeat's first tick each wanted it). Any write throws the whole
+    // cache away, so a page can never read a stale list after queueing, cancelling or saving something.
+    var recentGets = {};
+    var GET_REUSE_MS = 500;
+
     function api(path, options) {
         options = options || {};
+        var method = options.method || 'GET';
+        var key = method + ' ' + path;
+        if (method === 'GET') {
+            var recent = recentGets[key];
+            if (recent && (Date.now() - recent.at) < GET_REUSE_MS) {
+                return recent.promise;
+            }
+            if (inflightGets[key]) {
+                return inflightGets[key];
+            }
+        }
         var headers = { 'Accept': 'application/json', 'Authorization': authHeader() };
         if (options.body) headers['Content-Type'] = 'application/json';
-        return fetch(apiUrl(path), {
-            method: options.method || 'GET',
+        var request = fetch(apiUrl(path), {
+            method: method,
             headers: headers,
             body: options.body ? options.body : undefined
         }).then(function (r) {
             if (!r.ok) {
                 return r.text().then(function (b) {
-                    throw new Error((b && b.trim()) ? b.trim() : 'HTTP ' + r.status);
+                    throw new Error(problemText(r.status, b));
                 });
             }
             return r.status === 204 ? null : r.json();
         });
+        if (method === 'GET') {
+            inflightGets[key] = request;
+            var remember = function () {
+                delete inflightGets[key];
+                recentGets[key] = { at: Date.now(), promise: request };
+            };
+            var dropFailed = function () { delete inflightGets[key]; delete recentGets[key]; };
+            request.then(remember, dropFailed);
+        } else {
+            // Everything on the page is derived from what the server says: after a write, nothing cached may be reused.
+            recentGets = {};
+        }
+        return request;
     }
 
     function logLine(text) {
@@ -1137,11 +1194,23 @@
     // nothing else moves. At or below the limit this is exactly the single POST it always was.
     var BATCH_CHUNK = 1000;
 
+    // The server refuses to queue the same item and track twice (D9); when it says so, the page says so too,
+    // instead of leaving a user to wonder why the run has fewer tasks than they asked for.
+    function noteAlreadyQueued(view) {
+        var n = view && (view.AlreadyQueuedCount != null ? view.AlreadyQueuedCount : view.alreadyQueuedCount);
+        if (n > 0) {
+            logLine(n + ' task(s) were already queued or running, so they were not queued a second time.');
+        }
+    }
+
     function postBatch(label, rows) {
         if (rows.length <= BATCH_CHUNK) {
             return api('SubSync/Batch', {
                 method: 'POST',
                 body: JSON.stringify({ label: label, tasks: rows })
+            }).then(function (view) {
+                noteAlreadyQueued(view);
+                return view;
             });
         }
 
@@ -1166,7 +1235,7 @@
                             label: label + ' (' + (index + 1) + '/' + parts + ')',
                             tasks: slice
                         })
-                    }).then(function (view) { last = view; });
+                    }).then(function (view) { noteAlreadyQueued(view); last = view; });
                 });
             })(part);
         }
@@ -1760,6 +1829,12 @@
         }
     }
 
+    // How often the page asks the server what it is doing when the user is not streaming a run from this page.
+    // It used to be a flat 2 s interval that also fired while nothing was happening (measured ~1.4 requests per
+    // second on an idle page, most of them the same two GETs), which is a poll a phone pays for in battery (D7).
+    var heartbeatIdleMs = 10000;
+    var heartbeatBusyMs = 2000;
+
     function startHeartbeat() {
         if (heartbeatTimer) return;
         var tick = function () {
@@ -1783,8 +1858,17 @@
                 });
             }).catch(function () { /* transient: the next tick tries again */ });
         };
-        heartbeatTimer = setInterval(tick, 2000);
+        // Self-scheduling rather than a fixed interval: the next question is asked at the slow rate until a run
+        // is known to be going, then at the fast rate for as long as it is. A tick can also never overlap the
+        // next one, because the next one is only scheduled after this one settles.
+        var schedule = function () {
+            heartbeatTimer = setTimeout(function () {
+                tick();
+                schedule();
+            }, mirroredBatchId ? heartbeatBusyMs : heartbeatIdleMs);
+        };
         tick();
+        schedule();
         document.addEventListener('visibilitychange', function () {
             if (!document.hidden) tick(); // catch up immediately after a tab switch
         });
