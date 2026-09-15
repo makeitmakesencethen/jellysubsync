@@ -59,6 +59,24 @@ public class SubtitleInfo
     /// </summary>
     public bool IsForced { get; set; }
 
+    /// <summary>
+    /// Gets or sets why this track cannot be synced, or null when it can (S5).
+    /// </summary>
+    /// <remarks>
+    /// A bitmap track (PGS, VobSub, DVB, XSUB) is listed like any other and carries the reason here, so the interface
+    /// can show the track and say why it is not offered. Hiding it made the list disagree with what exists.
+    /// </remarks>
+    public string? UnsupportedReason { get; set; }
+
+    /// <summary>
+    /// Gets or sets a value indicating whether this sidecar was written by the plugin itself (S12).
+    /// </summary>
+    /// <remarks>
+    /// Listed, because the queue accepts it, and flagged, so the interface can label a file the plugin produced rather
+    /// than presenting it as another subtitle the media arrived with.
+    /// </remarks>
+    public bool IsPluginOutput { get; set; }
+
     /// <summary>Gets or sets the path to the external subtitle file (not serialized in API responses).</summary>
     [JsonIgnore]
     public string? ExternalPath { get; set; }
@@ -966,8 +984,6 @@ public class SubSyncService : IDisposable
         // that can actually succeed.
         return source.MediaStreams
             .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
-            .Where(s => !LanguageSupport.IsImageBased(s.Codec))
-            .Where(s => !IsOwnSidecar(s))
             .Where(s => LanguageSupport.MatchesFilter(s.Language, languageFilter))
             .Select(s =>
             {
@@ -979,7 +995,14 @@ public class SubSyncService : IDisposable
                     IsExternal = s.IsExternal,
                     IsForced = s.IsForced,
                     ExternalPath = s.Path,
-                    HasSyncedVersion = HasCompletedSync(itemId, s.Index)
+                    HasSyncedVersion = HasCompletedSync(itemId, s.Index),
+
+                    // A track that cannot be synced is listed and says why (S5), and a sidecar the plugin wrote itself
+                    // is listed too (S12): hiding either one made the list disagree with what the queue accepts, so a
+                    // file with three subtitles looked like a file with two and the third could be queued by index
+                    // without ever having been shown.
+                    UnsupportedReason = LanguageSupport.ImageBasedRefusal(s.Codec),
+                    IsPluginOutput = IsOwnSidecar(s)
                 };
             })
             .ToList();
@@ -1185,6 +1208,14 @@ public class SubSyncService : IDisposable
         if (subtitleStream is null)
         {
             throw new InvalidOperationException($"Subtitle stream index {subtitleIndex} not found.");
+        }
+
+        // The listing says why a bitmap track cannot be synced (S5); queueing one says the same thing rather than
+        // failing later inside the engine, where the message is about a subtitle it could not read.
+        var imageRefusal = LanguageSupport.ImageBasedRefusal(subtitleStream.Codec);
+        if (imageRefusal is not null)
+        {
+            throw new InvalidOperationException(imageRefusal);
         }
 
         // Embedded extraction never trusts Jellyfin's stream numbering: the real container
@@ -6424,9 +6455,10 @@ public class SubSyncService : IDisposable
                     var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
                         ? null
                         : subtitleStream.Language.Trim().ToLowerInvariant();
-                    var target = lang is not null && string.Equals(stem, lang, StringComparison.OrdinalIgnoreCase)
-                        ? Path.Combine(dir, $"{lang}.SYNCED.srt")
-                        : Path.Combine(dir, stem + ".SYNCED.srt");
+
+                    // A stem the plugin already marked loses that marker first (S12): re-syncing its own output updates
+                    // that file, where appending a second marker wrote a name no player associates with the episode.
+                    var target = SyncedTargetName(dir, stem, lang);
 
                     RequireWritable(dir);
                     File.Copy(tempOutput, target, overwrite: true);
@@ -6909,6 +6941,90 @@ public class SubSyncService : IDisposable
         }
 
         return false;
+    }
+
+    /// <summary>
+    /// Stops exactly the jobs it is given (F2).
+    /// </summary>
+    /// <remarks>
+    /// A scoped stop cancels the work it was told to cancel and nothing else: no lane is stopped, and no child process
+    /// is killed directly, because either would take down a run belonging to somebody the caller never named. A
+    /// cancelled job's own runner kills its child through the token it registered, which is why the scoped path is
+    /// still a real stop rather than just a label.
+    /// </remarks>
+    /// <param name="targets">Jobs to stop.</param>
+    /// <returns>How many queued jobs were cancelled and how many running jobs were asked to stop.</returns>
+    public (int QueuedCancelled, int RunningKilled) KillJobs(IEnumerable<SyncJob> targets)
+    {
+        var queuedCancelled = 0;
+        var runningKilled = 0;
+        foreach (var job in targets.ToList())
+        {
+            if (job.Status == SyncJobStatus.Queued)
+            {
+                job.Status = SyncJobStatus.Cancelled;
+                job.FinishedAtUtc = DateTime.UtcNow;
+                job.Phase = "Cancelled";
+                queuedCancelled++;
+                LogPluginCancellation(job);
+                continue;
+            }
+
+            if (job.Status != SyncJobStatus.Running || !_jobCancellation.TryGetValue(job.Id, out var cts))
+            {
+                continue;
+            }
+
+            try
+            {
+                cts.Cancel();
+                runningKilled++;
+                LogPluginCancellation(job);
+            }
+            catch (ObjectDisposedException)
+            {
+                // The run finished between the check and the cancel.
+            }
+        }
+
+        PluginLog.Info($"kill: scope={queuedCancelled + runningKilled} queued={queuedCancelled} running={runningKilled}");
+        return (queuedCancelled, runningKilled);
+    }
+
+    /// <summary>
+    /// Says whether anything is running right now, and what (F6).
+    /// </summary>
+    /// <remarks>
+    /// A cache clear cannot know which cached file a running job is reading: the reference subtitles are handed to the
+    /// engine as arguments and the audio and feature caches are keyed by a hash, so "delete everything except what is
+    /// in use" is not a question this plugin can answer from the outside. The question it can answer is whether
+    /// anything is using the cache at all, which is what this reports.
+    /// </remarks>
+    /// <returns>How many jobs are running, and how many are queued.</returns>
+    public (int Running, int Queued) ActiveJobCounts()
+        => (_jobs.Values.Count(job => job.Status == SyncJobStatus.Running),
+            _jobs.Values.Count(job => job.Status == SyncJobStatus.Queued));
+
+    /// <summary>
+    /// Names the sidecar the plugin writes for a subtitle (S12).
+    /// </summary>
+    /// <remarks>
+    /// Jellyfin associates a sidecar with its video only when the name starts with the media file's name and continues
+    /// with dot-separated fields, so the marker is a field and never part of the name. A stem the plugin already marked
+    /// loses that marker first: re-syncing the plugin's own output updates that file instead of writing
+    /// <c>Film.SYNCED.ukr.SYNCED.srt</c>, which no player shows and no sweep removes.
+    /// </remarks>
+    /// <param name="directory">The directory to write into.</param>
+    /// <param name="stem">The input file's name without its extension.</param>
+    /// <param name="language">The track's language, when it has one.</param>
+    /// <returns>The full path to write.</returns>
+    internal static string SyncedTargetName(string directory, string stem, string? language)
+    {
+        var lang = string.IsNullOrWhiteSpace(language) ? null : language.Trim().ToLowerInvariant();
+        var baseStem = SrtWriter.StripSyncedMarker(stem);
+        return lang is not null && string.Equals(baseStem, lang, StringComparison.OrdinalIgnoreCase)
+            ? Path.Combine(directory, $"{lang}.SYNCED.srt")
+            : Path.Combine(directory, baseStem + ".SYNCED.srt");
     }
 
     /// <summary>How long a teardown waits for the lanes and the pump to leave (B14).</summary>

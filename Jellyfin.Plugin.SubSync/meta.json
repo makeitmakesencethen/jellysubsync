@@ -1,6 +1,6 @@
 {
   "category": "General",
-  "changelog": "Access and truth: an account sees only the runs its own requests created, without the server's paths, and work another account has queued answers as a conflict; the engine status describes the ffsubsync that will actually run, with the path named when it is missing; and a batch refuses a series, season or folder exactly as single sync does",
+  "changelog": "Queue and API consistency: a cancel has to name what it stops instead of stopping every run on the server, a cache clear refuses while a run is reading the cache, a bitmap subtitle is listed with the reason it cannot be synced, and re-syncing the plugin's own sidecar updates it instead of nesting a second marker into the library",
   "description": "Synchronize subtitles with video audio using ffsubsync",
   "guid": "c7d8e9f0-a1b2-4c3d-e5f6-a7b8c9d0e1f2",
   "name": "SubSync",
@@ -8,7 +8,7 @@
   "owner": "jellysubsync",
   "targetAbi": "12.0.0.0",
   "timestamp": "2026-09-15T18:00:42.0000000Z",
-  "version": "2.0.51.0",
+  "version": "2.0.52.0",
   "status": "Active",
   "autoUpdate": false,
   "imagePath": "",

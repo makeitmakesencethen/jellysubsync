@@ -102,6 +102,39 @@ public static class SrtWriter
             || name.EndsWith("SYNCED.srt", StringComparison.OrdinalIgnoreCase);
     }
 
+    /// <summary>
+    /// Removes a marker the plugin itself wrote from a file name stem (S12).
+    /// </summary>
+    /// <remarks>
+    /// Re-syncing a subtitle the plugin produced used to append a second marker: a job taking
+    /// <c>Film.S01E01.SYNCED.ukr.srt</c> wrote <c>Film.S01E01.SYNCED.ukr.SYNCED.srt</c> into the library, which no player
+    /// associates with the episode and no sweep ever removes. Stripping the marker the plugin wrote means re-syncing
+    /// its own output updates that output.
+    /// </remarks>
+    /// <param name="stem">The file name without its extension.</param>
+    /// <returns>The stem with a trailing marker - and any fields after it - removed.</returns>
+    public static string StripSyncedMarker(string? stem)
+    {
+        if (string.IsNullOrWhiteSpace(stem))
+        {
+            return string.Empty;
+        }
+
+        var marker = stem.IndexOf(".SYNCED.", StringComparison.OrdinalIgnoreCase);
+        if (marker >= 0)
+        {
+            return stem[..marker];
+        }
+
+        if (stem.EndsWith(".SYNCED", StringComparison.OrdinalIgnoreCase))
+        {
+            return stem[..^".SYNCED".Length];
+        }
+
+        var dashed = stem.IndexOf("-SYNCED.", StringComparison.OrdinalIgnoreCase);
+        return dashed >= 0 ? stem[..dashed] : stem;
+    }
+
     /// <summary>Counts cues in SRT text (used for logs and sanity checks).</summary>
     /// <param name="srt">SRT content.</param>
     /// <returns>Number of timing lines.</returns>

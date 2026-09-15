@@ -138,6 +138,28 @@ public static class LanguageSupport
             || c.Contains("hdmv", StringComparison.Ordinal);
     }
 
+    /// <summary>
+    /// Explains why an image-based subtitle track cannot be synced (S5), or null when the track is text.
+    /// </summary>
+    /// <remarks>
+    /// Bitmap tracks (PGS, VobSub, DVB, XSUB) used to be left out of the track list entirely, so the interface showed a
+    /// file with three subtitles as a file with two and the third could not be asked about at all. A track that cannot
+    /// be synced is information the user needs, not a track to hide.
+    /// </remarks>
+    /// <param name="codec">The track's codec.</param>
+    /// <returns>A sentence the interface can show, or null when the track is text.</returns>
+    public static string? ImageBasedRefusal(string? codec)
+        => IsImageBased(codec)
+            ? $"This track is {Format(codec)}, an image subtitle format: the engine aligns text, so it cannot be "
+                + "re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+            : null;
+
+    /// <summary>Names a codec the way the user sees it in Jellyfin.</summary>
+    /// <param name="codec">The codec string.</param>
+    /// <returns>The codec, upper-cased, or "an image" when it is empty.</returns>
+    private static string Format(string? codec)
+        => string.IsNullOrWhiteSpace(codec) ? "an image" : codec.Trim().ToUpperInvariant();
+
     /// <summary>Human-readable list of a language filter (for log messages).</summary>
     public static string Describe(IReadOnlyCollection<string>? filter)
     {

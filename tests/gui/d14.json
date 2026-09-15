@@ -1,0 +1,22 @@
+{
+  "label": "d14",
+  "movie": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "menu": {
+    "scriptLoaded": true,
+    "entryBeforeOpeningMenu": null,
+    "openedMoreCommands": true,
+    "entryAfterOpeningMenu": {
+      "text": "Sync Subtitles",
+      "id": "subsync"
+    },
+    "found": true,
+    "clicked": true,
+    "afterClickText": " SUBRIP\nembedded · Swedish\nSync\nThai - SUBRIP\nembedded · Thai\nSync\nTurkish - SUBRIP\nembedded · Turkish\nSync\nTurkish - SUBRIP\nembedded · Turkish\nSync\nUkrainian - SUBRIP\nembedded · Ukrainian\nSync\nUkrainian - SUBRIP\nembedded · Ukrainian\nSync\nVietnamese - SUBRIP\nembedded · Vietnamese\nSync\nSimplified - Chinese - SUBRIP\nembedded · Chinese\nSync\nTraditional - Chinese - SUBRIP\nembedded · Chinese\nSync\nClose"
+  },
+  "api": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2"
+  ],
+  "apiAfterClick": [
+    "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2"
+  ]
+}

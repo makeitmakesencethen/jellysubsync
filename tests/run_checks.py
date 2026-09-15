@@ -3869,6 +3869,105 @@ else
         d8Series.Refusal!.Contains("library sweep"));
 }
 
+// ---------------- Consistency: who may stop what, what the list says, what re-syncing writes ----------------
+
+// F2: a cancel request has to say what it means, and it may only stop what the caller may see.
+{
+    var f2Me = Guid.NewGuid();
+    var f2Other = Guid.NewGuid();
+    var f2Queued = new SyncJob { Id = Guid.NewGuid().ToString("N"), OwnerId = f2Me, Status = SyncJobStatus.Queued, BatchId = "b1" };
+    var f2Running = new SyncJob { Id = Guid.NewGuid().ToString("N"), OwnerId = f2Me, Status = SyncJobStatus.Running, BatchId = "b1" };
+    var f2Theirs = new SyncJob { Id = Guid.NewGuid().ToString("N"), OwnerId = f2Other, Status = SyncJobStatus.Running, BatchId = "b2" };
+    var f2Sweep = new SyncJob { Id = Guid.NewGuid().ToString("N"), OwnerId = null, Status = SyncJobStatus.Running, BatchId = "b3" };
+    var f2Finished = new SyncJob { Id = Guid.NewGuid().ToString("N"), OwnerId = f2Me, Status = SyncJobStatus.Completed, BatchId = "b1" };
+    var f2All = new List<SyncJob> { f2Queued, f2Running, f2Theirs, f2Sweep, f2Finished };
+
+    var f2Nothing = ItemAccess.SelectKillTargets(f2All, f2Me, false, null, null, false);
+    Check("F2: a cancel that names nothing is refused instead of stopping everything",
+        f2Nothing.Refusal == ItemAccess.KillRefusal.NothingSpecified && f2Nothing.Targets.Count == 0);
+
+    var f2MineByBatch = ItemAccess.SelectKillTargets(f2All, f2Me, false, null, "b1", false);
+    Check("F2: an account can stop its own batch, and only the queued or running parts of it",
+        f2MineByBatch.Refusal is null && f2MineByBatch.Targets.Count == 2
+        && f2MineByBatch.Targets.All(j => ReferenceEquals(j, f2Queued) || ReferenceEquals(j, f2Running)),
+        $"{f2MineByBatch.Targets.Count} target(s)");
+
+    var f2NotAdmin = ItemAccess.SelectKillTargets(f2All, f2Me, false, null, null, true);
+    Check("F2: asking to stop every run without being an administrator is refused",
+        f2NotAdmin.Refusal == ItemAccess.KillRefusal.NotPermitted && f2NotAdmin.Targets.Count == 0);
+
+    var f2AdminAll = ItemAccess.SelectKillTargets(f2All, f2Me, true, null, null, true);
+    Check("F2: an administrator asking for every run gets the live ones and not the finished ones",
+        f2AdminAll.Refusal is null && f2AdminAll.Targets.Count == 4
+        && !f2AdminAll.Targets.Contains(f2Finished),
+        $"{f2AdminAll.Targets.Count} target(s)");
+
+    var f2TheirJob = ItemAccess.SelectKillTargets(f2All, f2Me, false, f2Theirs.ItemId != Guid.Empty ? Guid.Parse(f2Theirs.Id) : Guid.Empty, null, false);
+    Check("F2: another account's run cannot be stopped, and the answer is the same one a missing run gets",
+        f2TheirJob.Refusal == ItemAccess.KillRefusal.NothingMatched,
+        f2TheirJob.Refusal?.ToString() ?? "no refusal");
+
+    var f2MyJob = ItemAccess.SelectKillTargets(f2All, f2Me, false, Guid.Parse(f2Running.Id), null, false);
+    Check("F2: an account can stop its own single run",
+        f2MyJob.Refusal is null && f2MyJob.Targets.Count == 1 && ReferenceEquals(f2MyJob.Targets[0], f2Running));
+
+    var f2SweepByNonAdmin = ItemAccess.SelectKillTargets(f2All, f2Me, false, Guid.Parse(f2Sweep.Id), null, false);
+    var f2SweepByAdmin = ItemAccess.SelectKillTargets(f2All, f2Me, true, Guid.Parse(f2Sweep.Id), null, false);
+    Check("F2: a run the plugin queued itself is the administrator's to stop",
+        f2SweepByNonAdmin.Refusal == ItemAccess.KillRefusal.NothingMatched
+        && f2SweepByAdmin.Refusal is null && f2SweepByAdmin.Targets.Count == 1);
+
+    var f2FinishedJob = ItemAccess.SelectKillTargets(f2All, f2Me, true, Guid.Parse(f2Finished.Id), null, false);
+    Check("F2: a finished run is not a target, so a stale id cannot be used to stop anything",
+        f2FinishedJob.Refusal == ItemAccess.KillRefusal.NothingMatched);
+}
+
+// S5: a track that cannot be synced is listed with the reason, not hidden from the list.
+{
+    var s5Bitmap = LanguageSupport.ImageBasedRefusal("pgs");
+    var s5Dvd = LanguageSupport.ImageBasedRefusal("dvd_subtitle");
+    Check("S5: a bitmap track is refused with a sentence that names the format",
+        s5Bitmap is not null && s5Bitmap.Contains("PGS") && s5Bitmap.Contains("image"),
+        s5Bitmap ?? "(not refused)");
+    Check("S5: the other bitmap formats are covered by the same sentence",
+        s5Dvd is not null && s5Dvd.Contains("DVD_SUBTITLE"),
+        s5Dvd ?? "(not refused)");
+    Check("S5: a text track is not refused",
+        LanguageSupport.ImageBasedRefusal("subrip") is null
+        && LanguageSupport.ImageBasedRefusal("ass") is null
+        && LanguageSupport.ImageBasedRefusal("webvtt") is null
+        && LanguageSupport.ImageBasedRefusal(null) is null);
+    Check("S5: the refusal says what to do instead",
+        s5Bitmap is not null && s5Bitmap.Contains("text track"),
+        s5Bitmap ?? "(not refused)");
+}
+
+// S12: re-syncing the plugin's own output updates it, and never nests a second marker into the library.
+{
+    Check("S12: the marker the plugin wrote is removed before a new one is added",
+        SrtWriter.StripSyncedMarker("Film.S01E01.SYNCED.ukr") == "Film.S01E01"
+        && SrtWriter.StripSyncedMarker("Film.S01E01.SYNCED") == "Film.S01E01",
+        SrtWriter.StripSyncedMarker("Film.S01E01.SYNCED.ukr"));
+    Check("S12: a name the plugin did not write is left exactly as it is",
+        SrtWriter.StripSyncedMarker("Film.S01E01") == "Film.S01E01"
+        && SrtWriter.StripSyncedMarker("Film.swe") == "Film.swe"
+        && SrtWriter.StripSyncedMarker("Film.SYNCEDX.swe") == "Film.SYNCEDX.swe");
+    Check("S12: the legacy hyphen form is recognised as a marker too",
+        SrtWriter.StripSyncedMarker("Film-SYNCED.swe") == "Film",
+        SrtWriter.StripSyncedMarker("Film-SYNCED.swe"));
+    var s12Nested = SubSyncService.SyncedTargetName("/media", "Film.S01E01.SYNCED.ukr", "ukr");
+    var s12Plain = SubSyncService.SyncedTargetName("/media", "Film.S01E01", "ukr");
+    Check("S12: re-syncing our own output cannot produce a second marker",
+        !s12Nested.Contains("SYNCED.SYNCED") && s12Nested == "/media/Film.S01E01.SYNCED.srt",
+        s12Nested);
+    Check("S12: and an untouched subtitle still gets the marker it always did",
+        s12Plain == "/media/Film.S01E01.SYNCED.srt",
+        s12Plain);
+    Check("S12: a language-named sidecar keeps the field form Jellyfin needs",
+        SubSyncService.SyncedTargetName("/media", "ukr", "ukr") == "/media/ukr.SYNCED.srt",
+        SubSyncService.SyncedTargetName("/media", "ukr", "ukr"));
+}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
@@ -4142,12 +4241,18 @@ def run_page_checks():
            "status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled'" in main_html
            and 'still queued or running' in main_html)
 
-    # This plugin's own sidecars must not be offered as tracks: Jellyfin reads the marker as the
-    # language, so they appeared as a language called "SYNCED" and doubled every batch.
+    # This plugin's own sidecars are recognised by name and flagged, and re-syncing one updates it (S12). They used to
+    # be hidden from the list, which left the list and the queue disagreeing: an index that resolved to a sidecar could
+    # be queued without ever having been shown, and the job then wrote a second marker into the library. The loop is
+    # prevented by the name instead - a stem the plugin already marked loses that marker before a new one is added.
     report('our own sidecars are recognised by name',
            "IsSyncedSidecarName" in '\n'.join(plugin_sources) and 'IsOwnSidecar' in '\n'.join(plugin_sources))
-    report('the track list leaves our own sidecars out',
-           '.Where(s => !IsOwnSidecar(s))' in '\n'.join(plugin_sources))
+    report('the track list shows our own sidecars, flagged, rather than hiding them',
+           'IsPluginOutput = IsOwnSidecar(s)' in '\n'.join(plugin_sources)
+           and '.Where(s => !IsOwnSidecar(s))' not in '\n'.join(plugin_sources))
+    report('re-syncing our own sidecar updates it instead of nesting a second marker',
+           'SyncedTargetName' in '\n'.join(plugin_sources)
+           and 'StripSyncedMarker' in '\n'.join(plugin_sources))
 
     # The enqueue path is timed part by part, so a slow one can be named instead of guessed at.
     report('the enqueue path reports where its time goes',
@@ -4877,6 +4982,10 @@ def run_page_checks():
                                            'ExceptionDiagnostics.cs'), encoding='utf-8').read()
     itemaccess_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                           'ItemAccess.cs'), encoding='utf-8').read()
+    languagesupport_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                               'LanguageSupport.cs'), encoding='utf-8').read()
+    srtwriter_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
+                                         'SrtWriter.cs'), encoding='utf-8').read()
 
     # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
     report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
@@ -4945,6 +5054,34 @@ def run_page_checks():
            and 'private ObjectResult? RefuseUntargetable(Guid itemId)' in controller_source
            and 'public SyncTarget InspectSyncTarget(Guid itemId)' in service_source
            and 'internal static SyncTarget ClassifySyncTarget(Guid itemId, string? itemKind, bool isVideo)' in service_source)
+    report('F2: the cancel endpoint names what it stops and refuses a request that names nothing',
+           'var (targets, refusal) = ItemAccess.SelectKillTargets(' in controller_source
+           and 'ItemAccess.KillRefusal.NothingSpecified => Fail(' in controller_source
+           and 'ItemAccess.KillRefusal.NotPermitted => Fail(' in controller_source
+           and 'request?.All == true' in controller_source
+           and '_syncService.KillJobs(targets)' in controller_source
+           and 'public (int QueuedCancelled, int RunningKilled) KillJobs(IEnumerable<SyncJob> targets)' in service_source
+           and 'internal static (IReadOnlyList<SyncJob> Targets, KillRefusal? Refusal) SelectKillTargets(' in itemaccess_source)
+    report('F2: the page asks for the global stop explicitly, so the button keeps working',
+           "body: JSON.stringify({ all: true })" in page_js)
+
+    report('F6: a cache clear refuses while a run is reading the cache, instead of deleting a file in use',
+           'var (runningCount, queuedCount) = _syncService.ActiveJobCounts();' in controller_source
+           and 'StatusCodes.Status409Conflict,\n                "Runs are using the cache"' in controller_source
+           and 'would delete a file a run is using, so it was not cleared' in controller_source)
+
+    report('S5: the track list shows a bitmap track with the reason instead of hiding it',
+           'UnsupportedReason = LanguageSupport.ImageBasedRefusal(s.Codec),' in service_source
+           and 'LanguageSupport.IsImageBased(s.Codec)' not in service_source
+           and 'public static string? ImageBasedRefusal(string? codec)' in languagesupport_source
+           and 'throw new InvalidOperationException(imageRefusal);' in service_source)
+    report('S12: a sidecar the plugin wrote is listed and flagged, and re-syncing it cannot nest a marker',
+           'IsPluginOutput = IsOwnSidecar(s)' in service_source
+           and '!IsOwnSidecar(s)' not in service_source
+           and 'public static string StripSyncedMarker(string? stem)' in srtwriter_source
+           and 'internal static string SyncedTargetName(string directory, string stem, string? language)' in service_source
+           and 'var target = SyncedTargetName(dir, stem, lang);' in service_source)
+
     report('D8: a series is refused by name, with what to do instead, and the answer is the same shape as every refusal',
            'not a video: pick the episodes themselves' in service_source
            and 'Fail(StatusCodes.Status400BadRequest, "Not a video", target.Refusal!)' in controller_source

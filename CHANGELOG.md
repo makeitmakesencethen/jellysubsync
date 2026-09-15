@@ -1,3 +1,45 @@
+## 2.0.52 (beta)
+
+Four consistency fixes, plus two of the old open questions answered by measurement rather than by argument.
+
+**F2 — a cancel has to name what it stops.** The endpoint was already administrator-only, so the "unowned" half of the
+claim never held; the global half did. An administrator's cancel stopped **every** run on the server — another
+administrator's included — with nothing in the request or the answer saying so. It now takes a body: `{"all": true}`
+for every run, or a `batchId`, or a `jobId`. A request that names nothing answers 400 `Say what to stop`; a run that is
+not queued or running answers 404 `Nothing to stop`; a scoped stop cancels exactly what it named and leaves the rest of
+the queue alone (measured: the run goes `Cancelled` while its batch keeps running). The page's "Kill all syncing" button
+sends the explicit `all` request, so the button keeps working.
+
+**F6 — the cache is not cleared out from under a run.** "Clear cache" deleted the reference subtitle a running job had
+been handed as an argument, so the job failed for a reason the user did not cause. The clear now checks the live job
+counts first and answers 409 `Runs are using the cache` naming how many runs are in the way instead of guessing which
+files are safe to delete — the narrower question cannot be answered from outside a run, because references are passed as
+arguments and the audio and feature caches are keyed by a hash of the media path and VAD settings.
+
+**S5 — a bitmap subtitle is listed with the reason it cannot be synced.** `ListSubtitles` filtered image-based tracks
+out entirely, so a file with a PGS track looked like a file with one track fewer and the missing one could not be asked
+about; queueing that stream index by hand then failed inside the engine with a message about a subtitle it could not
+read. The track is now listed with `UnsupportedReason` naming the format and what to do instead, and queueing it is
+refused with the same sentence.
+
+**S12 — the plugin's own sidecars are listed, and re-syncing one updates it.** The track list hid `.SYNCED.` files
+while the queue accepted their indexes, so listing and queueing disagreed; they are now listed and flagged
+(`IsPluginOutput`). The loop is closed at the name: a stem the plugin already marked loses that marker before a new one
+is added, so re-syncing `Film.SYNCED.ukr.srt` updates that file instead of writing `Film.SYNCED.ukr.SYNCED.srt`, which
+no player associates with the episode and no sweep removes.
+
+**D13 and D14 — measured, both not defects.** On a series page, "Sync all episodes" posts the track-listing preview when
+the sheet opens and **does** create the batch when Sync is pressed (measured: `POST /SubSync/Batch → 200` followed by
+progress polls of that batch), so the "preview instead of a batch" claim does not hold on the current build. And the
+injected item-menu entry is present on the SPA's own detail page — `Sync Subtitles` in the ⋮ menu, opening a sheet that
+lists the item's tracks with a Sync button each, fed by `/SubSync/Subtitles/{id}` — so D14's "hooks may not match the
+React page" is refuted too.
+
+Verification: `python3 tests/run_checks.py` passes (913 checks, 0 failures) with 24 new ones — the cancel-selection rule
+in eight cases, the bitmap refusal sentence, the sidecar naming rule, and the wiring pins — plus
+`tests/backend/consistency_probe.py` against a running server (15 checks, ALL PASS) and the two SPA probes
+(`tests/gui/d13-f29-probe.js`, `tests/gui/d14-probe.js`).
+
 ## 2.0.51 (beta)
 
 Three fixes about access and truthfulness: who may see a run, which engine the status describes, and what a request is

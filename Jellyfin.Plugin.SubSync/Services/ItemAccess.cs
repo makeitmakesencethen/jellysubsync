@@ -131,6 +131,75 @@ internal static class ItemAccess
         task.OutputPath = null;
     }
 
+    /// <summary>Why a cancel request was refused (F2).</summary>
+    internal enum KillRefusal
+    {
+        /// <summary>The request named nothing to stop.</summary>
+        NothingSpecified,
+
+        /// <summary>The caller may not stop that work.</summary>
+        NotPermitted,
+
+        /// <summary>Nothing queued or running matched, or it belongs to another account.</summary>
+        NothingMatched,
+    }
+
+    /// <summary>
+    /// Decides what a cancel request may stop (F2).
+    /// </summary>
+    /// <remarks>
+    /// The cancel endpoint used to stop every run on the server with no target and no owner: an administrator
+    /// pressing "Kill all syncing" stopped another administrator's run, and nothing in the request said so. A request
+    /// now has to say what it wants - <c>all</c> (administrators only), a batch, or one run - and anything else is
+    /// refused before a single token is cancelled. Work that belongs to another account is answered the way a request
+    /// for a run that does not exist is, so a cancel cannot be used to probe for other people's runs.
+    /// </remarks>
+    /// <param name="jobs">Every tracked job.</param>
+    /// <param name="callerId">The calling account, when it could be resolved.</param>
+    /// <param name="isAdmin">Whether that account is an administrator.</param>
+    /// <param name="jobId">One run to stop, when the request names one.</param>
+    /// <param name="batchId">A batch to stop, when the request names one.</param>
+    /// <param name="all">Whether the request asks for every run on the server.</param>
+    /// <returns>The jobs to stop, or the reason the request was refused.</returns>
+    internal static (IReadOnlyList<SyncJob> Targets, KillRefusal? Refusal) SelectKillTargets(
+        IEnumerable<SyncJob> jobs,
+        Guid? callerId,
+        bool isAdmin,
+        Guid? jobId,
+        string? batchId,
+        bool all)
+    {
+        var live = jobs.Where(job => job.Status is SyncJobStatus.Queued or SyncJobStatus.Running).ToList();
+        if (all)
+        {
+            return isAdmin
+                ? (live, null)
+                : (Array.Empty<SyncJob>(), KillRefusal.NotPermitted);
+        }
+
+        if (jobId is not null)
+        {
+            var wanted = jobId.Value.ToString("N");
+            var job = live.FirstOrDefault(candidate => string.Equals(candidate.Id, wanted, StringComparison.OrdinalIgnoreCase));
+            return job is not null && MaySeeJob(job, callerId, isAdmin)
+                ? (new[] { job }, null)
+                : (Array.Empty<SyncJob>(), KillRefusal.NothingMatched);
+        }
+
+        if (!string.IsNullOrWhiteSpace(batchId))
+        {
+            var mine = live
+                .Where(job => string.Equals(job.BatchId, batchId, StringComparison.OrdinalIgnoreCase)
+                    && MaySeeJob(job, callerId, isAdmin))
+                .ToList();
+            return mine.Count > 0
+                ? (mine, null)
+                : (Array.Empty<SyncJob>(), KillRefusal.NothingMatched);
+        }
+
+        return (Array.Empty<SyncJob>(), KillRefusal.NothingSpecified);
+    }
+
     /// <summary>
     /// Gets the account id from a request's claims, or null when there is none to trust.
     /// </summary>

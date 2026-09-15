@@ -2128,7 +2128,7 @@
         $('ss-run-label').textContent = 'Killing running syncs\u2026';
         $('ss-phase').textContent = 'Terminating ffsubsync/ffmpeg processes and dropping the queue\u2026';
         logLine('Kill requested \u2014 terminating running processes.');
-        api('SubSync/Kill', { method: 'POST' }).then(function (r) {
+        api('SubSync/Kill', { method: 'POST', body: JSON.stringify({ all: true }) }).then(function (r) {
             var killed = (r && (r.runningKilled != null ? r.runningKilled : r.RunningKilled)) || 0;
             var dropped = (r && (r.queuedCancelled != null ? r.queuedCancelled : r.QueuedCancelled)) || 0;
             var still = (r && (r.stillRunning != null ? r.stillRunning : r.StillRunning)) || 0;

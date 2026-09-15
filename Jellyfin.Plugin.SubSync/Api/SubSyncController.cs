@@ -619,6 +619,20 @@ public class SubSyncController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<object> ClearSpeechCache()
     {
+        // Nothing referenced by a running job may be deleted (F6). Which file a run is reading cannot be worked out
+        // from here - a reference is handed to the engine as an argument and the audio and feature caches are keyed by
+        // a hash - so the clear refuses while anything is running instead of guessing and deleting a file in use.
+        var (runningCount, queuedCount) = _syncService.ActiveJobCounts();
+        if (runningCount > 0)
+        {
+            return Fail(
+                StatusCodes.Status409Conflict,
+                "Runs are using the cache",
+                $"{runningCount} run(s) are reading cached files right now (and {queuedCount} more are queued). Clearing "
+                + "the cache would delete a file a run is using, so it was not cleared: let them finish, or stop them "
+                + "first.");
+        }
+
         var removedAudio = Services.SpeechCache.Clear();
         var removedSubtitles = Services.SubtitleCache.Clear();
         Services.ReferenceStore.Clear();
@@ -678,9 +692,41 @@ public class SubSyncController : ControllerBase
         [Authorize(Policy = RequiresElevationPolicy)]
     [HttpPost("Kill")]
     [ProducesResponseType(StatusCodes.Status200OK)]
-    public ActionResult<object> KillAll()
+    public ActionResult<object> KillAll([FromBody] KillRequest? request)
     {
-        var (queuedCancelled, runningKilled) = _syncService.KillAll();
+        var isAdmin = CallerIsAdmin();
+        var (targets, refusal) = ItemAccess.SelectKillTargets(
+            _syncService.GetAllJobs(),
+            CallerId(),
+            isAdmin,
+            request?.JobId,
+            request?.BatchId,
+            request?.All ?? false);
+
+        if (refusal is not null)
+        {
+            return refusal switch
+            {
+                ItemAccess.KillRefusal.NothingSpecified => Fail(
+                    StatusCodes.Status400BadRequest,
+                    "Say what to stop",
+                    "Name what to stop: {\"all\": true} for every run (administrators only), or a batchId, or a jobId."),
+                ItemAccess.KillRefusal.NotPermitted => Fail(
+                    StatusCodes.Status403Forbidden,
+                    "Not permitted",
+                    "Stopping every run on the server needs an administrator. Stop your own work with a batchId or a jobId."),
+                _ => Fail(
+                    StatusCodes.Status404NotFound,
+                    "Nothing to stop",
+                    "No queued or running work matched that request."),
+            };
+        }
+
+        // The global case keeps its full effect - the extraction lanes and every child process go too - because that
+        // is what an administrator asking for "all" means. A scoped stop touches only what it was told to (F2).
+        var (queuedCancelled, runningKilled) = request?.All == true
+            ? _syncService.KillAll()
+            : _syncService.KillJobs(targets);
         var (running, queued) = _syncService.GetActive();
         return Ok(new
         {
@@ -933,6 +979,26 @@ public class BatchTaskRequest
 
     /// <summary>Gets or sets an optional display title for the task.</summary>
     public string? Title { get; set; }
+}
+
+/// <summary>
+/// Request body for stopping work (F2).
+/// </summary>
+/// <remarks>
+/// The cancel endpoint used to take no body at all and stop everything, including another administrator's run. A
+/// request now says what it means: <see cref="All"/> for every run on the server (administrators only),
+/// <see cref="BatchId"/> for one batch, or <see cref="JobId"/> for one run.
+/// </remarks>
+public class KillRequest
+{
+    /// <summary>Gets or sets the run to stop.</summary>
+    public Guid? JobId { get; set; }
+
+    /// <summary>Gets or sets the batch to stop.</summary>
+    public string? BatchId { get; set; }
+
+    /// <summary>Gets or sets a value indicating whether every run on the server should be stopped (administrators only).</summary>
+    public bool All { get; set; }
 }
 
 /// <summary>
