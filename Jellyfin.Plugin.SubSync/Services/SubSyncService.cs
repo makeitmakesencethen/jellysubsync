@@ -4991,11 +4991,15 @@ public class SubSyncService : IDisposable
                 // kilobytes and finishes in milliseconds; the ffmpeg fallback demuxes the whole file,
                 // which on a NAS is the difference between a second and minutes per subtitle. Putting
                 // it in the task result means the difference is visible without the server log.
-                job.ExtractionNote = extractionMethod == "ffmpeg"
-                    ? $"demuxed with ffmpeg, {extractionWatch.ElapsedMilliseconds} ms"
-                    : extractionMethod == "matroska-cached"
-                        ? "reused from the pass that read this file for another subtitle"
-                        : $"read through the container index ({extractionMethod}), {extractionWatch.ElapsedMilliseconds} ms";
+                job.ExtractionNote = extractionMethod switch
+                {
+                    "ffmpeg" => $"demuxed with ffmpeg, {extractionWatch.ElapsedMilliseconds} ms",
+                    "matroska-cached" => "reused from the pass that read this file for another subtitle",
+                    // A cache hit reads nothing at all this run: saying "read through the container index" here
+                    // described the reader that originally produced the text, not what this job did (nothing).
+                    "subtitle-cache" => "served from the extracted-subtitle cache, no read this run",
+                    _ => $"read through the container index ({extractionMethod}), {extractionWatch.ElapsedMilliseconds} ms"
+                };
 
                 // A kill during extraction must not turn into "try the next method".
                 cancellationToken.ThrowIfCancellationRequested();
@@ -7228,6 +7232,7 @@ public class SubSyncService : IDisposable
         "metadata-scan" => "by walking the file's block headers (this file's index does not point at its subtitle blocks)",
         "matroska-cues" => "from the Matroska index",
         "matroska-cached" => "from the pass that already read this file",
+        "subtitle-cache" => "from the extracted-subtitle cache (no read this run)",
         "mp4-sample-table" => "with the MP4 sample table",
         "ffmpeg" => "with ffmpeg (whole-file read)",
         "cancelled" => "stopped by a kill",

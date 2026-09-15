@@ -3020,6 +3020,14 @@ def run_page_checks():
     report('extracted tracks are reused by the following jobs',
            'CacheExtracted' in service_text and 'TryTakeExtracted' in service_text
            and 'matroska-cached' in service_text)
+    _methods = ['seekhead-cues', 'matroska-cues', 'cue-index', 'metadata-scan', 'matroska-shared',
+                'matroska-cached', 'subtitle-cache', 'mp4-sample-table', 'ffmpeg', 'cancelled']
+    _unnamed = [m for m in _methods if f'"{m}" =>' not in service_text]
+    report('every extraction method this build produces has a name in the phase text',
+           not _unnamed, f'unnamed: {_unnamed}')
+    report('a cache hit is described as no read, not as a read through the index',
+           '"subtitle-cache" => "served from the extracted-subtitle cache, no read this run"' in service_text
+           and 'read through the container index ({extractionMethod})' in service_text)
     report('the worker panel falls back to what the server is running',
            'SubSync/Active' in main_html and 'lastActive' in main_html)
     report('the extraction note reaches the log line',
