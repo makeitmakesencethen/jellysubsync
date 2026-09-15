@@ -1,3 +1,49 @@
+## 2.0.41 (beta)
+
+A setting that cannot mean anything is no longer stored as typed, and the engine can no longer be given one.
+
+**Why.** The settings page accepted a negative or absurd offset ceiling, a typo'd output encoding, a language tag
+that matches no language, and a binary path that does not exist - and answered "Saved." for every one of them. The
+audit drove ten such values through the page: seven were stored exactly as typed. The clamps that did happen
+(99 workers became 64) were the page's own arithmetic rather than the server's, so the same values sent to the API
+were stored as typed - which the new rig scenario shows. Separately, `--max-offset-seconds` and
+`--max-subtitle-seconds` went into ffsubsync's command line from the stored file without ever being re-checked, so a
+hand-edited `config.xml` could put `-5` in front of the engine and turn the plugin's own "the engine clamped it"
+warning into a constant banner, hiding real clamping.
+
+**What changed.** One validation path, `Configuration/SettingsValidation.cs`, used in both directions:
+
+- wherever a configuration is stored - through `Plugin.UpdateConfiguration`, which every surface passes through -
+  values are brought into range and the response says what was adjusted; `GET /SubSync/Settings/ValidationNotes`
+  reports those adjustments and the settings page shows them after "Saved." (nobody has to guess what was stored);
+- argv and the plugin's own heuristics read the validated values only (`MaxOffsetSecondsOf`,
+  `MaxSubtitleSecondsOf`, `MaxSubtitleReferenceOffsetSecondsOf`), so the engine cannot be handed an out-of-range
+  number whatever the stored file says;
+- a language tag that names no language is dropped, and the note says so - including when that leaves the filter
+  empty, in which case every language is synced (a change worth being told about);
+- a configured `FfmpegPath` or `FfSubSyncPath` that does not exist is no longer used or handed to the engine.
+
+**Verified.**
+
+    python3 tests/rig/run_scenario.py --scenario d3-settings
+
+| build | hostile values stored as typed | response said anything | result |
+|---|---|---|---|
+| 2.0.40 | 11 of 11 | nothing | FAILED 11 of 12 |
+| 2.0.41 | none | one note per value | PASSED 12 of 12 |
+
+Sample of what the run prints for 2.0.41: `MaxOffsetSeconds=100000 stored as 600 | Max offset seconds: 100000 is
+outside 1-600; 600 is stored`; `OutputEncoding='not-an-encoding' stored as 'utf-8' | ... is not one of ascii,
+latin-1, utf-16, utf-8, utf-8-sig`; `SyncLanguages=['qq','zz','!!!@#'] stored as [] | dropped ... with none left,
+every language is synced`.
+
+Note honestly: this release changes what a save *does* with a bad value, not what the engine does with a good one -
+the values a normal installation stores are all in range, and the run's last assertion confirms that an unmodified
+configuration is stored unchanged and without a single note. Suite: 664 checks green, 20 new (the ten hostile
+values, the language rules, the range accessors, the page's bounds against the server's constants).
+
+Rollback: 2.0.40's zip remains downloadable at its URL.
+
 ## 2.0.40 (beta)
 
 The audio is now read as audio, everywhere it is used as an independent signal - not just in the cross-check
