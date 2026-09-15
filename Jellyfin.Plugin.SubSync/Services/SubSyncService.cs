@@ -2164,7 +2164,8 @@ public class SubSyncService : IDisposable
                     + $"unused={stats.PrefetchedUnusedRanges} ranges/{stats.PrefetchedUnusedBytes / 1e6:0.0} MB "
                     + $"bytesTwice={stats.BytesReadTwice / 1e6:0.00} MB memoryReads={stats.MemoryServedReads} "
                     + $"plan={stats.Route} expected={stats.PlanExpectedBytes / 1e6:0.00} MB/{stats.PlanExpectedCalls} reads "
-                    + $"missed={stats.PlanMissed} storage={stats.MeasuredMsPerRead:0.00} ms/read {stats.MeasuredMbPerSecond:0.0} MB/s "
+                    + $"missed={stats.PlanMissed} indexedMisses={stats.IndexedMisses} walked={stats.WalkedClusters} "
+                    + $"storage={stats.MeasuredMsPerRead:0.00} ms/read {stats.MeasuredMbPerSecond:0.0} MB/s "
                     + $"({DescribeExtraction(stats.Method)})");
 
                 foreach (var ordinal in ordinals)

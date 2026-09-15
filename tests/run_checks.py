@@ -3793,6 +3793,36 @@ def run_page_checks():
     return failures
 
 
+def run_s26_cost_checks():
+    """The cue-indexed pass has to read what its own plan priced, even when the file states no cluster
+    size (a streamed or non-remuxed mkv writes clusters with the unknown-size marker).
+
+    This is the S26 repro: a fixture whose clusters carry dozens of frames with real payload gaps behind
+    them, and the same fixture with every cluster size rewritten as unknown. Before the fix the located
+    read was refused for every cue point and the pass walked each cue's cluster - 44x its planned bytes
+    and 25x its planned reads, which is the 86x/25x a live pass showed on fabji's server. The probe that
+    builds both files and measures them is tests/backend/s26_probe.py; this runs it.
+    """
+    import sys
+
+    print()
+    probe_path = os.path.join(REPO, 'tests', 'backend', 's26_probe.py')
+    try:
+        proc = subprocess.run([sys.executable, probe_path, '--check'], capture_output=True, text=True,
+                              timeout=1800, env=ENV)
+    except subprocess.TimeoutExpired:
+        print('FAIL  the S26 cost probe ran at all (s26)   [timed out]')
+        return 1
+    lines = [line for line in proc.stdout.splitlines() if line.startswith(('PASS', 'FAIL'))]
+    for line in lines:
+        print(line)
+    if not lines:
+        tail = (proc.stderr or proc.stdout).strip().splitlines()
+        print(f'FAIL  the S26 cost probe ran at all (s26)   [{tail[-1] if tail else "no output"}]')
+        return 1
+    return sum(1 for line in lines if line.startswith('FAIL'))
+
+
 def main():
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(WORK)
@@ -3889,7 +3919,8 @@ def main():
     print(run.stdout or run.stderr)
     page_failures = run_page_checks()
     source_failures = run_gate_source_checks()
-    total_failures = page_failures + source_failures
+    cost_failures = run_s26_cost_checks()
+    total_failures = page_failures + source_failures + cost_failures
     if total_failures:
         print(f'{total_failures} FAILURE(S)')
     return run.returncode or (1 if total_failures else 0)

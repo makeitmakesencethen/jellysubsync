@@ -109,6 +109,9 @@ public sealed class MkvExtractionStats
     /// <summary>Gets or sets how many indexed cue points had to fall back to a cluster walk.</summary>
     public int IndexedMisses { get; set; }
 
+    /// <summary>Gets or sets how many clusters were actually walked, once each, after a located read failed.</summary>
+    public int WalkedClusters { get; set; }
+
     /// <summary>Gets or sets the time spent locating the subtitle data, in milliseconds.</summary>
     public double LocateMs { get; set; }
 
@@ -723,6 +726,22 @@ public static class MkvSubtitleExtractor
             var seen = new HashSet<(long ClusterPosition, long RelativePosition)>();
             var index = 0;
             var missedCuePoints = 0;
+
+            // Clusters this pass has already walked whole. A walk reads every block of the wanted track
+            // inside its cluster, so a later cue point naming the same cluster has nothing left to find -
+            // walking it again is what turned one located block into ~50 reads, once per cue point (S26).
+            var walkedClusters = new HashSet<long>();
+
+            // Where an unknown-size cluster ends is not in the file. The next cluster the index mentions
+            // starts after this one does, and the last one is bounded by the end of the file, so this is
+            // the tightest bound available; ReadIndexedBlock treats it as a bound, not as a fact.
+            var clusterStarts = cueRefs.Select(r => r.ClusterOffset).Distinct().OrderBy(o => o).ToArray();
+            long ClusterBound(long clusterOffset)
+            {
+                var at = Array.BinarySearch(clusterStarts, clusterOffset);
+                at = at < 0 ? ~at : at + 1;
+                return at < clusterStarts.Length ? segmentDataStart + clusterStarts[at] : reader.Length;
+            }
             foreach (var cueRef in cueRefs)
             {
                 var position = segmentDataStart + cueRef.ClusterOffset;
@@ -782,6 +801,14 @@ public static class MkvSubtitleExtractor
                     }
                 }
 
+                if (walkedClusters.Contains(position))
+                {
+                    // An earlier cue point in this cluster could not use the index and walked the cluster,
+                    // which read every block of this track in it - including this cue point's. There is
+                    // nothing left here, and walking it again is the cost this fix exists to remove.
+                    continue;
+                }
+
                 stats.ClustersVisited++;
 
                 var blocksBefore = track.BlocksFound;
@@ -792,13 +819,7 @@ public static class MkvSubtitleExtractor
                     // reads replace walking that cluster's ~150 blocks to find it, and the window is the
                     // one the plan priced - never a walk-sized window, which leaked into this loop once and
                     // moved 3.2 GB to collect ~50 KB of text (779 cues, a 4 MB window each).
-                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
-                        && track.BlocksFound != blocksBefore)
-                    {
-                        continue;
-                    }
-
-                    if (ReadIndexedBlock(reader, position, cueRef, track, cues, stats)
+                    if (ReadIndexedBlock(reader, position, ClusterBound(cueRef.ClusterOffset), cueRef, track, cues, stats)
                         && track.BlocksFound != blocksBefore)
                     {
                         continue;
@@ -812,6 +833,9 @@ public static class MkvSubtitleExtractor
                     reason = "unsupported block encoding";
                     return false;
                 }
+
+                stats.WalkedClusters++;
+                walkedClusters.Add(position);
 
                 // Neither the block the index names nor the walk over its cluster produced a block of
                 // this track: the cue point exists in the index but nothing was read for it, so the
@@ -1061,7 +1085,7 @@ public static class MkvSubtitleExtractor
                     break;
                 }
 
-                if (!TryReadClusterHeader(reader, clusterPosition, out var extraDataStart, out var extraDataEnd)
+                if (!TryReadClusterHeader(reader, clusterPosition, reader.Length, out var extraDataStart, out var extraDataEnd, out _)
                     || !TryReadClusterTimecode(reader, extraDataStart, extraDataEnd, out var extraTimecode))
                 {
                     continue;
@@ -1288,6 +1312,10 @@ public static class MkvSubtitleExtractor
     /// </summary>
     /// <param name="reader">File reader.</param>
     /// <param name="clusterPosition">Position of the Cluster element's id.</param>
+    /// <param name="clusterBound">
+    /// Where to look for this cluster's end when the file does not state its size: the next cluster the
+    /// index mentions, or the end of the file.
+    /// </param>
     /// <param name="cueRef">Cue point.</param>
     /// <param name="track">Track being extracted.</param>
     /// <param name="cues">Collected subtitles.</param>
@@ -1296,13 +1324,14 @@ public static class MkvSubtitleExtractor
     private static bool ReadIndexedBlock(
         BlobReader reader,
         long clusterPosition,
+        long clusterBound,
         CueRef cueRef,
         SubtitleTrack track,
         List<Cue> cues,
         MkvExtractionStats stats)
     {
         if (cueRef.RelativePosition < 0
-            || !TryReadClusterHeader(reader, clusterPosition, out var clusterDataStart, out var clusterEnd))
+            || !TryReadClusterHeader(reader, clusterPosition, clusterBound, out var clusterDataStart, out var clusterEnd, out var exactEnd))
         {
             return false;
         }
@@ -1316,7 +1345,32 @@ public static class MkvSubtitleExtractor
             return false;
         }
 
-        return ReadBlockAtRelative(reader, clusterDataStart, clusterEnd, cueRef.RelativePosition, clusterTimecode, track, cues);
+        var before = cues.Count;
+        if (!ReadBlockAtRelative(reader, clusterDataStart, clusterEnd, cueRef.RelativePosition, clusterTimecode, track, cues))
+        {
+            return false;
+        }
+
+        if (!exactEnd)
+        {
+            // The file states no size for this cluster, so clusterEnd is the next cluster the index
+            // mentions rather than this one's own end: the located offset is contained by nothing the
+            // file says. A block read outside its own cluster would carry a later cluster's timecode and,
+            // with it, another subtitle's text, so the read only stands when the block it produced is the
+            // cue point's own. Refusing here is safe: the caller walks the cluster, which is what every
+            // unknown-size cluster did before this - only once per cluster now, not once per cue point.
+            if (cues.Count == before || Math.Abs(cues[before].StartMs - cueRef.CueTimeMs) > 1)
+            {
+                if (cues.Count > before)
+                {
+                    cues.RemoveRange(before, cues.Count - before);
+                }
+
+                return false;
+            }
+        }
+
+        return true;
     }
 
     /// <summary>
@@ -1326,24 +1380,45 @@ public static class MkvSubtitleExtractor
     /// <param name="clusterPosition">Position of the Cluster element's id.</param>
     /// <param name="clusterDataStart">First byte of the cluster's body.</param>
     /// <param name="clusterEnd">One past the cluster's last byte.</param>
-    /// <returns>True when a sized Cluster element is at that position.</returns>
+    /// <param name="upperBound">
+    /// Where to look for the end of a cluster whose size the file does not state: the next cluster the
+    /// index mentions, or the end of the file. Only used for those.
+    /// </param>
+    /// <param name="exactEnd">True when the cluster's own size gave the end.</param>
+    /// <returns>True when a Cluster element is at that position.</returns>
     private static bool TryReadClusterHeader(
         BlobReader reader,
         long clusterPosition,
+        long upperBound,
         out long clusterDataStart,
-        out long clusterEnd)
+        out long clusterEnd,
+        out bool exactEnd)
     {
         clusterDataStart = 0;
         clusterEnd = 0;
+        exactEnd = false;
         if (!reader.TryReadElementHeaderAt(clusterPosition, out var id, out var size, out var headerLength)
-            || id != IdCluster
-            || size == ulong.MaxValue)
+            || id != IdCluster)
         {
             return false;
         }
 
         clusterDataStart = clusterPosition + headerLength;
+        if (size == ulong.MaxValue)
+        {
+            // A streamed or non-seekable remux writes clusters with the unknown-size marker, and refusing
+            // them here was expensive out of all proportion: every located read failed, so the cue-indexed
+            // loop walked each cue's cluster instead - one located block became ~50 block headers and
+            // ~200 KB of reads (33 525 reads / 133 MB against a plan of 1 319 / 1.57 MB, S26). The walk
+            // below in ReadCluster has always accepted these clusters the same way (it ends them at the
+            // file's end); the located path is stricter about it because it jumps to an offset the file
+            // does not corroborate - which ReadIndexedBlock checks against the cue point's own time.
+            clusterEnd = Math.Min(upperBound, reader.Length);
+            return clusterEnd > clusterDataStart;
+        }
+
         clusterEnd = clusterDataStart + (long)size;
+        exactEnd = true;
         return true;
     }
 

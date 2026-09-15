@@ -17,6 +17,12 @@ file shows the shape the field showed, the cold repro is a fixture and the culpr
 Usage:
     python3 tests/backend/s26_probe.py            # both files
     python3 tests/backend/s26_probe.py --keep     # leave the fixtures for inspection
+    python3 tests/backend/s26_probe.py --check    # the suite's PASS/FAIL form of the same measurement
+    python3 tests/backend/s26_probe.py --slow     # the same, under the rig's slow-storage shim
+
+Run ONE of these at a time. The probe builds its fixtures when they are missing, so two probes started
+together write and read the same files, and a torn fixture reads as "every located block could not be
+read" - which looks exactly like the defect being measured, and cost an afternoon chasing it.
 """
 import os
 import pathlib
@@ -48,8 +54,10 @@ var ordinal = args.Length > 1 ? int.Parse(args[1]) : 0;
 var planLines = new List<string>();
 MkvSubtitleExtractor.TryExtract(path, ordinal, out var srt, out var reason, planLines.Add, out var stats);
 var cues = srt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length;
+var digest = Convert.ToHexString(System.Security.Cryptography.MD5.HashData(
+    System.Text.Encoding.UTF8.GetBytes(srt))).ToLowerInvariant();
 Console.WriteLine($"PROBE file={Path.GetFileName(path)}");
-Console.WriteLine($"PROBE cues={cues} method={stats.Method} reason=\"{reason}\"");
+Console.WriteLine($"PROBE cues={cues} md5={digest} chars={srt.Length} method={stats.Method} reason=\"{reason}\"");
 foreach (var line in planLines.Where(l => l.Contains("expected")))
 {
     Console.WriteLine("PROBE " + line);
@@ -58,6 +66,11 @@ Console.WriteLine($"PROBE actual: bytesRead={stats.BytesRead} reads={stats.ReadC
     + $"indexedMisses={stats.IndexedMisses} clustersVisited={stats.ClustersVisited}");
 Console.WriteLine($"PROBE prefetched={stats.PrefetchedRanges} ranges/{stats.PrefetchedBytes} B, "
     + $"unused={stats.PrefetchedUnusedRanges} ranges/{stats.PrefetchedUnusedBytes} B");
+// The read policy's two ledger rules: bytes a read went to the file for after the pass had already
+// fetched them, and bytes fetched over ranges the location phase had already read. Both must be zero.
+Console.WriteLine($"PROBE ledger: readAfterFetch={stats.BytesReadAfterFetch} B, "
+    + $"fetchedOverDisk={stats.BytesFetchedOverDisk} B, bytesTwice={stats.BytesReadTwice} B, "
+    + $"walked={stats.WalkedClusters}");
 if (stats.PlanExpectedBytes > 0)
 {
     Console.WriteLine($"PROBE ratio: bytes={(double)stats.BytesRead / stats.PlanExpectedBytes:0.00}x "
@@ -102,9 +115,16 @@ def harness():
     return HARNESS / 'bin' / 'Release' / 'net10.0' / 's26probe.dll'
 
 
-def run(dll, path, ordinal=0):
+def run(dll, path, ordinal=0, slow=False):
     env = dict(os.environ, TZ='UTC', DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1',
                LD_LIBRARY_PATH='/opt/data/local/icu/usr/lib/x86_64-linux-gnu')
+    if slow:
+        # The rig's slow storage profile: a real per-read latency on the fixture's directory, the same
+        # shim and numbers the scenarios use (tests/backend/rig.py, run_scenario.py --ms-per-call).
+        env['LD_PRELOAD'] = str(REPO / 'tests' / 'backend' / 'slowread.so')
+        env['SLOWREAD_PREFIX'] = str(FIXTURES) + '/'
+        env['SLOWREAD_MS_PER_CALL'] = '10'
+        env['SLOWREAD_MS_PER_16K'] = '1.46'
     result = subprocess.run([DOTNET, str(dll), str(path), str(ordinal)],
                             capture_output=True, text=True, env=env, timeout=1800)
     return (result.stdout.strip() or result.stderr[-800:]).replace('\n', '\n  ')
@@ -142,6 +162,9 @@ def unknown_size_variant(source: pathlib.Path, target: pathlib.Path) -> int:
 
 def main():
     dll = harness()
+    if '--check' in sys.argv:
+        return check_mode(dll)
+
     FIXTURES.mkdir(parents=True, exist_ok=True)
 
     for label, shape in (('sparse (as the generator wrote it until now)', SHAPE),
@@ -153,15 +176,98 @@ def main():
         if not unknown.exists():
             count = unknown_size_variant(plain, unknown)
             print(f'== {label}: {count} cluster size(s) rewritten as unknown')
-        print(f'== {label}: {plain.name} (clusters with a known size)')
-        print('  ' + run(dll, plain))
-        print(f'== {label}: {unknown.name} (every cluster size marked unknown)')
-        print('  ' + run(dll, unknown))
+        slow = '--slow' in sys.argv
+        suffix = ' [slow storage: 10 ms/read]' if slow else ''
+        print(f'== {label}: {plain.name} (clusters with a known size){suffix}')
+        print('  ' + run(dll, plain, slow=slow))
+        print(f'== {label}: {unknown.name} (every cluster size marked unknown){suffix}')
+        print('  ' + run(dll, unknown, slow=slow))
         print()
 
     if '--keep' not in sys.argv:
         shutil.rmtree(FIXTURES, ignore_errors=True)
     return 0
+
+
+def parse(report):
+    """Turn the harness's PROBE lines into a dict keyed by the line's own label (top/actual/ratio/...)."""
+    out = {}
+    for line in report.splitlines():
+        line = line.strip()  # run() indents continuation lines for the printed report
+        if not line.startswith('PROBE '):
+            continue
+        body = line[len('PROBE '):]
+        label, sep, rest = body.partition(':')
+        if not sep:
+            label, rest = 'top', body
+        for part in rest.split(' '):
+            key, _, value = part.partition('=')
+            if key and value:
+                out[f'{label.strip()}.{key}'] = value
+    return out
+
+
+def check_mode(dll):
+    """Assert the pass reads what its own plan priced, on a file that states no cluster size (S26).
+
+    Prints the suite's PASS/FAIL lines and returns the failure count. Two files, the same bytes apart
+    from their clusters' size vints: with the fix the unknown-size one has to match the known-size one
+    block for block, and neither may read past its own plan or make the ledger's two rules non-zero.
+    """
+    dense = FIXTURES / 'shape-dense.mkv'
+    unknown = FIXTURES / 'shape-dense-unknown-size.mkv'
+    if not dense.exists():
+        FIXTURES.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['python3', str(GENERATOR), str(dense), *DENSE], check=True, capture_output=True)
+    if not unknown.exists():
+        unknown_size_variant(dense, unknown)
+
+    failures = 0
+
+    def report(name, ok, detail=''):
+        nonlocal failures
+        if not ok:
+            failures += 1
+        print(('PASS  ' if ok else 'FAIL  ') + name + (f'   [{detail}]' if detail and not ok else ''))
+
+    try:
+        known = parse(run(dll, dense))
+        other = parse(run(dll, unknown))
+    except Exception as exc:  # a probe that cannot run is a failure, and says why
+        report('the S26 cost probe ran at all (s26)', False, f'{type(exc).__name__}: {exc}')
+        return failures
+
+    def number(report_dict, key):
+        try:
+            return float(str(report_dict.get(key, 'nan')).rstrip('x'))
+        except ValueError:
+            return float('nan')
+
+    caught = number(other, 'actual.indexedMisses') == 0 and number(other, 'ledger.walked') == 0
+    report('a file that states no cluster size does not turn every located read into a walk (s26)',
+           caught,
+           f"indexedMisses={other.get('actual.indexedMisses')} walked={other.get('ledger.walked')}")
+
+    ratio_bytes = number(other, 'ratio.bytes')
+    ratio_reads = number(other, 'ratio.reads')
+    report('a located pass reads what its own plan priced, unknown-size clusters included (s26)',
+           0 < ratio_bytes <= 2.0 and 0 < ratio_reads <= 2.0,
+           f'bytes {ratio_bytes}x, reads {ratio_reads}x (known-size file: '
+           f"{known.get('ratio.bytes')}x/{known.get('ratio.reads')}x)")
+
+    report('the located path extracts the same subtitle, byte for byte (s26)',
+           known.get('top.md5') == other.get('top.md5') and known.get('top.cues') == other.get('top.cues')
+           and known.get('top.cues') not in (None, '0'),
+           f"known {known.get('top.cues')}/{known.get('top.md5')} vs "
+           f"unknown {other.get('top.cues')}/{other.get('top.md5')}")
+
+    clean = (number(known, 'ledger.readAfterFetch') == 0 and number(known, 'ledger.fetchedOverDisk') == 0
+             and number(other, 'ledger.readAfterFetch') == 0 and number(other, 'ledger.fetchedOverDisk') == 0)
+    report('both read-ledger rules stay at zero on the repro (s26)', clean,
+           f"known {known.get('ledger.readAfterFetch')}/{known.get('ledger.fetchedOverDisk')}, "
+           f"unknown {other.get('ledger.readAfterFetch')}/{other.get('ledger.fetchedOverDisk')}")
+
+    return failures
 
 
 if __name__ == '__main__':

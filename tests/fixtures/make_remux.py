@@ -230,15 +230,17 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
                     f.seek(hole, os.SEEK_CUR)
             video_offsets.append(cluster_start - segment_start)
             if write_sub:
-                sub_marks.append((cluster_start - segment_start, sub_rels))
+                # The cue point's time is the *block's* own time (Matroska: CueTime is the timestamp of
+                # the block it references), which is this cluster's timecode - so carry the cluster index.
+                sub_marks.append((cluster_start - segment_start, sub_rels, i))
 
         points = []
         if video_cues:
             points.extend((VIDEO, off, i * 1000, None) for i, off in enumerate(video_offsets))
         if sub_cues:
             for track_index, track_number in enumerate(sub_track_numbers):
-                for i, (off, rels) in enumerate(sub_marks):
-                    points.append((track_number, off, i * 1000, rels[track_index]))
+                for off, rels, cluster_index in sub_marks:
+                    points.append((track_number, off, cluster_index * 1000, rels[track_index]))
         points.sort(key=lambda p: (p[2], p[0]))
         cue_payload = bytearray()
         if grouped_cues:
