@@ -3,11 +3,11 @@
 
 Goal: `FINISH_EVERYTHING_GOAL_PROMPT.md` — close `knowledge/FIX_PLAN.md` without the user running anything.
 
-> **HELD, UNPUSHED - say so when the user asks what to fix next.** The S40 instrumentation (`629d95c`) and the
-> lock-scope changes (`1a2a4bc`) are committed locally and deliberately not pushed: pushing rebuilds the published
-> 2.0.41 under the same version, so the md5 verified against the catalog stops matching. They ship once a field run
-> has named the queue-lock holder (`queue lock slow: holder=…` / `enqueue slow: … breakdown:`), which is the one
-> step that needs the user's server. The user asked to be reminded of this when they next ask what to fix.
+> **PENDING FIELD TEST - say so when the user asks what to fix next.** Everything is published (S31 in 2.0.39,
+> S43 in 2.0.40, D3+F10 in 2.0.41, S40 in 2.0.42). The one thing outstanding is the user's own test: a bulk batch
+> on their server, read against `enqueue slow: … breakdown:` and `queue lock slow: holder=…`, which names the
+> holder of the 8-21 s wait that no local measurement can reproduce. Their words: the test is held, not the
+> publishing.
 Updated as work happens. The last item is the only one anyone needs to read to continue.
 
 ## Item 0 — the harness (done, commit `eed433a`)
@@ -63,7 +63,7 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
-## S40 - the enqueue's slow phase is instrumented; the local wait turned out to be scheduling, not the plan
+## S40 - the enqueue's slow phase is instrumented and shipped in 2.0.42; the field run is the user's test
 
 The `enqueue slow:` line carries a breakdown of the phase the field saw as `log=<8-21 000> ms` (`state`,
 `logWrite`, `queueLock`, `wakePump`) with `SUBSYNC_ENQUEUE_TRACE_MS` to lower the threshold, and every critical

@@ -1953,5 +1953,52 @@
     ],
     "batch": "354a40a142b14069a509294a6d950593",
     "seconds": 27.2
+  },
+  {
+    "scenario": "s31-wrong-ruler",
+    "when": "2026-09-15 04:32:48",
+    "plugin": "SubSync_2.0.42.0",
+    "shim": null,
+    "note": "post-pump-change: a job runs to completion",
+    "repo_head": "85b2c4d",
+    "assertions": [
+      {
+        "check": "the engine's alignment score is in the log",
+        "passed": true,
+        "detail": "[99f7fdba305f47799dcaa9ed2edc0b95] ffsubsync alignment: score=287443 offset=-20.000 s against reference subtitle s:1"
+      },
+      {
+        "check": "a suspicious ruler is cross-checked against the film's own audio",
+        "passed": true,
+        "detail": "[99f7fdba305f47799dcaa9ed2edc0b95] cross-check run: reference=/opt/data/jf12test/data/data/subsync/state/speech-cache/073470d0a63a91c3c2417c32c1d93efe"
+      },
+      {
+        "check": "a correct ruler is confirmed by the audio, not refused",
+        "passed": true,
+        "detail": "[99f7fdba305f47799dcaa9ed2edc0b95] the reference subtitle's shift (-20000 ms) is confirmed by the film's own audio (-20080 ms, within 3 s) - keeping the reference's answer"
+      },
+      {
+        "check": "nothing was discarded when the ruler was right",
+        "passed": true,
+        "detail": "no discard, as expected"
+      },
+      {
+        "check": "a subtitle was produced",
+        "passed": true,
+        "detail": "job 99f7fdba305f47799dcaa9ed2edc0b95 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-15 02:33:36.133Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] ffsubsync alignment: score=287443 offset=-20.000 s against reference subtitle s:1",
+      "2026-09-15 02:33:52.123Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] ffsubsync alignment: score=46805 offset=-20.080 s against the audio (cross-check of a subtitle ruler)",
+      "2026-09-15 02:33:36.149Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] cross-check run: reference=/opt/data/jf12test/data/data/subsync/state/speech-cache/073470d0a63a91c3c2417c32c1d93efe.mkv input=/opt/data/jf12test/cache/subsync/shared/52fc71214c0b2683/subtitle_4.srt args=/opt/data/jf12test/data/data/subsync/state/speech-cache/073470d0a63a91c3c2417c32c1d93efe.mkv -i /opt/data/jf12test/cache/subsync/shared/52fc71214c0b2683/subtitle_4.srt -o /opt/data/jf12test/cache/subsync/99f7fdba305f47799dcaa9ed2edc0b95/audio-cross-check.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/99f7fdba305f47799dcaa9ed2edc0b95",
+      "2026-09-15 02:33:52.123Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] ffsubsync alignment: score=46805 offset=-20.080 s against the audio (cross-check of a subtitle ruler)",
+      "2026-09-15 02:33:52.123Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] cross-check exit=0, output=/opt/data/jf12test/cache/subsync/99f7fdba305f47799dcaa9ed2edc0b95/audio-cross-check.srt exists=True",
+      "2026-09-15 02:33:52.134Z INFO  [99f7fdba305f47799dcaa9ed2edc0b95] the reference subtitle's shift (-20000 ms) is confirmed by the film's own audio (-20080 ms, within 3 s) - keeping the reference's answer",
+      "2026-09-15 02:33:52.144Z INFO  job 99f7fdba305f47799dcaa9ed2edc0b95 completed: mode=normal output=/opt/data/jf12test/media/S31 Wrong Ruler/S31 Episode (2026).SYNCED.eng.srt bytes=56767 change=-20000 ms offset \u00b7 aligned to the reference subtitle s:1 at -20000 ms - worth checking, a shift this size usually means the reference track is not the same cut extraction=read through the container index (subtitle-cache), 48 ms"
+    ],
+    "batch": "6dded2aff81b410a86e74e9788fec0cd",
+    "seconds": 66.7
   }
 ]

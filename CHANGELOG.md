@@ -1,3 +1,37 @@
+## 2.0.42 (beta)
+
+S40's enqueue cost is now instrumented, and two things that were done while holding the queue lock are not any more.
+
+**Where this comes from.** A field log of a 55-task batch showed every second queued item reporting `log=8 000-21 000
+ms` in the plugin's own `enqueue slow:` line. That phase was four different things at once - two dictionary writes,
+one line to the plugin log, the queue lock, and waking the pump (which starts the extraction lanes and takes the
+same lock twice more) - so the aggregate could not say what the time was.
+
+**What changed.**
+
+- The `enqueue slow:` line now carries the breakdown (`state=`, `logWrite=`, `queueLock=`, `wakePump=`), and
+  `SUBSYNC_ENQUEUE_TRACE_MS` lowers the threshold at which it is written (250 ms in the field, so a server that is
+  not slow says nothing).
+- Every critical section on the queue lock reports its own hold time when it is long enough to be somebody else's
+  wait (`queue lock slow: holder=pump-snapshot|pump-plan-outside-lock|cancel-batch|cancel-all ms=…`), so a field
+  log names the holder instead of leaving "the enqueue is slow" as the finding.
+- The pump plans **outside** the lock: it snapshots the run order under a short lock and runs the plan after it.
+  Measured, the planning pass takes ~55 ms, and every enqueue landing in that window used to wait for all of it.
+- Cancelling no longer writes a log line per job while holding that lock - one to Jellyfin's sink and one to the
+  plugin log, per cancelled job, inside the critical section the enqueue waits on.
+
+**What this release does not claim.** No local speed-up: on the rig the enqueue's `queueLock` figure is identical
+before and after (190 ms worst on a box running two 56-task batches, a cancel and an extraction), because that
+figure is the enqueueing thread being scheduled out, not contention - and the plugin-log write costs nothing
+(`logWrite=0` on every one of 280-392 measured lines, which retires the first guess about this row). The `55 ms`
+critical section and the per-job log writes under the lock are gone, and a check brace-matches the lock block out
+of `PumpAsync` and fails if the plan moves back inside it. Which holder takes seconds on a real share is the
+question a field run answers, and everything needed for it is in this build.
+
+Suite: 665 checks green.
+
+Rollback: 2.0.41's zip remains downloadable at its URL.
+
 ## 2.0.41 (beta)
 
 A setting that cannot mean anything is no longer stored as typed, and the engine can no longer be given one.

@@ -1214,7 +1214,7 @@ gained `ThrashTierMinReads = 2`, so a figure a *single* read produced is held at
 *"but that is one read and one read is not a steady state, so it is held at 2 until the volume has been read
 again"*. Four checks pin it (629 in the suite, green before the release commit).
 
-### S40 - the enqueue itself is the slow part of a batch's start (high, open: instrumented, the fix in the tree and held unpushed until a field run names the lock holder)
+### S40 - the enqueue itself is the slow part of a batch's start (high, shipped in 2.0.42; the field run that names the lock holder is the outstanding step and it is the user's test)
 
 Measured on 2026-09-14 while a 55-task batch was being queued, one line per item that took longer than it should:
 
