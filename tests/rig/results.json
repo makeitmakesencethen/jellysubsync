@@ -1161,5 +1161,70 @@
     ],
     "batch": "b8e2adad5c754c718a4cac14acafb966",
     "seconds": 444.9
+  },
+  {
+    "scenario": "s43-audio-is-audio",
+    "when": "2026-09-15 03:46:42",
+    "plugin": "SubSync_2.0.39.0",
+    "shim": null,
+    "note": "S43 before: released 2.0.39",
+    "repo_head": "cd9f97e",
+    "assertions": [
+      {
+        "check": "the log names the VAD the engine was given, and why",
+        "passed": false,
+        "detail": "(nothing says which VAD ran)"
+      },
+      {
+        "check": "the engine answers the film (-30 s), not the track itself (0 s)",
+        "passed": true,
+        "detail": "engine reported offset=-30.08 s across 1 run(s): [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s again"
+      },
+      {
+        "check": "the job says what it did with that answer",
+        "passed": true,
+        "detail": "job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing wri"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv"
+    ],
+    "batch": "c7d553a57b9a4e0099de1b9f77c91dcf",
+    "seconds": 64.7
+  },
+  {
+    "scenario": "s43-audio-is-audio",
+    "when": "2026-09-15 03:47:46",
+    "plugin": "SubSync_2.0.39.0",
+    "shim": null,
+    "note": "S43 after: the audio path is given the audio VAD",
+    "repo_head": "cd9f97e",
+    "assertions": [
+      {
+        "check": "the log names the VAD the engine was given, and why",
+        "passed": true,
+        "detail": "[5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subti"
+      },
+      {
+        "check": "the engine answers the film (-30 s), not the track itself (0 s)",
+        "passed": true,
+        "detail": "engine reported offset=-30.08 s across 1 run(s): [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s again"
+      },
+      {
+        "check": "the job says what it did with that answer",
+        "passed": true,
+        "detail": "job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing wri"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv"
+    ],
+    "batch": "9777e4d88072443386e7561cbd54ee46",
+    "seconds": 55.8
   }
 ]

@@ -1334,7 +1334,7 @@ measure the extraction pass's own reads instead), and that is a decision for its
 Until then, any walk-based ceiling on a run whose speech was already cached is suspect, and the tests/rig S39
 scenario clears the caches before the walk it needs for exactly this reason.
 
-### S43 - "the audio ruler" is whatever the VAD picks, and the default VAD reads subtitles (high, open)
+### S43 - "the audio ruler" is whatever the VAD picks, and the default VAD reads subtitles (high, in the tree)
 
 Found while proving S31 part 2, 2026-09-15, measured rather than reasoned. The plugin hands ffsubsync the media
 file as the audio reference with `--vad subs_then_webrtc` (the default, `AllowedVadMethods`), and that VAD takes
@@ -1379,4 +1379,45 @@ plugin itself supplied a subtitle reference it has already vetted. Cost: one aud
 speech cache already pays once, and the measured precision trade above (1,79 s on a 2-minute clip) needs a wider
 sample before it is claimed as general. A rig scenario follows the fix: a file whose *only* reference is the audio,
 with a subtitle in the container that contradicts it, asserting the answer matches the film rather than the track.
+
+**Implemented** (in the working tree, suite green at 645 checks, held for the ship call). The rule is one
+function and one constant, so a check can disagree with it:
+
+```csharp
+private const string AudioReferenceVad = "webrtc";
+internal static string? VadForReference(string? referenceSpec)      // null = the configured method stands
+    => referenceSpec is null ? AudioReferenceVad : null;
+```
+
+Every run in the job flow builds its arguments through it - the main run, the over-ceiling fallback, both
+wide-window retries and the verification run - the cross-check keeps using the same constant, and the speech-cache
+key now names the VAD the engine is actually given rather than the configured one it is not given (two analyses
+that used to share a key can no longer). A run that overrides the configuration states so, once, with the reason:
+
+```
+[job] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it
+      would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's
+      choice rather than the plugin's
+```
+
+Checks: the configured method stands for a vetted subtitle reference; the audio reference forces the audio VAD;
+the override reaches every call site; the speech key follows the VAD; the log line exists.
+
+**Measured where the engine's own choice actually diverged.** The scenario `s43-audio-is-audio` builds a file whose
+only subtitle track is 30 s out of sync, so the audio is the only usable reference, and asserts the engine's answer
+(through the alignment line part 1 added) plus the VAD statement:
+
+| build | the VAD statement | the engine's answer | scenario |
+|---|---|---|---|
+| released 2.0.39 | absent - nothing said which signal ran | -30,08 s (the film's answer) | FAILED (1 of 3) |
+| working tree | present, naming the override and the reason | -30,08 s | **PASSED** (3 of 3) |
+
+Honest scope: on *that* fixture the released build already answered correctly, so it is not evidence of a wrong
+answer - the engine did not follow the subtitle route there. It is evidence that the signal is now fixed by the
+plugin and stated in the log instead of left to the engine. The measurement that shows the subtitle route producing
+a **wrong** answer is the S31 fixture (two tracks, one a wrong cut), where the same job shape returned the wrong
+track's own +24,170 s with the default VAD and the film's -5,080 s with the audio VAD forced - exactly the
+divergence this rule removes, shipped in 2.0.39 for the cross-check and now for every audio run. The engine's own
+output confirms the route exists: with `subs_then_webrtc` it logs `extracting speech segments from subtitles`
+(`ffsubsync.py:192`).
 

@@ -457,6 +457,21 @@ public class SubSyncService : IDisposable
         new SweepState(Path.Combine(Plugin.Instance?.StatePath ?? Path.GetTempPath(), "sweep-cache.json")));
 
     /// <summary>Allowed values for the --vad config option (subset of ffsubsync's engine choices).</summary>
+    /// <summary>
+    /// The VAD the engine is given whenever the *plugin* intends the audio to be the reference.
+    /// </summary>
+    /// <remarks>
+    /// `webrtc`, not the configured method, and not because it is better: because it is the only one that reads
+    /// audio. Measured 2026-09-15 (S43): with the default `subs_then_webrtc` the engine takes the video's own
+    /// **embedded subtitle tracks** as its speech signal, and the reference the plugin hands it for "the audio" is
+    /// the video - so on a file with subtitles the audio path is a subtitle path, chosen by the engine, bypassing
+    /// the plugin's own reference checks (cue count, signs-track detection, span). It read a wrong-cut track in
+    /// one fixture (+24,170 s where the film's audio says -5,080 s) and scored a subtitle-derived signal 212 234
+    /// against the audio's 53 566 on another. Where the plugin has supplied a subtitle reference it has already
+    /// vetted, the configured method stands.
+    /// </remarks>
+    private const string AudioReferenceVad = "webrtc";
+
     private static readonly HashSet<string> AllowedVadMethods = new(StringComparer.OrdinalIgnoreCase)
     {
         "subs", "webrtc", "subs_then_webrtc", "auditok", "subs_then_auditok", "subs_then_silero", "silero"
@@ -2252,7 +2267,7 @@ public class SubSyncService : IDisposable
 
             var key = SpeechCache.KeyFor(
                 path,
-                (ctx.Config.VadMethod ?? "subs_then_webrtc") + "|audio",
+                AudioReferenceVad + "|audio",
                 EngineIdentity());
             var cached = SpeechCache.TryGet(key) is not null;
 
@@ -4448,6 +4463,41 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// The VAD to hand the engine for a reference: the audio VAD when the reference is the audio, and the
+    /// configured method when the plugin supplied a subtitle it has already vetted.
+    /// </summary>
+    /// <param name="referenceSpec">The subtitle reference in use, or null when the reference is the audio.</param>
+    /// <returns>The VAD to pass, or null to use the configured one.</returns>
+    internal static string? VadForReference(string? referenceSpec)
+        => referenceSpec is null ? AudioReferenceVad : null;
+
+    /// <summary>Gets the VAD the engine is given when the plugin intends the audio to be the reference.</summary>
+    internal static string AudioReferenceVadName => AudioReferenceVad;
+
+    /// <summary>
+    /// States that the engine is being given a VAD it did not get from the configuration, and why.
+    /// </summary>
+    /// <remarks>
+    /// Logged because this is the difference between "the audio path" and "a path the engine chose a subtitle
+    /// for": a field run has to be able to tell which signal produced an answer (S43).
+    /// </remarks>
+    /// <param name="jobId">The job the run belongs to.</param>
+    /// <param name="reference">What the engine is aligned against, in words.</param>
+    /// <param name="configured">The method the configuration names.</param>
+    private static void LogVadOverride(string jobId, string reference, string? configured)
+    {
+        if (string.Equals(configured, AudioReferenceVad, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        PluginLog.Info(
+            $"[{jobId}] reference is {reference}, so the engine is given --vad {AudioReferenceVad}: with the "
+            + $"configured '{configured ?? "subs_then_webrtc"}' it would read the video's own subtitle tracks as its "
+            + "speech signal, and which track that is, is the engine's choice rather than the plugin's");
+    }
+
+    /// <summary>
     /// Reads the alignment score out of one line of the engine's output.
     /// </summary>
     /// <remarks>
@@ -4764,9 +4814,11 @@ public class SubSyncService : IDisposable
                     ResolveFfSubSyncPath(),
                     BundledFfSubSyncVersion,
                     typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+                // The analysis this key names is the one the engine will produce, so the key names the VAD the
+                // engine is actually given for the audio path - not the configured one, which it is not given.
                 speechKey = SpeechCache.KeyFor(
                     videoPath,
-                    (config.VadMethod ?? "subs_then_webrtc") + "|audio",
+                    AudioReferenceVad + "|audio",
                     engineIdentity);
                 var cached = SpeechCache.TryGet(speechKey);
                 if (cached is not null)
@@ -4962,10 +5014,16 @@ public class SubSyncService : IDisposable
                 engineInput = RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job) ?? engineInput;
             }
 
-            var args = BuildFfSubSyncArgs(config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream);
+            var args = BuildFfSubSyncArgs(
+                config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
+                VadForReference(referenceSpec));
 
             _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
             PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={string.Join(' ', args)}");
+            LogVadOverride(
+                job.Id,
+                referenceSpec is null ? "the audio" : $"the subtitle {referenceSpec}",
+                config.VadMethod);
 
             // Parse ffsubsync stderr in real-time for progress updates.
             // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
@@ -5070,7 +5128,9 @@ public class SubSyncService : IDisposable
 
                 referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
                 serializeSpeech = true;
-                args = BuildFfSubSyncArgs(config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream);
+                args = BuildFfSubSyncArgs(
+                    config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
+                    VadForReference(referenceSpec));
                 PluginLog.Info($"[{job.Id}] retrying ffsubsync from the audio: {string.Join(' ', args)}");
                 lock (engineErrors)
                 {
@@ -5241,7 +5301,8 @@ public class SubSyncService : IDisposable
                 var audioReference = await PrepareAudioReferenceAsync(
                     "the reference subtitle is not the same cut as the video").ConfigureAwait(false);
                 var audioArgs = BuildFfSubSyncArgs(
-                    config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null);
+                    config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null,
+                    vadOverride: AudioReferenceVad);
 
                 double? audioScore = null;
                 double? audioOffsetSeconds = null;
@@ -5320,7 +5381,8 @@ public class SubSyncService : IDisposable
                 var wideOutput = Path.Combine(tempDir, "wide-window.srt");
                 SafeDelete(wideOutput);
                 var wideArgs = BuildFfSubSyncArgs(
-                    config, referenceArg, engineInput, wideOutput, tempDir, serializeSpeech, referenceStream);
+                    config, referenceArg, engineInput, wideOutput, tempDir, serializeSpeech, referenceStream,
+                    VadForReference(referenceSpec));
                 wideArgs[wideArgs.IndexOf("--max-offset-seconds") + 1] =
                     wideSeconds.ToString(CultureInfo.InvariantCulture);
 
@@ -5363,7 +5425,8 @@ public class SubSyncService : IDisposable
                     var verifyOutput = Path.Combine(tempDir, "wide-check.srt");
                     SafeDelete(verifyOutput);
                     var verifyArgs = BuildFfSubSyncArgs(
-                        config, referenceArg, wideOutput, verifyOutput, tempDir, serializeSpeech, referenceStream);
+                        config, referenceArg, wideOutput, verifyOutput, tempDir, serializeSpeech, referenceStream,
+                        VadForReference(referenceSpec));
                     // A check, not a search: the configured window and no rescaling.
                     verifyArgs[verifyArgs.IndexOf("--max-offset-seconds") + 1] =
                         config.MaxOffsetSeconds.ToString(CultureInfo.InvariantCulture);
@@ -5523,7 +5586,7 @@ public class SubSyncService : IDisposable
                 // against the film's real -0,08 s), i.e. it confirmed the very track it was meant to check.
                 var crossArgs = BuildFfSubSyncArgs(
                     config, crossReference, subtitleInputPath, crossCheckOutput, tempDir, serializeSpeech, null,
-                    vadOverride: "webrtc");
+                    vadOverride: AudioReferenceVad);
                 double? crossScore = null;
                 double? crossOffset = null;
                 PluginLog.Info(

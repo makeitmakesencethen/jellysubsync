@@ -56,6 +56,20 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
+## S43 - the audio path is given a VAD that reads audio (implemented, held for the ship call)
+
+The plugin decides and the engine does not: wherever the plugin intends the audio to be the reference it is given
+`--vad webrtc`, and the run says so in the log with the reason; where the plugin supplied a subtitle reference it
+has already vetted, the configured method stands. One constant, one function, every call site in the job flow, and
+the speech-cache key names the VAD the engine is actually given.
+
+Proof: `python3 tests/rig/run_scenario.py --scenario s43-audio-is-audio` - the tree passes 3 of 3 (the VAD
+statement plus the film's -30,08 s), the released 2.0.39 fails 1 of 3 (nothing said which signal ran). The
+divergence this removes was measured on the S31 fixture: the same job shape returned the wrong track's own
++24,170 s with the default VAD and the film's -5,080 s with the audio VAD. Suite: 645 checks green, including the
+new pins. Not shipped - awaiting the ship call.
+
+
 ## Item 3 - S31 (the two mechanisms are in and proved; the row stays open for the decision it recorded)
 
 Reproduced, implemented, and proved in both directions on the rig. Nothing shipped (held as instructed).

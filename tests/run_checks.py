@@ -644,6 +644,20 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         + $"{SubSyncService.SubtitleReferenceAudioAgreementFraction}");
 }
 
+// S43: the "audio" reference is only audio if the engine is given a VAD that reads audio. With the configured
+// default (`subs_then_webrtc`) the engine takes the video's own embedded subtitle tracks as its speech signal -
+// measured 2026-09-15: a wrong-cut track scored 212 234 against the audio's 53 566 on the same file, and one
+// fixture's "audio" run returned the wrong track's own answer. The rule is that the plugin decides.
+{
+    Check("the plugin's own subtitle reference keeps the configured VAD",
+        SubSyncService.VadForReference("s:1") is null,
+        "a vetted subtitle reference: the configured method stands");
+    Check("the audio reference forces the audio VAD",
+        SubSyncService.VadForReference(null) == "webrtc"
+        && SubSyncService.AudioReferenceVadName == "webrtc",
+        $"audio reference -> --vad {SubSyncService.VadForReference(null)}");
+}
+
 // S33: the walk is the second signal, and the only one that exists when every extraction in a run was served
 // from the subtitle cache and nothing was read through the policy at all. A volume measured this way must not
 // sit at the conservative ceiling for ever. The throughputs are the ones measured on 2026-09-14: the share
@@ -2839,7 +2853,10 @@ def run_page_checks():
            and 'stretched to {factor:0.#####}x onto the reference' in service_source
            and 'rescaling it onto the reference\'s time base' in service_source
            and 'a different cut, left for the alignment to report' in service_source
-           and 'BuildFfSubSyncArgs(config, referenceArg, engineInput' in service_source)
+           # the run is still built from the reference and the rescale's output; the note names the VAD it is
+           # given, which is the configured one whenever the plugin supplied a subtitle reference (S43)
+           and 'config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,' in service_source
+           and 'VadForReference(referenceSpec)' in service_source)
     report('a subtitle reference that is not the same cut is replaced by the audio, not refused',
            'ReferenceStore.Discard(videoPath, referenceSpec);' in service_source
            and 'discarding that ' in service_source
@@ -2892,6 +2909,17 @@ def run_page_checks():
            # and not back in the audio-reference branch, which jobs on a real server never take (S38, 2026-09-14)
            and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
+
+    report('the audio path is given a VAD that reads audio, and says so',
+           'private const string AudioReferenceVad = "webrtc";' in service_source
+           and 'VadForReference(referenceSpec)' in service_source
+           and service_source.count('vadOverride: AudioReferenceVad') >= 2
+           and 'so the engine is given --vad {AudioReferenceVad}' in service_source
+           and 'LogVadOverride(' in service_source)
+
+    report('the speech cache is keyed by the VAD the engine is actually given',
+           service_source.count('AudioReferenceVad + "|audio"') == 2
+           and '(config.VadMethod ?? "subs_then_webrtc") + "|audio"' not in service_source)
 
     report('the engine\'s alignment score is captured and logged for both reference paths',
            'TryParseEngineScore(line' in service_source

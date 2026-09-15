@@ -533,6 +533,105 @@ def scenario_s31_wrong_ruler(rig, args, ctx):
     return assertions
 
 
+# S43's fixture: one embedded text track, and it is 30 s out of sync with the film. A single text track forces
+# the plugin to use the audio as the reference, so this is exactly the case where "the audio path" must be audio.
+S43_DIR = JELLYFIN / 'media' / 'S43 Audio Is Audio'
+S43_MEDIA = S43_DIR / 'S43 Episode (2026).mkv'
+S43_TARGET_SHIFT = 30.0
+
+
+def prepare_s43_fixtures() -> None:
+    """Media whose only subtitle track is 30 s out of sync, so the audio is the only usable reference.
+
+    The track is the episode's own (stream 4, in sync with the film) shifted by 30 s: the film's audio therefore
+    says -30,00 s and the track itself says 0,00 s. With the configured VAD the engine reads that very track out
+    of the container as its speech signal and answers ~0; with `webrtc` it reads the film and answers ~-30.
+    """
+    S43_DIR.mkdir(parents=True, exist_ok=True)
+    S43_SCRATCH = pathlib.Path('/tmp/s43-fixture')
+    S43_SCRATCH.mkdir(parents=True, exist_ok=True)
+    raw = S43_SCRATCH / 'source.srt'
+    if not raw.exists() or raw.read_text(encoding='utf-8', errors='replace').count(' --> ') < 100:
+        subprocess.run(['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
+                        '-map', '0:4', str(raw)], check=True, capture_output=True)
+    target = S43_SCRATCH / 'target.srt'
+    target.write_text(_rerender(raw.read_text(encoding='utf-8', errors='replace'),
+                                lambda x: x + S43_TARGET_SHIFT), encoding='utf-8')
+    if not S43_MEDIA.exists():
+        subprocess.run(
+            ['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE), '-i', str(target),
+             '-map', '0:v', '-map', '0:a', '-map', '1',
+             '-c', 'copy', '-c:s', 'srt', '-metadata:s:s:0', 'language=eng',
+             '-metadata', 'title=S43 Audio Is Audio', str(S43_MEDIA)],
+            check=True, capture_output=True)
+    log(f'[rig] S43 fixture ready: one embedded track shifted +{S43_TARGET_SHIFT:0.0f} s, '
+        f'so the film says -{S43_TARGET_SHIFT:0.0f} s and the track itself says 0')
+
+
+def scenario_s43_audio_is_audio(rig, args, ctx):
+    """S43: when the plugin says "the audio", the engine must be reading audio.
+
+    The file carries one subtitle track, 30 s out of sync: the plugin has no sibling to use as a reference, so it
+    aligns against the audio. With the configured `subs_then_webrtc` the engine reads that track - the one being
+    synced - out of the container as its speech signal and answers ~0 s, i.e. "already in sync" for a subtitle
+    that is 30 s out. With the audio VAD forced it answers ~-30 s, which is the film's own answer.
+
+    Assertions: the log names the VAD the engine was given and why, and the alignment it reported is the film's
+    answer rather than the track's. Run against a build without the rule and both fail.
+    """
+    rig.refresh_library()
+    time.sleep(15)
+    prepare_s43_fixtures()
+    rig.refresh_library()
+    time.sleep(10)
+    items = [i for i in rig.items(str(S43_DIR)) if str(S43_DIR) in (i.get('Path') or '')]
+    if not items:
+        rig.refresh_library()
+        time.sleep(20)
+        items = [i for i in rig.items(str(S43_DIR)) if str(S43_DIR) in (i.get('Path') or '')]
+    if not items:
+        return [('the S43 fixture is in the library', False, f'no item whose path contains {S43_DIR}')]
+
+    rig.post('/SubSync/SpeechCache/Clear')
+    rig.log_lines()
+    since = rig._log_offset
+    batch = rig.queue_batch(items[:1], label='rig-s43', external=False)
+    ctx['batch'] = batch
+    lines, deadline = [], time.time() + float(args.timeout)
+    while time.time() < deadline:
+        lines = rig.log_lines(since)
+        if any('alignment: score=' in ln for ln in lines) and any(
+                'completed' in ln or 'UNVERIFIED' in ln or 'failed' in ln.lower() for ln in lines):
+            break
+        if any('already in sync' in ln for ln in lines):
+            break
+        time.sleep(4)
+    rig.wait_batch(batch, timeout=60)
+
+    vad = [ln for ln in lines if 'so the engine is given --vad' in ln]
+    alignment = [ln for ln in lines if 'alignment: score=' in ln]
+    outcome = [ln for ln in lines if 'completed' in ln or 'UNVERIFIED' in ln or 'already in sync' in ln]
+    ctx['observations'] = vad + alignment + outcome
+
+    offset = None
+    for ln in alignment:
+        m = re.search(r'offset=(-?[\d.]+) s', ln)
+        if m:
+            offset = float(m.group(1))
+    truth = -S43_TARGET_SHIFT
+
+    return [
+        ('the log names the VAD the engine was given, and why', bool(vad),
+         vad[0].split('INFO')[-1].strip()[:170] if vad else '(nothing says which VAD ran)'),
+        (f'the engine answers the film ({truth:+.0f} s), not the track itself (0 s)',
+         offset is not None and abs(offset - truth) <= 8.0,
+         f'engine reported offset={offset} s across {len(alignment)} run(s): '
+         + ' | '.join(ln.split('INFO')[-1].strip()[:90] for ln in alignment)),
+        ('the job says what it did with that answer', bool(outcome),
+         outcome[0].split('INFO')[-1].strip()[:170] if outcome else '(no outcome line)'),
+    ]
+
+
 def scenario_s39_ratio(rig, args, ctx):
     """S39: a ceiling chosen between two numbers this machine measured, not from a constant.
 
@@ -648,6 +747,8 @@ SCENARIOS = {
                           needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
     's31-wrong-ruler': dict(run=scenario_s31_wrong_ruler, storage='any',
                             needs='a sibling subtitle from a different cut: the ruler passes every check and is wrong'),
+    's43-audio-is-audio': dict(run=scenario_s43_audio_is_audio, storage='any',
+                               needs='a file whose only subtitle track is out of sync: the audio is the only reference'),
     's39-ratio': dict(run=scenario_s39_ratio, storage='shim',
                       shim={'MS_PER_CALL': 0.0, 'MS_PER_16K': 12.8},
                       needs='8 walks on one volume, then a slow walk on another: the ratios must decide, not a constant'),
