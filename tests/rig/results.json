@@ -1794,5 +1794,164 @@
       "2026-09-15 02:15:16.007Z INFO  [ae732e137c2248a884a6e71b72fa76e5] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
     ],
     "seconds": 25.8
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 04:18:59",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40 before: plan inside the lock",
+    "repo_head": "629d95c",
+    "assertions": [
+      {
+        "check": "every enqueued task reports which part of its log phase took the time",
+        "passed": true,
+        "detail": "112 line(s) for 56 task(s), queued by the API in 843 ms"
+      },
+      {
+        "check": "the four parts account for the log phase they are reported inside",
+        "passed": true,
+        "detail": "0 line(s) whose parts do not reach `log`; worst: log=52 ms, state=0 ms, logWrite=0 ms, queueLock=52 ms, wakePump=0 ms"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "the worst of 112 enqueues: total=57 ms, log=52 ms, dominated by queueLock (52 ms); parts={'state': 0, 'logWrite': 0, 'queueLock': 52, 'wakePump': 0}"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=2 ms, total=8 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=6 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "batch": "80af40eb78f74b8c85f5fd1e71283978",
+    "log_tail": [
+      "2026-09-15 02:19:25.231Z INFO  extract plan: cue-indexed, window 2.1 KB, 54 planned read(s), expects 0.06 MB (the index locates 27 of 27 cue point(s); 27 located block(s), 0 cluster(s) to walk, reads are 0.00 ms each, merge gap 2 KB)",
+      "2026-09-15 02:19:25.232Z INFO  extract plan: Walk Reference 03 (2026).mkv cue-indexed expected 0.06 MB/54 read(s) (0.3 ms), actual 0.06 MB/53 read(s) (0.3 ms) - bytes 1.00x, reads 0.98x",
+      "2026-09-15 02:19:25.232Z INFO  extract profile: Walk Reference 03 (2026).mkv: storage 0.00 ms per read and 594.6 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 2 KB"
+    ],
+    "seconds": 26.1
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 04:19:25",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40 after: plan outside the lock",
+    "repo_head": "629d95c",
+    "assertions": [
+      {
+        "check": "every enqueued task reports which part of its log phase took the time",
+        "passed": true,
+        "detail": "168 line(s) for 56 task(s), queued by the API in 818 ms"
+      },
+      {
+        "check": "the four parts account for the log phase they are reported inside",
+        "passed": true,
+        "detail": "0 line(s) whose parts do not reach `log`; worst: log=52 ms, state=0 ms, logWrite=0 ms, queueLock=52 ms, wakePump=0 ms"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "the worst of 168 enqueues: total=57 ms, log=52 ms, dominated by queueLock (52 ms); parts={'state': 0, 'logWrite': 0, 'queueLock': 52, 'wakePump': 0}"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=2 ms, total=8 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=6 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "batch": "99a6b39743a1416b96cf0a60d195efa6",
+    "log_tail": [
+      "2026-09-15 02:19:51.111Z INFO  extract lane: Walk Reference 01 (2026).mkv -> 1/1 subtitle(s), 0.1 MB, 61 reads, 16 ms, ok=True, reason= prefetched=53 ranges/0.1 MB unused=0 ranges/0.1 MB bytesTwice=0.00 MB memoryReads=277 plan=cue-indexed expected=0.06 MB/54 reads missed=0 storage=0.00 ms/read 637.5 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 02:19:51.111Z INFO  extract lane: Walk Reference 02 (2026).mkv -> 1/1 subtitle(s), 0.1 MB, 61 reads, 9 ms, ok=True, reason= prefetched=53 ranges/0.1 MB unused=0 ranges/0.1 MB bytesTwice=0.00 MB memoryReads=277 plan=cue-indexed expected=0.06 MB/54 reads missed=0 storage=0.00 ms/read 709.2 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 02:19:51.116Z INFO  reference: method=cache cues=803 file=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv stream=1",
+      "2026-09-15 02:19:51.121Z INFO  [2097c8e9b42b4f52a45c2f75e35e521a] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "2026-09-15 02:19:51.127Z INFO  [2097c8e9b42b4f52a45c2f75e35e521a] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b6bcc185d999df54/c06bc8ae392da9fea6704be346b8770a.ref.srt -i /opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.SYNCED.hun.srt -o /opt/data/jf12test/cache/subsync/2097c8e9b42b4f52a45c2f75e35e521a/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/2097c8e9b42b4f52a45c2f75e35e521a",
+      "2026-09-15 02:19:51.130Z INFO  [2097c8e9b42b4f52a45c2f75e35e521a] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's"
+    ],
+    "seconds": 25.8
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 04:23:21",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40 before(b): plan inside, cancel logs inside",
+    "repo_head": "629d95c",
+    "assertions": [
+      {
+        "check": "every enqueued task reports which part of its log phase took the time",
+        "passed": true,
+        "detail": "280 line(s) for 56 task(s), queued by the API in 891 ms"
+      },
+      {
+        "check": "the four parts account for the log phase they are reported inside",
+        "passed": true,
+        "detail": "0 line(s) whose parts do not reach `log`; worst: log=190 ms, state=0 ms, logWrite=0 ms, queueLock=190 ms, wakePump=0 ms"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "the worst of 280 enqueues: total=211 ms, log=190 ms, dominated by queueLock (190 ms); parts={'state': 0, 'logWrite': 0, 'queueLock': 190, 'wakePump': 0}"
+      },
+      {
+        "check": "a cancel does not hold the queue lock while it logs each job",
+        "passed": true,
+        "detail": "no cancel held the lock long enough to be reported"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=2 ms, total=8 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=6 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "batch": "403a9bf9f7144762981e6ca2ea9a57b7",
+    "seconds": 27.7
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 04:23:49",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40 after(b): plan outside, cancel logs outside",
+    "repo_head": "629d95c",
+    "assertions": [
+      {
+        "check": "every enqueued task reports which part of its log phase took the time",
+        "passed": true,
+        "detail": "392 line(s) for 56 task(s), queued by the API in 811 ms"
+      },
+      {
+        "check": "the four parts account for the log phase they are reported inside",
+        "passed": true,
+        "detail": "0 line(s) whose parts do not reach `log`; worst: log=190 ms, state=0 ms, logWrite=0 ms, queueLock=190 ms, wakePump=0 ms"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "the worst of 392 enqueues: total=211 ms, log=190 ms, dominated by queueLock (190 ms); parts={'state': 0, 'logWrite': 0, 'queueLock': 190, 'wakePump': 0}"
+      },
+      {
+        "check": "a cancel does not hold the queue lock while it logs each job",
+        "passed": true,
+        "detail": "no cancel held the lock long enough to be reported"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=2 ms, total=8 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=6 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "batch": "354a40a142b14069a509294a6d950593",
+    "seconds": 27.2
   }
 ]

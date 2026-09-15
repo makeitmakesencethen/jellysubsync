@@ -56,14 +56,19 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
-## S40 - the enqueue's slow phase is the queue lock, not the log (diagnosed, fix next)
+## S40 - the enqueue's slow phase is instrumented; the local wait turned out to be scheduling, not the plan
 
-The `enqueue slow:` line now carries a breakdown of the phase the field saw as `log=<8-21 000> ms`: `state`,
-`logWrite`, `queueLock`, `wakePump`, with `SUBSYNC_ENQUEUE_TRACE_MS` to lower the threshold so a rig can see it.
-`--scenario s40-enqueue` queues the field's shape (56 tasks) and reports where the time went: the worst enqueue is
-54 ms total, 49 ms `log`, and all 49 ms is `queueLock` (`logWrite=0`, `wakePump=0`, `state=0`). So the pump's
-planning inside `_queueLock` is the cost, and the enqueue takes that lock twice. Fix direction recorded in the row:
-plan outside the lock from inputs taken inside it, and let the enqueue not wait on a plan it is not part of.
+The `enqueue slow:` line carries a breakdown of the phase the field saw as `log=<8-21 000> ms` (`state`,
+`logWrite`, `queueLock`, `wakePump`) with `SUBSYNC_ENQUEUE_TRACE_MS` to lower the threshold, and every critical
+section on that lock now reports its own hold time (`queue lock slow: holder=…`). The rig's 56-task batch shows
+`logWrite=0` on every line, and `queueLock` identical before and after the changes (190 ms worst, both) - so that
+figure is thread scheduling on a busy box, not contention, and my first reading of it ("the plan holds the lock")
+was wrong. What the trace did show: the plan takes ~55 ms and used to run inside the lock.
+
+Two changes are in the tree, pinned structurally: the pump plans outside the lock (a check brace-matches the lock
+block in `PumpAsync` and fails if `PlanStart` is inside it), and a cancel no longer writes a log line per job while
+holding it. Neither is claimed as a measured speedup; the field run that reads `queue lock slow: holder=…`
+alongside the enqueue breakdown is what names the 8-21 s. Held unpushed until measured.
 
 
 ## D3 + F10 - one validation path for the settings, and argv reads only validated numbers (held for the ship call)

@@ -1234,16 +1234,31 @@ public class SubSyncService : IDisposable
     public void CancelBatch(string batchId)
     {
         var queuedCancelled = 0;
+        List<SyncJob> cancelledHere;
+        var cancelHold = System.Diagnostics.Stopwatch.StartNew();
         lock (_queueLock)
         {
-            foreach (var job in _runOrder.Where(j => j.BatchId == batchId && j.Status == SyncJobStatus.Queued))
+            // Only the status changes while the lock is held. A log line per cancelled job used to be written
+            // here - Jellyfin's file sink and the plugin log both, once per job - so cancelling a large batch
+            // held the lock the enqueue path waits on for as long as those writes took (S40).
+            cancelledHere = _runOrder
+                .Where(j => j.BatchId == batchId && j.Status == SyncJobStatus.Queued)
+                .ToList();
+            foreach (var job in cancelledHere)
             {
                 job.Status = SyncJobStatus.Cancelled;
                 job.FinishedAtUtc = DateTime.UtcNow;
-                queuedCancelled++;
-                _logger.LogInformation("Cancelled queued job {JobId} of batch {BatchId}", job.Id, batchId);
-                LogPluginCancellation(job);
             }
+
+            queuedCancelled += cancelledHere.Count;
+        }
+
+        cancelHold.Stop();
+        LogLockHold("cancel-batch", cancelHold.ElapsedMilliseconds);
+        foreach (var job in cancelledHere)
+        {
+            _logger.LogInformation("Cancelled queued job {JobId} of batch {BatchId}", job.Id, batchId);
+            LogPluginCancellation(job);
         }
 
         // A cancel that leaves the batch running is the complaint it always produces ("I pressed it and
@@ -1498,16 +1513,28 @@ public class SubSyncService : IDisposable
     public (int QueuedCancelled, int RunningKilled) KillAll()
     {
         var queuedCancelled = 0;
+        List<SyncJob> cancelledAll;
+        var cancelAllHold = System.Diagnostics.Stopwatch.StartNew();
         lock (_queueLock)
         {
-            foreach (var job in _runOrder.Where(j => j.Status == SyncJobStatus.Queued))
+            // Statuses only, for the reason the batch cancel gives: one log write per job inside this lock is
+            // the enqueue path's wait (S40).
+            cancelledAll = _runOrder.Where(j => j.Status == SyncJobStatus.Queued).ToList();
+            foreach (var job in cancelledAll)
             {
                 job.Status = SyncJobStatus.Cancelled;
                 job.FinishedAtUtc = DateTime.UtcNow;
                 job.Phase = "Cancelled";
-                queuedCancelled++;
-                LogPluginCancellation(job);
             }
+
+            queuedCancelled += cancelledAll.Count;
+        }
+
+        cancelAllHold.Stop();
+        LogLockHold("cancel-all", cancelAllHold.ElapsedMilliseconds);
+        foreach (var job in cancelledAll)
+        {
+            LogPluginCancellation(job);
         }
 
         var runningKilled = 0;
@@ -1988,6 +2015,25 @@ public class SubSyncService : IDisposable
     /// settable (<c>SUBSYNC_ENQUEUE_TRACE_MS</c>) and the rig sets it low to see where the time goes.
     /// </remarks>
     private static readonly long EnqueueTraceMs = ResolveEnqueueTraceMs();
+
+    /// <summary>
+    /// Writes one line when a critical section on the queue lock was held long enough to be another caller's wait.
+    /// </summary>
+    /// <remarks>
+    /// The enqueue's own breakdown reports how long it waited for this lock (S40). A wait says nothing about who
+    /// held it, and the holders are several: the pump's snapshot, the dispatch claim, the extraction lane's scan for
+    /// the next file, and the two cancel paths. Each reports its own hold time above the same threshold, so a field
+    /// run names the holder instead of leaving "the enqueue is slow" as the finding.
+    /// </remarks>
+    /// <param name="holder">Short name of the critical section.</param>
+    /// <param name="milliseconds">How long it was held.</param>
+    private static void LogLockHold(string holder, long milliseconds)
+    {
+        if (milliseconds > EnqueueTraceMs)
+        {
+            PluginLog.Info($"queue lock slow: holder={holder} ms={milliseconds}");
+        }
+    }
 
     /// <summary>Reads the enqueue trace threshold, defaulting to the field's 250 ms.</summary>
     /// <returns>The threshold in milliseconds.</returns>
@@ -3470,6 +3516,19 @@ public class SubSyncService : IDisposable
             MaybeLogProgress();
             MaybePersistBatchHistory();
 
+            // The lock now covers bookkeeping and a snapshot, and nothing else.
+            //
+            // Planning inside it is what the enqueue path waits on: the enqueue takes this same lock to add its
+            // job to the run order (and WakeExtractor takes it again), so every queued item waited for whatever
+            // the pump was doing. Measured with `--scenario s40-enqueue` - 56 tasks, the field's shape - the
+            // worst enqueue spent every one of its 49 ms in this lock, while the plugin-log write and the pump
+            // wake cost nothing at all (S40). On a loaded share that wait is the field's 8-21 s per queued item.
+            // Everything the plan reads is therefore snapshotted here (the pump is the only writer of inFlight
+            // and the only dispatcher, so the snapshot cannot go stale underneath it) and the plan runs after.
+            List<SyncJob> queuedSnapshot;
+            List<SyncJob> runningSnapshot;
+            List<(SyncJob Job, string? VideoPath)> liveJobs;
+            var snapshotHold = System.Diagnostics.Stopwatch.StartNew();
             lock (_queueLock)
             {
                 finishedVideos = new List<(string?, bool)>();
@@ -3478,70 +3537,88 @@ public class SubSyncService : IDisposable
                 {
                     var finishedJob = inFlight[finished];
                     inFlight.Remove(finished);
-
-                    var finishedPath = _jobContexts.TryGetValue(finishedJob.Id, out var finishedContext)
-                        ? finishedContext.Video.Path
-                        : null;
-
-                    // A reference is only worth keeping while another subtitle of that same media file
-                    // is still going to use it — queued *or* already running. Counting only the queued
-                    // jobs deleted the tree out from under the running ones: the last queued task of a
-                    // batch is dispatched while up to `ParallelWorkers` jobs of that very file sit in
-                    // ffsubsync reading the reference it just removed, and the losers of that race
-                    // either failed ("unable to read reference") or were handed the whole container to
-                    // demux instead. Once no job of the file is queued or running, this run's copy
-                    // goes: a wrong reference must not be able to poison a later run of the file.
-                    var stillNeeded = finishedPath is not null
-                        && _runOrder.Any(j => (j.Status == SyncJobStatus.Queued
-                                || j.Status == SyncJobStatus.Running)
-                            && _jobContexts.TryGetValue(j.Id, out var queuedContext)
-                            && string.Equals(queuedContext.Video.Path, finishedPath, StringComparison.Ordinal));
-
-                    finishedVideos.Add((finishedPath, stillNeeded));
+                    finishedVideos.Add((
+                        _jobContexts.TryGetValue(finishedJob.Id, out var finishedContext)
+                            ? finishedContext.Video.Path
+                            : null,
+                        false));
                 }
 
+                // A reference is only worth keeping while another subtitle of that same media file is still going
+                // to use it - queued *or* already running. Counting only the queued jobs deleted the tree out
+                // from under the running ones: the last queued task of a batch is dispatched while up to
+                // `ParallelWorkers` jobs of that very file sit in ffsubsync reading the reference it just
+                // removed, and the losers of that race either failed ("unable to read reference") or were handed
+                // the whole container to demux instead. Once no job of the file is queued or running, this run's
+                // copy goes: a wrong reference must not be able to poison a later run of the file.
+                liveJobs = _runOrder
+                    .Where(j => j.Status == SyncJobStatus.Queued || j.Status == SyncJobStatus.Running)
+                    .Select(j => (j, _jobContexts.TryGetValue(j.Id, out var liveContext)
+                        ? liveContext.Video.Path
+                        : null))
+                    .ToList();
+
+                queuedSnapshot = _runOrder.Where(j => j.Status == SyncJobStatus.Queued).ToList();
+                runningSnapshot = inFlight.Values.ToList();
                 running = inFlight.Count;
-                var head = _runOrder.FirstOrDefault(j => j.Status == SyncJobStatus.Queued);
-
-                if (head is null)
-                {
-                    toStart = new List<SyncJob>();
-                }
-                else
-                {
-                    var config = Services.SettingsSource.Current();
-                    var headMode = ResolveModeForBatch(head);
-                    limit = IsParallelMode(headMode)
-                        ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
-                        : 1;
-
-                    toStart = PlanStart(
-                        _runOrder.Where(j => j.Status == SyncJobStatus.Queued),
-                        inFlight.Values.ToList(),
-                        headMode,
-                        head.BatchId,
-                        limit,
-                        job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var vc) ? vc.Video.Path : null),
-                        job => JobNeedsHeavyIo(job, headMode),
-                        // Only start a job whose subtitle is already out of the file. The old gate
-                        // ("may this job share the file with a running one?") still let jobs through
-                        // once a reference existed, and each of them then ran its own pass: measured on
-                        // a real episode, the lane produced six subtitles in one pass of 448 MB and the
-                        // six jobs then ran four more passes of ~350 MB each, 2 GB of reading for
-                        // nothing. The lane runs extraction; a job that is not ready waits in the queue
-                        // instead of duplicating the work. The one exception is a lane that is not
-                        // running at all (disposed, or died), where jobs must be able to extract for
-                        // themselves rather than never start.
-                        // canShareMediaFile: a second job may join a file whose subtitle is already out.
-                        job => ExtractionReady(job),
-                        // MayStart: the same, plus the escape hatch for a lane that is gone.
-                        job => ExtractionReady(job)
-                            || (!LaneAlive
-                                && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)),
-                        walkCapOf: job => WalkCapOfPath(
-                            _jobContexts.TryGetValue(job.Id, out var capCtx) ? capCtx.Video.Path : null));
-                }
             }
+
+            snapshotHold.Stop();
+            LogLockHold("pump-snapshot", snapshotHold.ElapsedMilliseconds);
+            var planHold = System.Diagnostics.Stopwatch.StartNew();
+
+            // Which finished files still have a job of their own: the same question the old per-job scan asked,
+            // answered from one list instead of re-walking the run order for every finished job.
+            finishedVideos = finishedVideos
+                .Select(row => (
+                    row.Item1,
+                    row.Item1 is not null
+                    && liveJobs.Any(live => string.Equals(live.VideoPath, row.Item1, StringComparison.Ordinal))))
+                .ToList();
+
+            toStart = new List<SyncJob>();
+            var head = queuedSnapshot.FirstOrDefault();
+            if (head is not null)
+            {
+                var config = Services.SettingsSource.Current();
+                var headMode = ResolveModeForBatch(head);
+                limit = IsParallelMode(headMode)
+                    ? NormalizeWorkers(config?.ParallelWorkers ?? DefaultParallelWorkers)
+                    : 1;
+
+                toStart = PlanStart(
+                    queuedSnapshot,
+                    runningSnapshot,
+                    headMode,
+                    head.BatchId,
+                    limit,
+                    job => MediaVolume.Of(_jobContexts.TryGetValue(job.Id, out var volumeContext)
+                        ? volumeContext.Video.Path
+                        : null),
+                    job => JobNeedsHeavyIo(job, headMode),
+                    // Only start a job whose subtitle is already out of the file. The old gate ("may this job
+                    // share the file with a running one?") still let jobs through once a reference existed, and
+                    // each of them then ran its own pass: measured on a real episode, the lane produced six
+                    // subtitles in one pass of 448 MB and the six jobs then ran four more passes of ~350 MB
+                    // each, 2 GB of reading for nothing. The lane runs extraction; a job that is not ready waits
+                    // in the queue instead of duplicating the work. The one exception is a lane that is not
+                    // running at all (disposed, or died), where jobs must be able to extract for themselves
+                    // rather than never start.
+                    // canShareMediaFile: a second job may join a file whose subtitle is already out.
+                    job => ExtractionReady(job),
+                    // MayStart: the same, plus the escape hatch for a lane that is gone.
+                    job => ExtractionReady(job)
+                        || (!LaneAlive
+                            && DateTime.UtcNow - _lastPassFinishedUtc > TimeSpan.FromSeconds(20)),
+                    walkCapOf: job => WalkCapOfPath(_jobContexts.TryGetValue(job.Id, out var capContext)
+                        ? capContext.Video.Path
+                        : null));
+            }
+
+            // The plan runs on this thread without the lock, and is reported for the same reason the critical
+            // sections are: it used to be inside them, and this line is what shows it is not any more (S40).
+            planHold.Stop();
+            LogLockHold("pump-plan-outside-lock", planHold.ElapsedMilliseconds);
 
             // Filesystem work stays outside the queue lock: releasing a reference may delete a whole
             // directory, and this lock is what the enqueue path waits on.

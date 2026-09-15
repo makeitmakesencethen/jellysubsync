@@ -1230,26 +1230,41 @@ batch has even started, and it is what "the batch takes a while to start" is. Th
 line was visible, and it is not the ceiling: the dispatcher showed `limit 8` throughout, so nothing was being held
 back by a cap.
 
-**Diagnosed 2026-09-15 - it is the queue lock, and the aggregate could not say which of four things it was.**
-The phase the field reported as `log` is four: two dictionary writes, one line to the plugin log (every writer
-serialises on one gate), the queue lock, and waking the pump (which takes the same lock twice more and starts
-extraction lanes). The line now carries that breakdown, and `SUBSYNC_ENQUEUE_TRACE_MS` lowers the threshold so a rig
-can see it at all - local storage never reaches the field's 250 ms. The scenario `s40-enqueue` queues the field's
-shape (56 tasks: one item with 50 subtitle tracks plus six others) and reports where the time went:
+**Diagnosed 2026-09-15, and the first reading of it was wrong - here is what the instrumentation showed.**
+The phase the field reported as `log` is four things (two dictionary writes, one line to the plugin log, the queue
+lock, and waking the pump), so the line now reports them separately, and `SUBSYNC_ENQUEUE_TRACE_MS` lowers the
+threshold because local storage never reaches the field's 250 ms.
+
+What the rig then measured, and what it did not:
 
 | the worst of 56 enqueues | total | log | state | logWrite | queueLock | wakePump |
 |---|---|---|---|---|---|---|
-| measured, local storage | 54 ms | 49 ms | 0 ms | 0 ms | **49 ms** | 0 ms |
+| local storage, before any change | 211 ms | 190 ms | 0 ms | 0 ms | **190 ms** | 0 ms |
+| local storage, after the changes below | 211 ms | 190 ms | 0 ms | 0 ms | **190 ms** | 0 ms |
 
-Every millisecond of the phase is the queue lock, and the plugin-log write the row suspected costs nothing (the
-same line shows `logWrite=0` on all 56). On the field's share that contention is what turns 49 ms into 8-21 s: the
-pump holds `_queueLock` while it plans - a scan of `_runOrder` for every finished job, then `PlanStart` over every
-queued job with `MediaVolume.Of`, `JobNeedsHeavyIo`, `ExtractionReady` and `WalkCapOfPath` called inside it - and the
-enqueue takes the same lock twice, once in `WakeExtractor` and once for `_runOrder.Add`.
+**No improvement, and the instrument that was supposed to explain the phase explained it away**: `queueLock` here
+is the time spent around the acquisition - the wait *plus* whatever the enqueueing thread itself was scheduled
+out for - and on a box running two 56-task batches, a cancel and an extraction at once it is noise, not
+contention. The plugin log costs nothing (`logWrite=0` on every one of 280-392 lines), so the row's guess about
+flushing the log is dead as well. What the new `queue lock slow: holder=…` trace does show is the plan itself: it
+takes ~55 ms (`holder=pump-plan-outside-lock ms=55`) and it used to run inside that same lock, so every enqueue
+landing in that window waited for it.
 
-So the fix is not "write less to the log". It is: take the plan's inputs under a short lock, plan outside it, and
-apply the decisions under the lock again; and stop the enqueue waiting on a plan it is not part of. Next step
-measured with the same scenario, whose breakdown is a direct before/after (queueLock ms for a 56-task batch).
+Two changes are therefore in the tree, structurally pinned rather than shown as a local speedup, because a local
+measurement cannot show them:
+
+- the pump plans **outside** the queue lock: it snapshots the queue under a short lock and runs `PlanStart` after it
+  (a check brace-matches the lock block out of `PumpAsync` and fails if `PlanStart` is inside it - a timing check
+  would pass on a fast disk with the defect still present);
+- cancelling no longer writes a log line per job while holding that lock: one to Jellyfin's sink and one to the
+  plugin log, per cancelled job, inside the critical section the enqueue waits on (`holder=cancel-batch` /
+  `holder=cancel-all` report their hold time now).
+
+**What is still unknown** is who holds the lock for 8-21 s on the field's share. The local figure cannot answer it,
+and guessing produced the wrong answer once already. Next step: the field run that queues a big batch, read
+`enqueue slow: … breakdown:` and `queue lock slow: holder=…` together - the second names the holder, the first says
+how long it had to wait. Everything needed for that is in the tree; it is held unpushed until it is measured, not
+shipped on an argument.
 ### S39 - a volume was judged by constants measured on one machine (high, done: the ratios decided a ceiling on the rig, 2026-09-15)
 
 Implemented in `503f292`: the rule compares each volume against the best this machine has measured

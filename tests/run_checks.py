@@ -2789,8 +2789,14 @@ def run_page_checks():
     # Reference lifetime: the deletion counts running jobs as well as queued ones, or the last dispatch
     # of a batch removes the file the other workers are reading.
     report('a running job keeps its file\'s reference alive',
-           re.search(r'var stillNeeded = finishedPath is not null.{0,500}SyncJobStatus\.Running',
-                     service_text, re.S) is not None)
+           # The pump answers this from a snapshot now - the plan runs outside the queue lock (S40) - but the
+           # answer is the one it always was: another job of that file that is queued *or running*, matched on
+           # the file's path. The old inline form is asserted gone so the two cannot drift apart.
+           re.search(r'liveJobs = _runOrder\s*\.Where\(j => j\.Status == SyncJobStatus\.Queued '
+                     r'\|\| j\.Status == SyncJobStatus\.Running\)', service_text, re.S) is not None
+           and 'liveJobs.Any(live => string.Equals(live.VideoPath, row.Item1, StringComparison.Ordinal))'
+               in service_text
+           and 'var stillNeeded = finishedPath is not null' not in service_text)
     report('ReferenceStore only releases a reference nothing is using',
            'stillInUse' in '\n'.join(plugin_sources))
 
@@ -3017,6 +3023,30 @@ def run_page_checks():
 
     report('the settings page offers the same bounds the server enforces',
            page_bounds == settings_bounds, f'{page_bounds} vs {settings_bounds}')
+
+    def _pump_lock_body(text):
+        start = text.index('private async Task PumpAsync')
+        lock_at = text.index('lock (_queueLock)', start)
+        depth = 0
+        for index in range(text.index('{', lock_at), len(text)):
+            if text[index] == '{':
+                depth += 1
+            elif text[index] == '}':
+                depth -= 1
+                if depth == 0:
+                    return text[lock_at:index]
+        raise AssertionError('unbalanced lock block in PumpAsync')
+
+    pump_lock_body = _pump_lock_body(service_source)
+    plan_is_outside = ('PlanStart(' not in pump_lock_body
+                       and 'PlanStart(' in service_source
+                       and 'pump-plan-outside-lock' in service_source)
+
+    report('the queue lock covers bookkeeping and a snapshot, never the planning pass',
+           # S40: the enqueue waits for this lock, and the plan is the one slow thing that used to be inside it.
+           # Asserted structurally, by brace-matching the lock block out of the pump and asking what is in it -
+           # a timing check would pass on a fast disk while the defect was still there.
+           plan_is_outside)
 
     report('the audio path is given a VAD that reads audio, and says so',
            'private const string AudioReferenceVad = "webrtc";' in service_source

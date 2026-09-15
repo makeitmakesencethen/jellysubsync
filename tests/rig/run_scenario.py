@@ -792,6 +792,24 @@ def scenario_s40_enqueue(rig, args, ctx):
                  f'{len(tasks)} task(s) queued in {enqueued_ms:0.0f} ms and no line carried a breakdown '
                  '(SUBSYNC_ENQUEUE_TRACE_MS too high?)')]
 
+    # Second window: the same batch queued again *while the first one is being cancelled*. Cancelling used to
+    # write a log line per job with the queue lock held, so this is the shape in which the enqueue can lose the
+    # lock to somebody else's disk writes.
+    cancel_lines = []
+    if batch_id:
+        since = rig._log_offset
+        try:
+            rig.post(f'/SubSync/Batch/{batch_id}/Cancel')
+        except urllib.error.HTTPError as error:
+            cancel_lines.append(f'cancel answered HTTP {error.code}')
+        view = rig.post('/SubSync/Batch', {'Tasks': tasks, 'Label': 'rig-s40-again'})
+        ctx['batch'] = view.get('BatchId') or view.get('Id') or batch_id
+        lines2 = rig.log_lines(since)
+        rows2 = [parsed for parsed in (_s40_parse(ln) for ln in lines2) if parsed]
+        rows += rows2
+        cancel_lines += [ln.split('INFO')[-1].strip()[:150] for ln in lines2
+                         if 'queue lock slow: holder=cancel' in ln]
+
     worst = max(rows, key=lambda r: r['log'])
     parts = {name: worst.get(name, 0) for name in S40_PARTS}
     dominant = max(parts, key=parts.get)
@@ -807,6 +825,9 @@ def scenario_s40_enqueue(rig, args, ctx):
         ('the slowest enqueue is attributed to one part, not left as "log"', parts[dominant] >= worst['log'] / 2,
          f'the worst of {len(rows)} enqueues: total={worst["total"]} ms, log={worst["log"]} ms, dominated by '
          f'{dominant} ({parts[dominant]} ms); parts={parts}'),
+        ('a cancel does not hold the queue lock while it logs each job',
+         not any('holder=cancel' in ln for ln in cancel_lines),
+         '; '.join(cancel_lines) if cancel_lines else 'no cancel held the lock long enough to be reported'),
     ]
 
 
