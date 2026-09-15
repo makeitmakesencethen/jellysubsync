@@ -1230,53 +1230,26 @@ batch has even started, and it is what "the batch takes a while to start" is. Th
 line was visible, and it is not the ceiling: the dispatcher showed `limit 8` throughout, so nothing was being held
 back by a cap.
 
-Not diagnosed yet - the row is the measurement, not the cause. The next step is to read what the log phase writes
-for each queued item (the batch history it persists, and how often it flushes the plugin log) and to time those
-two on their own, exactly as the audio-copy idea was killed by its own test rather than by an argument.
+**Diagnosed 2026-09-15 - it is the queue lock, and the aggregate could not say which of four things it was.**
+The phase the field reported as `log` is four: two dictionary writes, one line to the plugin log (every writer
+serialises on one gate), the queue lock, and waking the pump (which takes the same lock twice more and starts
+extraction lanes). The line now carries that breakdown, and `SUBSYNC_ENQUEUE_TRACE_MS` lowers the threshold so a rig
+can see it at all - local storage never reaches the field's 250 ms. The scenario `s40-enqueue` queues the field's
+shape (56 tasks: one item with 50 subtitle tracks plus six others) and reports where the time went:
 
-## 2026-09-14 - the register triage
+| the worst of 56 enqueues | total | log | state | logWrite | queueLock | wakePump |
+|---|---|---|---|---|---|---|
+| measured, local storage | 54 ms | 49 ms | 0 ms | 0 ms | **49 ms** | 0 ms |
 
-**Before:** 78 open rows and 4 open sections, of which only 23 rows carried a severity and about 55 carried
-neither a severity nor anything in their evidence cell - including four that read like the top of the list
-(F1, F3, F4, B1). "What is left" could not be answered in order, which is the defect this entry closes.
+Every millisecond of the phase is the queue lock, and the plugin-log write the row suspected costs nothing (the
+same line shows `logWrite=0` on all 56). On the field's share that contention is what turns 49 ms into 8-21 s: the
+pump holds `_queueLock` while it plans - a scan of `_runOrder` for every finished job, then `PlanStart` over every
+queued job with `MediaVolume.Of`, `JobNeedsHeavyIo`, `ExtractionReady` and `WalkCapOfPath` called inside it - and the
+enqueue takes the same lock twice, once in `WakeExtractor` and once for `_runOrder.Add`.
 
-**After:** 72 open rows and 3 open sections, **none without a severity, none without something checkable**,
-enforced from now on by `tests/check_fixplan.py` (run it as part of any change to this file; it is deliberately
-not wired into the plugin's own test suite, because the register and the code fail for different reasons).
-
-What the triage actually found, which is the part worth re-reading:
-
-- **F3 is real and high.** The controller's only gate is the class-level `[Authorize]`; there is no per-item
-  check anywhere in it, so any authenticated account can name any item id and queue a sync that writes a
-  subtitle. `Api/SubSyncController.cs:16` (the gate), `:51` and `:74` (the two handlers that go straight to the
-  service).
-- **F4 is real for the job history, and refuted for the log.** The history endpoints are server-wide for any
-  authenticated user and the job records carry `ItemId` and `OutputPath`; `Log` is behind
-  `RequiresElevation` (`Api/SubSyncController.cs:465-466`). The pair is the story: the history is how F3's item
-  id is obtained.
-- **F1 is guarded elsewhere.** Install is admin-only (`:334`), so "any authenticated user" is wrong; the
-  apt-get/pip call is real (`Services/SubSyncService.cs:6535-6548`) and downgraded to low.
-- **B1 is not real.** The write path copies the original to a backup first, refuses to clobber an existing one,
-  and has an explicit rollback (`Services/SubSyncService.cs:5211-5217`, `:5140-5156`, `:5223-5231`). Closed as
-  refuted with the reasoning kept.
-- **F23 and S34 were refuted too.** F23 said the client script is the only anonymous endpoint (there are two:
-  `:480` and `:572`); S34 said the audio cache can only be cleared through the API (the page has a button:
-  `Web/subsyncMain.js:2118`). Both were written from greps that missed something, and S34's refutation corrects
-  advice given to the user on the day.
-- **D2 and D3 hold up as high.** `IsInstalled` is computed from the plugin's *managed* binary
-  (`Services/SubSyncService.cs:557`) while jobs run the resolved path (`:405-429`), and the settings endpoint
-  saves anything it is given (`Api/SubSyncController.cs:514-538`).
-- **Nothing was carried over from a row's own wording** for the four the goal named: each verdict quotes the
-  line that decides it. The other 58 open rows say in their evidence cell that they are ranked and not yet read
-  - that is the honest state, and it is the work the next pass picks up.
-
-**Correction to S38, from the same run.** The probe's first placement was in the audio-reference branch, which
-jobs on a real server do not take: 17 engine runs in that era, several of them on the fast volume, and **not one
-probe line**. It now sits in `RunSyncJob` where every job passes, right after the job's status becomes Running, and
-the reason for the move is written into the code so the next reader does not repeat it. The run also confirmed the
-arithmetic: `dispatch: … running 2-4` with both volumes unmeasured is exactly two per volume, so the ceiling was
-the binding constraint on concurrency even though the batch's *start* was S40's problem.
-
+So the fix is not "write less to the log". It is: take the plan's inputs under a short lock, plan outside it, and
+apply the decisions under the lock again; and stop the enqueue waiting on a plan it is not part of. Next step
+measured with the same scenario, whose breakdown is a direct before/after (queueLock ms for a 56-task batch).
 ### S39 - a volume was judged by constants measured on one machine (high, done: the ratios decided a ceiling on the rig, 2026-09-15)
 
 Implemented in `503f292`: the rule compares each volume against the best this machine has measured

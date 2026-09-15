@@ -718,6 +718,98 @@ def scenario_d3_settings(rig, args, ctx):
     return assertions
 
 
+# S40's shape: a batch of ~55 tasks, enqueued one item at a time through the same path the field used. The
+# plugin's own `enqueue slow:` line carries the phase breakdown when SUBSYNC_ENQUEUE_TRACE_MS is low, because a rig
+# on local storage never reaches the field's 250 ms.
+S40_PHASES = ('item', 'sources', 'settings', 'log', 'total')
+S40_PARTS = ('state', 'logWrite', 'queueLock', 'wakePump')
+
+
+def _s40_parse(line: str) -> dict | None:
+    """Pulls the phases and the breakdown out of one `enqueue slow:` line."""
+    if 'enqueue slow:' not in line:
+        return None
+    out = {}
+    for name in S40_PHASES:
+        hit = re.search(rf'(?<![A-Za-z]){name}=([0-9]+) ms', line)
+        if hit:
+            out[name] = int(hit.group(1))
+    for name in S40_PARTS:
+        hit = re.search(rf'{name}=([0-9]+) ms', line)
+        if hit:
+            out[name] = int(hit.group(1))
+    return out if 'total' in out else None
+
+
+def scenario_s40_enqueue(rig, args, ctx):
+    """S40: is the enqueue's 8-21 s the log line, the queue lock, or waking the pump?
+
+    The row is a measurement without a cause: 55 tasks were queued one at a time, each reporting `log=<8-21 000>
+    ms` while item lookup, source resolution and settings cost nothing. The phase that large is four things - two
+    dictionary writes, one line to the plugin log (every writer serialises on one gate), the queue lock (also held
+    by the pump while it plans) and waking the pump (extraction lanes, two more lock acquisitions) - and the
+    aggregate cannot tell them apart. This scenario enqueues a batch of the field's size and reports which part
+    carries the time, so a fix can be aimed rather than guessed.
+
+    Run with SUBSYNC_ENQUEUE_TRACE_MS=0 so every enqueue is reported: on local storage nothing reaches 250 ms.
+    """
+    prepare_walk_fixtures(6)
+    time.sleep(2)
+    rig.refresh_library()
+    time.sleep(12)
+
+    # One item with many tracks does what the field's series did: the batch expands to ~55 tasks.
+    # The real episode carries 50 subtitle tracks, which is how the field's batch reached ~55 tasks.
+    episode = [i for i in rig.items(str(S31_SOURCE.parent)) if len(i.get('MediaStreams') or []) > 30]
+    if not episode:
+        return [('the multi-track item is in the library', False,
+                 'no item with more than 30 streams: the batch cannot reach the field size')]
+    item = episode[0]
+    subs = [st for st in (item.get('MediaStreams') or []) if st.get('Type') == 'Subtitle']
+    tasks = [{'ItemId': item['Id'], 'SubtitleIndex': int(st['Index']),
+              'Title': f"{item.get('Name')} · {st.get('Language') or st.get('Index')}"}
+             for st in subs[:50]]
+    for extra in [i for i in rig.items(str(WALK_VOLUME_DIR))][:6]:
+        first = next((st for st in (extra.get('MediaStreams') or []) if st.get('Type') == 'Subtitle'
+                      and not st.get('IsExternal')), None)
+        if first:
+            tasks.append({'ItemId': extra['Id'], 'SubtitleIndex': int(first['Index']),
+                          'Title': extra.get('Name') or extra['Id']})
+
+    since = rig._log_offset
+    watch = time.time()
+    view = rig.post('/SubSync/Batch', {'Tasks': tasks, 'Label': 'rig-s40'})
+    enqueued_ms = (time.time() - watch) * 1000.0
+    batch_id = view.get('BatchId') or view.get('Id')
+    ctx['batch'] = batch_id
+    lines = rig.log_lines(since)
+
+    rows = [parsed for parsed in (_s40_parse(ln) for ln in lines) if parsed]
+    ctx['observations'] = [ln.split('INFO')[-1].strip() for ln in lines if 'enqueue slow:' in ln][:4]
+
+    if not rows:
+        return [('the enqueue reports its phase breakdown', False,
+                 f'{len(tasks)} task(s) queued in {enqueued_ms:0.0f} ms and no line carried a breakdown '
+                 '(SUBSYNC_ENQUEUE_TRACE_MS too high?)')]
+
+    worst = max(rows, key=lambda r: r['log'])
+    parts = {name: worst.get(name, 0) for name in S40_PARTS}
+    dominant = max(parts, key=parts.get)
+    summed = sum(parts.values())
+    incomplete = [r for r in rows if sum(r.get(n, 0) for n in S40_PARTS) + 2 < r['log']]
+
+    return [
+        ('every enqueued task reports which part of its log phase took the time', len(rows) >= len(tasks) - 1,
+         f'{len(rows)} line(s) for {len(tasks)} task(s), queued by the API in {enqueued_ms:0.0f} ms'),
+        ('the four parts account for the log phase they are reported inside', not incomplete,
+         f'{len(incomplete)} line(s) whose parts do not reach `log`; worst: log={worst["log"]} ms, '
+         + ', '.join(f'{k}={v} ms' for k, v in parts.items())),
+        ('the slowest enqueue is attributed to one part, not left as "log"', parts[dominant] >= worst['log'] / 2,
+         f'the worst of {len(rows)} enqueues: total={worst["total"]} ms, log={worst["log"]} ms, dominated by '
+         f'{dominant} ({parts[dominant]} ms); parts={parts}'),
+    ]
+
+
 def scenario_s39_ratio(rig, args, ctx):
     """S39: a ceiling chosen between two numbers this machine measured, not from a constant.
 
@@ -833,6 +925,8 @@ SCENARIOS = {
                           needs="the field shape: a share whose first read took 231 ms and whose steady state is 13 ms"),
     's31-wrong-ruler': dict(run=scenario_s31_wrong_ruler, storage='any',
                             needs='a sibling subtitle from a different cut: the ruler passes every check and is wrong'),
+    's40-enqueue': dict(run=scenario_s40_enqueue, storage='any',
+                        needs='~55 tasks in one batch; set SUBSYNC_ENQUEUE_TRACE_MS=0 so every enqueue is reported'),
     'd3-settings': dict(run=scenario_d3_settings, storage='any',
                         needs='nothing: it drives the settings API, the same way the page does'),
     's43-audio-is-audio': dict(run=scenario_s43_audio_is_audio, storage='any',

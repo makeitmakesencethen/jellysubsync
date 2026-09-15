@@ -56,6 +56,16 @@ both measured, both written down in `results.json`.
 280,1 MB/s with the audio analysis cached and 1,3 MB/s without it, because the walk figure is the file's length
 divided by the engine's time and a cached run reads no media. Not fixed here — it is a decision for its own item.
 
+## S40 - the enqueue's slow phase is the queue lock, not the log (diagnosed, fix next)
+
+The `enqueue slow:` line now carries a breakdown of the phase the field saw as `log=<8-21 000> ms`: `state`,
+`logWrite`, `queueLock`, `wakePump`, with `SUBSYNC_ENQUEUE_TRACE_MS` to lower the threshold so a rig can see it.
+`--scenario s40-enqueue` queues the field's shape (56 tasks) and reports where the time went: the worst enqueue is
+54 ms total, 49 ms `log`, and all 49 ms is `queueLock` (`logWrite=0`, `wakePump=0`, `state=0`). So the pump's
+planning inside `_queueLock` is the cost, and the enqueue takes that lock twice. Fix direction recorded in the row:
+plan outside the lock from inputs taken inside it, and let the enqueue not wait on a plan it is not part of.
+
+
 ## D3 + F10 - one validation path for the settings, and argv reads only validated numbers (held for the ship call)
 
 `Configuration/SettingsValidation.cs` is the single place a setting is checked: `Apply` runs wherever a

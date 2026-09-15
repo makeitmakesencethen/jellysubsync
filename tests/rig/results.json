@@ -1694,5 +1694,105 @@
       "2026-09-15 02:09:49.720Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
     ],
     "seconds": 10.5
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 02:14:19",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40: where the enqueue phase goes",
+    "repo_head": "6ec983a",
+    "assertions": [
+      {
+        "check": "the scenario ran at all",
+        "passed": false,
+        "detail": "NameError: name 'MEDIA' is not defined"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "log_tail": [
+      "2026-09-15 01:47:26.968Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/b5250c7a5d5a8cd29133db5103d66509.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/eb3c0a29a99c4d2d98ccb2b1243dde13",
+      "2026-09-15 01:47:43.000Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync exit=0 after 16031 ms",
+      "2026-09-15 01:47:43.003Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:47:43.015Z INFO  [eb3c0a29a99c4d2d98ccb2b1243dde13] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 16.0 s = 148.5 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:47:43.036Z INFO  job eb3c0a29a99c4d2d98ccb2b1243dde13 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:47:46.626Z INFO  extract lane: stopped",
+      "2026-09-15 01:47:49.516Z INFO  startup: version=2.0.39.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.39.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 01:47:51.014Z INFO  batch history: restored 20 batch(es), 48 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 01:48:22.462Z INFO  queued: job=5e582bc257a8478e9fcc2f5580a67e33 item=7924f2e5-e60f-e867-0431-afa5bcf8d643 stream=3 ordinal=0 mode=auto batch=9777e4d88072443386e7561cbd54ee46 language=eng external=False forced=False codec=subrip video=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:22.464Z INFO  batch 9777e4d88072443386e7561cbd54ee46 queued: tasks=1 mode=auto label='rig-s43' totalMs=16 slowestTaskMs=16 (index 0: gap=0 ms; item=0 ms, sources=3 ms, settings=0 ms, log=3 ms, total=6 ms)",
+      "2026-09-15 01:48:22.496Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.499Z INFO  extract lane: started",
+      "2026-09-15 01:48:22.506Z INFO  queue: 1 queued, 0 running, 1 file(s) left, lane idle",
+      "2026-09-15 01:48:22.617Z INFO  extract plan: cue-indexed, window 10.3 KB, 1564 planned read(s), expects 1.90 MB (the index locates 803 of 803 cue point(s); 803 located block(s), 0 cluster(s) to walk, reads are 0.01 ms each, merge gap 9 KB)",
+      "2026-09-15 01:48:22.654Z INFO  extract plan: S43 Episode (2026).mkv cue-indexed expected 1.90 MB/1564 read(s) (15.4 ms), actual 1.90 MB/1564 read(s) (15.4 ms) - bytes 1.00x, reads 1.00x",
+      "2026-09-15 01:48:22.658Z INFO  extract profile: S43 Episode (2026).mkv: storage 0.01 ms per read and 1141.0 MB/s (8 read(s) of this pass over 1 update(s)); merge gap 9 KB",
+      "2026-09-15 01:48:22.684Z INFO  extract lane: S43 Episode (2026).mkv -> 1/1 subtitle(s), 2.0 MB, 1572 reads, 140 ms, ok=True, reason= prefetched=1564 ranges/1.9 MB unused=0 ranges/1.8 MB bytesTwice=0.00 MB memoryReads=8037 plan=cue-indexed expected=1.90 MB/1564 reads missed=0 storage=0.01 ms/read 1141.0 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 01:48:22.705Z INFO  dispatch: starting 1, running 0, limit 1, queued 1, batch 9777e4d88072443386e7561cbd54ee46",
+      "2026-09-15 01:48:22.776Z INFO  volume /dev/nvme0n1p2 had nothing measured about it, so it was read 3 time(s) of 16 KB: median of 3 reads took 0.01 ms (slowest 0.01 ms) - the ceiling for that volume is none (this volume measured 0.01 ms per read, over 3 read(s), which is fast)",
+      "2026-09-15 01:48:22.875Z INFO  extract: method=cache cues=803 file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-15 01:48:22.910Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-15 01:48:22.919Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=a:0 args=/opt/data/jf12test/data/data/subsync/state/speech-cache/d3e236810aee197d53a769e4edff1261.mkv -i /opt/data/jf12test/cache/subsync/shared/b008253ff784392d/subtitle_3.srt -o /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --reference-stream a:0 --serialize-speech --log-dir-path /opt/data/jf12test/cache/subsync/5e582bc257a8478e9fcc2f5580a67e33",
+      "2026-09-15 01:48:22.924Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] reference is the audio, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-15 01:48:38.829Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync exit=0 after 15904 ms",
+      "2026-09-15 01:48:38.834Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] ffsubsync alignment: score=46805 offset=-30.080 s against the audio",
+      "2026-09-15 01:48:38.856Z INFO  [5e582bc257a8478e9fcc2f5580a67e33] this walk moved 2270.7 MB of /opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv in 15.9 s = 149.7 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-15 01:48:38.882Z INFO  job 5e582bc257a8478e9fcc2f5580a67e33 UNVERIFIED: the audio was the only ruler (-30080 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media/S43 Audio Is Audio/S43 Episode (2026).mkv",
+      "2026-09-15 01:48:42.616Z INFO  extract lane: stopped",
+      "2026-09-15 02:00:22.026Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:23.546Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:00:32.510Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=4 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:00:34.047Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:18.655Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:20.152Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:05:29.172Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:05:30.669Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:09:47.672Z INFO  startup: version=2.0.40.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.40.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:09:49.720Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json",
+      "2026-09-15 02:14:22.106Z INFO  startup: version=2.0.41.0 assembly=/opt/data/jf12test/data/plugins/SubSync_2.0.41.0/Jellyfin.Plugin.SubSync.dll settings=/opt/data/jf12test/data/plugins/configurations/Jellyfin.Plugin.SubSync.xml workers=64 mode=auto vad=subs_then_webrtc fixFramerate=False log=/opt/data/jf12test/data/data/subsync/logs/subsync.log",
+      "2026-09-15 02:14:23.624Z INFO  batch history: restored 20 batch(es), 46 task(s) from /opt/data/jf12test/data/data/subsync/state/batch-history.json"
+    ],
+    "seconds": 24.0
+  },
+  {
+    "scenario": "s40-enqueue",
+    "when": "2026-09-15 02:14:50",
+    "plugin": "SubSync_2.0.41.0",
+    "shim": null,
+    "note": "S40: where the enqueue phase goes",
+    "repo_head": "6ec983a",
+    "assertions": [
+      {
+        "check": "every enqueued task reports which part of its log phase took the time",
+        "passed": true,
+        "detail": "56 line(s) for 56 task(s), queued by the API in 845 ms"
+      },
+      {
+        "check": "the four parts account for the log phase they are reported inside",
+        "passed": true,
+        "detail": "0 line(s) whose parts do not reach `log`; worst: log=49 ms, state=0 ms, logWrite=0 ms, queueLock=49 ms, wakePump=0 ms"
+      },
+      {
+        "check": "the slowest enqueue is attributed to one part, not left as \"log\"",
+        "passed": true,
+        "detail": "the worst of 56 enqueues: total=54 ms, log=49 ms, dominated by queueLock (49 ms); parts={'state': 0, 'logWrite': 0, 'queueLock': 49, 'wakePump': 0}"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "enqueue slow: item=0 ms, sources=4 ms, settings=0 ms, log=2 ms, total=8 ms stream=0 breakdown: state=1 ms, logWrite=0 ms, queueLock=0 ms, wakePump=1 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=5 ms, settings=0 ms, log=0 ms, total=6 ms stream=1 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=3 ms stream=2 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv",
+      "enqueue slow: item=0 ms, sources=3 ms, settings=0 ms, log=0 ms, total=4 ms stream=3 breakdown: state=0 ms, logWrite=0 ms, queueLock=0 ms, wakePump=0 ms video=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "batch": "c118fc7c97ca40b8ad8f671eaed47d6b",
+    "log_tail": [
+      "2026-09-15 02:15:15.991Z INFO  extract lane: Walk Reference 02 (2026).mkv -> 1/1 subtitle(s), 0.1 MB, 61 reads, 19 ms, ok=True, reason= prefetched=53 ranges/0.1 MB unused=0 ranges/0.1 MB bytesTwice=0.00 MB memoryReads=277 plan=cue-indexed expected=0.06 MB/54 reads missed=0 storage=0.06 ms/read 36.6 MB/s (from the Matroska index (SeekHead))",
+      "2026-09-15 02:15:15.991Z INFO  extract profile: The Helicopter Heist S01E01.mkv: storage 0.00 ms per read and 641.7 MB/s (10 read(s) of this pass over 1 update(s)); merge gap 3 KB",
+      "2026-09-15 02:15:16.001Z INFO  reference: method=seekhead-cues ms=97 cues=803 bytesRead=2953395 readCalls=1575 file=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv stream=1",
+      "2026-09-15 02:15:16.007Z INFO  [ae732e137c2248a884a6e71b72fa76e5] reference: method=subtitle cues=803 track=s:1 file=/opt/data/jf12test/media-tv/The Helicopter Heist/Season 1/The Helicopter Heist S01E01.mkv"
+    ],
+    "seconds": 25.8
   }
 ]

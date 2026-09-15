@@ -1030,6 +1030,10 @@ public class SubSyncService : IDisposable
         var total = System.Diagnostics.Stopwatch.StartNew();
         var phase = System.Diagnostics.Stopwatch.StartNew();
         long itemMs = 0, sourcesMs = 0, settingsMs = 0, logMs = 0;
+        long stateMs = 0;        // the two dictionary writes: what the enqueue records about the job
+        long logWriteMs = 0;    // one line to the plugin log, which serialises every writer
+        long lockMs = 0;        // the queue lock, also held by the pump while it plans
+        long wakeMs = 0;        // waking the pump: starts extraction lanes, takes the lock twice more
         if (subtitleIndex < 0)
         {
             throw new ArgumentException("Subtitle index must be non-negative.");
@@ -1099,19 +1103,28 @@ public class SubSyncService : IDisposable
 
         _jobs[job.Id] = job;
         _jobContexts[job.Id] = (video, subtitleStream, subtitleOrdinal, config);
-        PluginLog.Info(
-            $"queued: job={job.Id} item={itemId} stream={subtitleIndex} ordinal={subtitleOrdinal} mode={job.Mode} "
-            + $"batch={batchId ?? "(standalone)"} language={subtitleStream.Language ?? "und"} "
+        stateMs = phase.ElapsedMilliseconds;
+        phase.Restart();
+
+        var queuedLine = $"queued: job={job.Id} item={itemId} stream={subtitleIndex} ordinal={subtitleOrdinal} "
+            + $"mode={job.Mode} batch={batchId ?? "(standalone)"} language={subtitleStream.Language ?? "und"} "
             + $"external={subtitleStream.IsExternal} forced={subtitleStream.IsForced} "
-            + $"codec={subtitleStream.Codec} video={video.Path}");
+            + $"codec={subtitleStream.Codec} video={video.Path}";
+        PluginLog.Info(queuedLine);
+        logWriteMs = phase.ElapsedMilliseconds;
+        phase.Restart();
 
         lock (_queueLock)
         {
             _runOrder.Add(job);
         }
 
+        lockMs = phase.ElapsedMilliseconds;
+        phase.Restart();
+
         WakePump();
-        logMs = phase.ElapsedMilliseconds;
+        wakeMs = phase.ElapsedMilliseconds;
+        logMs = stateMs + logWriteMs + lockMs + wakeMs;
         total.Stop();
 
         var timing = $"item={itemMs} ms, sources={sourcesMs} ms, settings={settingsMs} ms, "
@@ -1119,9 +1132,19 @@ public class SubSyncService : IDisposable
 
         // Anything beyond a few milliseconds here is worth naming: a slow enqueue is invisible in
         // every other view and looks exactly like a scheduler that will not parallelise.
-        if (total.ElapsedMilliseconds > 250)
+        //
+        // The breakdown is what S40 needs: the phase the field reported as `log` is four different things -
+        // two dictionary writes, one line to the plugin log, the queue lock, and waking the pump (which
+        // takes the same lock twice more) - and 8-21 s per queued item has to be attributed to one of them
+        // before anything is changed. The plugin log serialises every writer on one gate, the queue lock is
+        // held by the pump while it plans, and waking the pump starts extraction lanes: all three are
+        // candidates that the aggregate cannot tell apart.
+        if (total.ElapsedMilliseconds > EnqueueTraceMs)
         {
-            PluginLog.Info($"enqueue slow: {timing} stream={subtitleIndex} video={video.Path}");
+            PluginLog.Info(
+                $"enqueue slow: {timing} stream={subtitleIndex} breakdown: state={stateMs} ms, "
+                + $"logWrite={logWriteMs} ms, queueLock={lockMs} ms, wakePump={wakeMs} ms "
+                + $"video={video.Path}");
         }
 
         return (job, timing);
@@ -1956,6 +1979,24 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>Most extraction lanes to run at once.</summary>
+    /// <summary>
+    /// Enqueue duration above which one line is written with its phase breakdown.
+    /// </summary>
+    /// <remarks>
+    /// 250 ms in the field, where anything slower than that is worth naming. The measurement S40 needs cannot
+    /// wait for a slow share: a rig runs on local storage and would never reach 250 ms, so the threshold is
+    /// settable (<c>SUBSYNC_ENQUEUE_TRACE_MS</c>) and the rig sets it low to see where the time goes.
+    /// </remarks>
+    private static readonly long EnqueueTraceMs = ResolveEnqueueTraceMs();
+
+    /// <summary>Reads the enqueue trace threshold, defaulting to the field's 250 ms.</summary>
+    /// <returns>The threshold in milliseconds.</returns>
+    private static long ResolveEnqueueTraceMs()
+    {
+        var raw = Environment.GetEnvironmentVariable("SUBSYNC_ENQUEUE_TRACE_MS");
+        return long.TryParse(raw, out var parsed) && parsed >= 0 ? parsed : 250;
+    }
+
     private const int MaxExtractionLanes = 3;
 
     /// <summary>True while at least one extraction lane is running.</summary>
