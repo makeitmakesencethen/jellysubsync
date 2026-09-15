@@ -1353,3 +1353,30 @@ wrong one, which is precisely the case the audio fallback exists to escape. Next
 queues an audio-only fallback on a file whose embedded subtitle is the wrong ruler and shows whether the fallback
 inherits the ruler's answer; the fix is either forcing `webrtc` in the analysis or documenting the VAD's
 behaviour where the fallback is decided.
+
+**Scoped, 2026-09-15 - how often, and what it costs.** The mechanism is `--vad subs_then_webrtc`, the plugin's
+default (`Configuration/PluginConfiguration.cs:62`), which makes ffsubsync take the video's **embedded subtitle
+tracks** as its speech signal whenever it has any. The precondition is the norm on this machine: of the media in
+the rig, every file carries embedded subrip tracks except one (the episode carries **50**, `Wide Multi-Language`
+8, each fixture 1-3), and the plugin hands the engine the *video* as its "audio" reference
+(`SpeechCache.CreateReferenceLink`), so "the audio path" reads subtitles on essentially every real file.
+
+Whether that helps or hurts depends on which track the engine picks, and both have now been measured:
+
+| the container's track the engine picked | the answer | compared with |
+|---|---|---|
+| the film's own track (`Walk Reference 01`, 27 cues, target = that track +20 s) | **-20,00 s**, exactly right | `--vad webrtc` gave -18,21 s on the same 2-minute file |
+| a wrong-cut track (the S31 fixture, 803 cues) | **+24,170 s**, the wrong track's own answer | the film's own audio says -5,080 s |
+
+So the label is wrong every time and the *outcome* is right only when the engine happens to pick a track that
+matches the film. Worse, when it does, the plugin's own reference-selection checks (cue count, signs-track
+detection, span against the file) have been bypassed: the engine chose the track, not the plugin.
+
+**The rule to implement** (next step): the plugin decides and the engine does not. Wherever the plugin intends
+the *audio* to be the reference - the ruler fallbacks, the cross-check, and the ordinary no-usable-sibling case -
+it passes `--vad webrtc` and logs the VAD it used, so "audio" means audio; `subs_then_webrtc` stays only where the
+plugin itself supplied a subtitle reference it has already vetted. Cost: one audio analysis per file, which the
+speech cache already pays once, and the measured precision trade above (1,79 s on a 2-minute clip) needs a wider
+sample before it is claimed as general. A rig scenario follows the fix: a file whose *only* reference is the audio,
+with a subtitle in the container that contradicts it, asserting the answer matches the film rather than the track.
+
