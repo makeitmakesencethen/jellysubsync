@@ -135,4 +135,17 @@ public class PluginConfiguration : BasePluginConfiguration
     /// Gets or sets the maximum number of subtitle tracks one library sweep run will queue.
     /// </summary>
     public int SweepMaxItemsPerRun { get; set; } = 500;
+
+    /// <summary>
+    /// Gets or sets the split penalty handed to the engine for piecewise alignment; 0 leaves it off.
+    /// </summary>
+    /// <remarks>
+    /// Run with 0, the engine emits one global offset for the whole file, which is what this plugin has
+    /// always done. A value above 0 lets the offset change across the timeline (alass-style), charged
+    /// per split in seconds of overlap - commercial breaks, inserted or removed scenes, discs
+    /// concatenated into one file. Values around 4-20 are typical; lower splits more eagerly. The
+    /// plugin's own measurement of the result has to understand a piecewise answer, which is what
+    /// FIX_PLAN C2 records.
+    /// </remarks>
+    public double SplitPenalty { get; set; }
 }

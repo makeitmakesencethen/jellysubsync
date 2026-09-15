@@ -1,3 +1,45 @@
+## 2.0.43 (beta)
+
+Three things: a setting that lets the offset change across a file that is not one continuous cut, a sweep
+that no longer rewrites its state file once per subtitle, and the ruler's shape score in the log.
+
+**Piecewise alignment (`Split penalty`, off by default).** Files are not always one cut: commercial
+breaks, inserted or removed scenes, two discs joined into one file. Run with the default 0, the engine
+emits a single offset for the whole file - what this plugin has always done - and a file with a break in
+the middle is right on one side of it and wrong on the other. Setting the split penalty lets the offset
+change across the timeline, charged per split in seconds of overlap (4-20 is typical; lower splits more
+eagerly). Measured on the fixture whose second half is 20 s out: the single-offset answer leaves that half
+20,0 s wrong, and with the penalty set both halves land within 60 ms.
+
+The plugin's own measurement of the result had to learn the same thing, or it would refuse its own
+correct answer: a piecewise result fits no single line, and the guard that refuses a rescale nobody asked
+for read it as one (1,01082x on that fixture). A result is now accepted when it is piecewise-*flat* -
+every piece internally consistent, no growing drift inside a piece - and refused exactly as before when it
+is a ramp wearing pieces. The setting is on the plugin's settings page.
+
+**The sweep's state file is written in batches.** `SweepState` held one JSON document with a record per
+subtitle and rewrote the whole thing on every record, so a sweep of a few thousand subtitles wrote a few
+thousand times - and the cost grows with the file, because each write serialises everything in it.
+Measured in the suite, 2 000 records: **80 writes / 173 ms / 68 MB written**, against **2 000 writes /
+4 466 ms / 1 735 MB** before. It is flushed when the queue drains, at the end of a sweep, and at shutdown,
+and the check suite holds it to that (100 records must cost 4 writes, not 100).
+
+**The ruler's shape score is in the log (S31 follow-up).** Before a suspicious subtitle ruler is
+cross-checked against the film's own audio, the plugin now prints how well the two subtitle tracks agree -
+the shape of their alignment curve, after `oseiskar/autosubsync`'s quality-of-fit metrics (MIT). It is
+**context only and never decides anything**, and that is the result of building it as a gate first: a ruler
+that is the same cut as the film but offset from it correlates with the target perfectly and scores
+*exactly* like a correct one (**0,833 at both +20 s, which is right, and +25 s, which is wrong**), so
+skipping the cross-check on a high score writes a wrong subtitle in precisely the case the cross-check
+exists for - verified end to end on the rig, where the gated build wrote a 25 s-wrong sidecar where this
+one refuses and writes nothing. Field evidence agreed the trade was not worth it: across 710 runs that
+used a subtitle ruler on a real server, 8 (1,1 %) demanded a shift worth checking at all.
+
+**Verified.** The check suite is green (`python3 tests/run_checks.py`), build 0 warnings / 0 errors, and
+the S31 rig scenario passes on all three ruler shapes (correct, different cut, and the same-cut offset that
+sank the gate). Details and the measurements: `docs/EVIDENCE_s31_shape_gate.md`,
+`docs/EVIDENCE_s31_quality_of_fit.md`, `knowledge/FIX_PLAN.md` rows `s31-quality` and `C2`.
+
 ## 2.0.42 (beta)
 
 S40's enqueue cost is now instrumented, and two things that were done while holding the queue lock are not any more.

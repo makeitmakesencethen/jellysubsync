@@ -199,6 +199,10 @@
                                     <div class="fieldDescription">Maximum on-screen duration for a subtitle. Default: 10.</div>
                                 </div>
                                 <div class="ss-field">
+                                    <input is="emby-input" type="number" id="ss-splitpenalty" label="Split penalty (piecewise alignment)" min="0" max="50" step="1" />
+                                    <div class="fieldDescription">Lets the offset change across the timeline, for a file that is not one continuous cut (commercial breaks, inserted or removed scenes, discs joined into one file). 0 = a single offset for the whole file, which is what the plugin has always done. Values around 4-20 are typical; lower splits more eagerly. Default: 0.</div>
+                                </div>
+                                <div class="ss-field">
                                     <input is="emby-input" type="text" id="ss-encoding" label="Output encoding" placeholder="utf-8" />
                                     <div class="fieldDescription">Encoding for the synced subtitle file. Default: utf-8.</div>
                                 </div>

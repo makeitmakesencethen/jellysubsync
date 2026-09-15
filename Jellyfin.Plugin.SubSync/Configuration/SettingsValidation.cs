@@ -66,6 +66,12 @@ public static class SettingsValidation
     /// <summary>Largest number of items one sweep will take on.</summary>
     public const int SweepMaxItemsPerRunMax = 100000;
 
+    /// <summary>Lowest split penalty the engine accepts (0 = off, a single global offset).</summary>
+    public const double SplitPenaltyMin = 0;
+
+    /// <summary>Highest split penalty worth handing over; the engine's own typical range is 4-20.</summary>
+    public const double SplitPenaltyMax = 50;
+
     private static readonly Lazy<HashSet<string>> KnownLanguageTags = new(BuildKnownLanguageTags);
 
     /// <summary>Reads the offset ceiling the engine and the plugin's own heuristics are allowed to see.</summary>
@@ -86,6 +92,14 @@ public static class SettingsValidation
     public static double MaxSubtitleReferenceOffsetSecondsOf(PluginConfiguration config)
         => Clamp(config.MaxSubtitleReferenceOffsetSeconds, MaxSubtitleReferenceOffsetSecondsMin,
                  MaxSubtitleReferenceOffsetSecondsMax);
+
+    /// <summary>Reads the split penalty the engine is allowed to be given.</summary>
+    /// <param name="config">The stored configuration.</param>
+    /// <returns>The penalty in seconds of overlap, or 0 for a single global offset.</returns>
+    public static double SplitPenaltyOf(PluginConfiguration config)
+        => double.IsNaN(config.SplitPenalty)
+            ? 0
+            : Clamp(config.SplitPenalty, SplitPenaltyMin, SplitPenaltyMax);
 
     /// <summary>Reads the output encoding, falling back to utf-8 for anything the engine cannot be given.</summary>
     /// <param name="config">The stored configuration.</param>
@@ -213,6 +227,16 @@ public static class SettingsValidation
             notes.Add($"Sweep items per run: {config.SweepMaxItemsPerRun} is outside "
                       + $"{SweepMaxItemsPerRunMin}-{SweepMaxItemsPerRunMax}; {sweep} is stored");
             config.SweepMaxItemsPerRun = sweep;
+        }
+
+        var penalty = SplitPenaltyOf(config);
+        if (!penalty.Equals(config.SplitPenalty))
+        {
+            var why = double.IsNaN(config.SplitPenalty) ? "is not a number" : "is outside";
+            notes.Add($"Split penalty: {Fmt(config.SplitPenalty)} {why} "
+                      + $"{Fmt(SplitPenaltyMin)}-{Fmt(SplitPenaltyMax)}; {Fmt(penalty)} is stored (0 is a single "
+                      + "global offset)");
+            config.SplitPenalty = penalty;
         }
 
         var encoding = OutputEncodingOf(config);

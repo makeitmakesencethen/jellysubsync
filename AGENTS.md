@@ -119,6 +119,24 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   sibling reference reads the track from this run's memory, then the extracted-subtitle cache, then
   the container index (`TryReadReferenceTextAsync`), under a per-file gate so only one job builds it.
   A reference that *cannot be built* is not fatal: the job syncs against the audio instead.
+- **Piecewise alignment is opt-in and its result has to be *read* piecewise** (`SplitPenalty`, 0 by
+  default = one global offset, which is what this plugin has always done). The engine's split penalty lets
+  the offset change across the file (breaks, inserted scenes, discs joined). A piecewise answer fits no
+  single line, and `IsRescaleAcceptable` refuses one by construction - measured 1,01082x on the C2 fixture,
+  where both halves are in fact right - so `MeasureSegmentStructure`/`PiecewiseHolds` accept a result that is
+  piecewise-*flat* (every piece internally consistent, steps real rather than a creep) and a ramp wearing
+  pieces is still refused. Do not "fix" a piecewise result by applying its median shift.
+- **`SweepState` is written in batches, never per record.** Records land in memory and are flushed at
+  `SaveBatchSize` (25), on the 30 s interval, when the pump drains its queue, at the end of a sweep and at
+  shutdown. Measured, 2 000 records cost 80 writes / 173 ms / 68 MB against 2 000 writes / 4 466 ms /
+  1 735 MB. A save per record is a regression the suite catches (`100 records write the state 4 times`).
+- **The ruler shape score is diagnostic and must never gate the audio cross-check.** `SubtitleRulerShape`
+  scores how well a suspicious subtitle ruler agrees with the subtitle being synced (oseiskar/autosubsync's
+  quality-of-fit metrics, MIT) and the plugin logs it before the cross-check. It is not a decision: a ruler
+  that is the same cut as the film but *offset* correlates perfectly and scores exactly like a correct one
+  (0,833 at +20 s, right, and at +25 s, wrong), so a score-based skip writes a wrong subtitle in the one case
+  the cross-check exists for. Measured with the gate wired, the rig's offset probe wrote a 25 s-wrong sidecar
+  where this build refuses (docs/EVIDENCE_s31_shape_gate.md).
 - **`MaxOffsetSeconds` is ffsubsync's search window, not a trust limit** (180 s by default as of 2.0.20;
   it mirrors `--max-offset-seconds`, whose own default is 60 s). An answer outside the window cannot be
   found at all, which is how a subtitle needing ~112 s came back as 56 s: the engine returns its best

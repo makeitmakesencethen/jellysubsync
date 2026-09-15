@@ -3653,6 +3653,15 @@ public class SubSyncService : IDisposable
                     break;
                 }
 
+                // A drained queue is the one point a batch's sweep records are known to be complete, and they
+                // are written in batches. Flushing here costs one write per idle transition, not one per record,
+                // and it means a run that ended - or a server that is simply left alone afterwards - does not
+                // hold its last records in memory until the next batch happens to cross a batch boundary.
+                if (inFlight.Count == 0)
+                {
+                    _sweepState.Value.Flush();
+                }
+
                 // Nothing to start: either the slots are full (a finishing job wakes the pump) or
                 // the queue is empty (a new job wakes it) - or a job became startable without any
                 // event to signal it, which is what the bounded wait is for. An unbounded wait left
@@ -3946,6 +3955,11 @@ public class SubSyncService : IDisposable
         {
             CancelBatch(batchId);
         }
+
+        // The sweep's records are written in batches; this is the one point the run is over either way, so
+        // whatever is still in memory lands here - including on a canceled run, where everything already
+        // synced still deserves to be skipped next time.
+        _sweepState.Value.Flush();
 
         _logger.LogInformation(
             "Library sweep finished: {Scanned} items scanned, {Enqueued} queued, {Cached} skipped (synced), {FailedStreak} skipped (fail streak), {Ok} ok, {Bad} failed/cancelled",
@@ -4411,6 +4425,117 @@ public class SubSyncService : IDisposable
             ? $"{ShiftMs:+0;-0} ms offset"
             : $"{ShiftMs:+0;-0} ms offset at start \u00b7 framerate ratio {Ratio:0.0000}\u00d7 (\u2248{DriftMs:+0;-0} ms cumulative drift)";
     }
+
+    /// <summary>
+    /// How the engine's answer moves the cues: the pieces it moved them in, how flat each piece is, and the
+    /// largest displacement any cue got.
+    /// </summary>
+    /// <param name="Segments">How many runs of consecutive cues share one displacement.</param>
+    /// <param name="MaxWithinSpreadMs">The widest displacement span inside any one run, in milliseconds.</param>
+    /// <param name="LargestShiftMs">The largest displacement any cue got, in absolute milliseconds.</param>
+    /// <param name="SmallestStepMs">
+    /// The smallest jump between two neighbouring pieces. This is what tells a staircase from a ramp: a piece
+    /// boundary is a real step, while a rescale creeps by one engine sample at a time and produces a piece per
+    /// cue.
+    /// </param>
+    internal readonly record struct SegmentStructure(
+        int Segments, long MaxWithinSpreadMs, long LargestShiftMs, long SmallestStepMs);
+
+    /// <summary>
+    /// How different two neighbouring cues' displacements must be before they count as different pieces.
+    /// </summary>
+    /// <remarks>
+    /// One engine sample: its speech signal is a 100 Hz series, so offsets are quantized to 10 ms and a
+    /// difference below that is the same offset written twice. Not a policy value - a resolution.
+    /// </remarks>
+    internal const long EngineSampleMs = 10;
+
+    /// <summary>
+    /// Reads a sync as a piecewise-constant displacement rather than a line through it.
+    /// </summary>
+    /// <remarks>
+    /// Why this exists (C2, measured 2026-09-15): with a split penalty the engine may move different parts of
+    /// the subtitle by different amounts, and the plugin's own guard then sees a *linear* ratio away from 1.0
+    /// and refuses a result that is right in both halves. Measured on the 48-minute episode with a 20 s
+    /// discontinuity inserted at its midpoint: the piecewise answer is +7,54 s then +27,54 s-20 s (both halves
+    /// within 60 ms of the truth), and the least-squares line through it reads 1,01082x - which
+    /// <see cref="IsRescaleAcceptable"/> refuses, because 1,01082 is not a framerate pair. The line is the
+    /// wrong reading of a step; this is the right one.
+    /// </remarks>
+    /// <param name="inputPath">The subtitle the engine was given.</param>
+    /// <param name="outputPath">The subtitle the engine wrote.</param>
+    /// <param name="stepToleranceMs">How far apart two neighbouring displacements must be to be a new piece.</param>
+    /// <returns>The structure, or null when the two files cannot be compared cue for cue.</returns>
+    internal static SegmentStructure? MeasureSegmentStructure(string inputPath, string outputPath, long stepToleranceMs)
+    {
+        var before = ParseSrtCueStarts(inputPath);
+        var after = ParseSrtCueStarts(outputPath);
+        if (before is null || after is null || before.Count < 3 || after.Count != before.Count)
+        {
+            return null;
+        }
+
+        var segments = 1;
+        var largestShift = 0L;
+        var runMinMs = (long)Math.Round((after[0] - before[0]) * 1000.0);
+        var runMaxMs = runMinMs;
+        var previousPieceMs = runMinMs;
+        var maxWithin = 0L;
+        long? smallestStepMs = null;
+
+        for (var i = 1; i < before.Count; i++)
+        {
+            var shiftMs = (long)Math.Round((after[i] - before[i]) * 1000.0);
+            largestShift = Math.Max(largestShift, Math.Abs(shiftMs));
+
+            if (Math.Abs(shiftMs - runMaxMs) > stepToleranceMs || Math.Abs(shiftMs - runMinMs) > stepToleranceMs)
+            {
+                // A new piece: close the one that ran so far, and start this one. The jump between the two
+                // pieces is recorded, because a ramp is a long series of jumps the size of one sample.
+                maxWithin = Math.Max(maxWithin, runMaxMs - runMinMs);
+                var stepMs = Math.Abs(shiftMs - previousPieceMs);
+                smallestStepMs = smallestStepMs is null ? stepMs : Math.Min(smallestStepMs.Value, stepMs);
+                previousPieceMs = shiftMs;
+                segments++;
+                runMinMs = shiftMs;
+                runMaxMs = shiftMs;
+                continue;
+            }
+
+            runMinMs = Math.Min(runMinMs, shiftMs);
+            runMaxMs = Math.Max(runMaxMs, shiftMs);
+        }
+
+        maxWithin = Math.Max(maxWithin, runMaxMs - runMinMs);
+        return new SegmentStructure(segments, maxWithin, largestShift, smallestStepMs ?? 0);
+    }
+
+    /// <summary>
+    /// Decides whether a piecewise reading of the engine's answer is trustworthy enough to write.
+    /// </summary>
+    /// <remarks>
+    /// The bar is the one the plugin already uses for "these cues moved together" - the spread ceiling that
+    /// <see cref="RulerSpreadTooWide"/> refuses a subtitle ruler past (a quarter of the configured reference
+    /// ceiling, so it carries no constant of its own) - plus the search window every displacement must stay
+    /// inside, and every step between two pieces at least that large. A *rescale* cannot pass it: a ramp is a
+    /// long series of jumps one engine sample (10 ms) wide, so either it reads as one piece whose spread is the
+    /// whole drift, or as a thousand pieces whose steps are 10 ms - both are refused, by the same tolerance. A
+    /// staircase the engine paid a split penalty for is what can pass: few pieces, each flat, each step real.
+    /// <para>
+    /// The residual risk, stated rather than hidden: a wrong answer that happens to be stepwise and flat would
+    /// be accepted. The engine charges `split-penalty` seconds of overlap per step, so a staircase is expensive
+    /// to fake, and the subtitle-ruler cross-check (S31) is unaffected - it reads the median.
+    /// </para>
+    /// </remarks>
+    /// <param name="structure">The measured structure.</param>
+    /// <param name="spreadCeilingMs">How far the displacement may vary inside one piece.</param>
+    /// <param name="windowMs">The search window a displacement must stay inside.</param>
+    /// <returns>True when the piecewise reading holds.</returns>
+    internal static bool PiecewiseHolds(SegmentStructure structure, double spreadCeilingMs, double windowMs)
+        => structure.Segments >= 2
+           && structure.MaxWithinSpreadMs <= Math.Max(1.0, spreadCeilingMs)
+           && structure.SmallestStepMs >= Math.Max(1.0, spreadCeilingMs)
+           && structure.LargestShiftMs <= windowMs;
 
     /// <summary>
     /// Framerate pairs ffsubsync can legitimately be correcting: 25/23.976 (PAL film speedup),
@@ -5645,8 +5770,29 @@ public class SubSyncService : IDisposable
 
             // Nothing destructive is ever written: a measured rescale that was not asked for (or that
             // is not a real framerate pair) means the engine moved the timeline, and the source
-            // subtitle stays untouched while the job says exactly why.
+            // subtitle stays untouched while the job says exactly why. A *piecewise* answer is the one
+            // exception, and only when the plugin asked for one (C2): see PiecewiseHolds.
+            var piecewiseRequested = Configuration.SettingsValidation.SplitPenaltyOf(config) > 0;
+            var structure = piecewiseRequested && measured is not null
+                ? MeasureSegmentStructure(engineInput, tempOutput, EngineSampleMs)
+                : null;
+            var piecewiseHolds = structure is { } pieces
+                && PiecewiseHolds(pieces, spreadCeilingMs, Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 1000.0);
+            if (piecewiseHolds)
+            {
+                _logger.LogInformation(
+                    "Sync job {JobId}: the piecewise reading holds ({Segments} segment(s), {Spread} ms within a segment at most) - writing it",
+                    job.Id,
+                    structure!.Value.Segments,
+                    structure.Value.MaxWithinSpreadMs);
+                PluginLog.Info(
+                    $"[{job.Id}] offsets: the engine's answer is piecewise ({structure.Value.Segments} segment(s), at most "
+                    + $"{structure.Value.MaxWithinSpreadMs} ms of spread inside one, largest step {structure.Value.LargestShiftMs} ms) "
+                    + $"- the linear reading of it is {measured!.Value.Ratio:0.0000}x, which is a step and not a rescale");
+            }
+
             if (measured is { } scaled
+                && !piecewiseHolds
                 && !IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, Configuration.SettingsValidation.MaxOffsetSecondsOf(config), config.FixFramerate))
             {
                 var span = videoDuration > TimeSpan.Zero
@@ -5696,6 +5842,23 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"[{job.Id}] note: aligned to the reference subtitle {referenceSpec} at {fromReferenceNote.ShiftMs} ms "
                     + "- check the result; a shift this size usually means that track is not the same cut");
+
+
+                // The ruler's shape score is logged as context only. It was built as a gate in front of this
+                // cross-check and rejected, on measurement rather than taste: a ruler that is the same cut as the
+                // film but offset from it correlates with the target perfectly and scores exactly like a correct
+                // ruler (0.833 on the S31 fixture at +20 s, which is right, and at +25 s, which is wrong), so a
+                // score-based skip writes a wrong file in precisely the case this cross-check exists for. The
+                // score assumes the peak is centred on the search window too, so a 0.95 bar is unreachable for any
+                // ruler that asks for a real shift (0.833 is the ceiling). See docs/EVIDENCE_s31_shape_gate.md.
+                var rulerShape = SubtitleRulerShape.Score(
+                    engineInput,
+                    referenceArg,
+                    Configuration.SettingsValidation.MaxOffsetSecondsOf(config));
+                PluginLog.Info(
+                    $"[{job.Id}] ruler shape: "
+                    + (rulerShape is { } shape ? shape.Describe() : "not measurable (the two tracks could not be read as subtitles)")
+                    + " \u2014 context only; the audio cross-check runs either way");
 
                 var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");
                 SafeDelete(crossCheckOutput);
@@ -6300,6 +6463,20 @@ public class SubSyncService : IDisposable
     {
         _disposing = true;
 
+        // The sweep's records are written in batches, so the last few are still in memory here. Shutdown is
+        // the last guaranteed point to get them on disk.
+        try
+        {
+            if (_sweepState.IsValueCreated)
+            {
+                _sweepState.Value.Flush();
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Failed to flush the sweep state on shutdown");
+        }
+
         // Last write wins on shutdown, so the history a restart comes back to is the one just left.
         BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());
 
@@ -6464,6 +6641,8 @@ public class SubSyncService : IDisposable
             args.Add(referenceStream);
         }
 
+        args.AddRange(PiecewiseArgs(config));
+
         if (serializeSpeech)
         {
             // Writes the speech signal next to the reference path we passed in (a
@@ -6479,6 +6658,24 @@ public class SubSyncService : IDisposable
         }
 
         return args;
+    }
+
+    /// <summary>
+    /// The engine arguments that allow a piecewise alignment, if the setting asks for one.
+    /// </summary>
+    /// <remarks>
+    /// The alass idea, reached through this engine's own <c>--split-penalty</c>: the offset may change across
+    /// the timeline, charged this many seconds of overlap per split. 0 - the default, and every release so
+    /// far - leaves the engine's single global offset in place.
+    /// </remarks>
+    /// <param name="config">The stored configuration.</param>
+    /// <returns>The arguments to add, empty when a single global offset is wanted.</returns>
+    public static List<string> PiecewiseArgs(PluginConfiguration config)
+    {
+        var penalty = Configuration.SettingsValidation.SplitPenaltyOf(config);
+        return penalty > 0
+            ? new List<string> { "--split-penalty", penalty.ToString("0.###", CultureInfo.InvariantCulture) }
+            : new List<string>();
     }
 
     /// <summary>

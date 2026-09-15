@@ -359,7 +359,9 @@ S31_MEDIA = S31_DIR / 'S31 Episode (2026).mkv'
 S31_TARGET = S31_DIR / 'S31 Episode (2026).eng.srt'
 S31_RULER = S31_DIR / 'S31 Episode (2026).pol.srt'
 S31_SCRATCH = pathlib.Path('/tmp/s31-fixture')
-S31_SPAN_STRETCH = 1.02      # a different cut: inside the plugin's 3 % span check
+S31_SPAN_STRETCH = 1.02
+# The offset ruler's shift: same cut as the film, 25 s further along (a version with a longer intro).
+S31_OFFSET_RULER_SHIFT = 25.0      # a different cut: inside the plugin's 3 % span check
 S31_TARGET_SHIFT = 5.0            # the target's own misalignment, in seconds (other-cut variant)
 S31_TARGET_SHIFT_CORRECT = 20.0   # the same, for the correct-ruler variant: big enough to reach the band
 
@@ -423,10 +425,18 @@ def prepare_s31_fixtures(ruler_kind: str = 'other-cut') -> None:
     # A correct ruler still has to reach the cross-check band for the check to be exercised at all: its own
     # demand is the target's shift, so that variant uses a larger one (20 s > the 10 s band at the default
     # ceiling). The other-cut variant keeps 5 s, where the ruler's *own* demand lands at ~24 s.
-    shift = S31_TARGET_SHIFT if ruler_kind != 'correct' else S31_TARGET_SHIFT_CORRECT
+    shift = S31_TARGET_SHIFT if ruler_kind not in ('correct', 'offset') else S31_TARGET_SHIFT_CORRECT
+    if ruler_kind == 'offset':
+        shift = 0.0
     target.write_text(_rerender(source, lambda x: x + shift), encoding='utf-8')
-    ruler.write_text(_rerender(source, (lambda x: x) if ruler_kind == 'correct'
-                               else (lambda x: x * S31_SPAN_STRETCH)), encoding='utf-8')
+    if ruler_kind == 'offset':
+        # The blind spot: the ruler is the same cut as the film, just offset (a version with a longer
+        # intro). It correlates with the target perfectly, so the shape score cannot tell it from a
+        # correct ruler - which is exactly what this variant exists to measure.
+        ruler.write_text(_rerender(source, lambda x: x + S31_OFFSET_RULER_SHIFT), encoding='utf-8')
+    else:
+        ruler.write_text(_rerender(source, (lambda x: x) if ruler_kind == 'correct'
+                                   else (lambda x: x * S31_SPAN_STRETCH)), encoding='utf-8')
 
     if not S31_MEDIA.exists():
         subprocess.run(
@@ -444,7 +454,8 @@ def prepare_s31_fixtures(ruler_kind: str = 'other-cut') -> None:
     log(f"[rig] S31 fixture ready ({ruler_kind} ruler): {source.count(' --> ')} cue(s) per track - "
         f"target shifted +{shift:0.0f} s (eng), ruler "
         + ('the film\'s own timeline (pol)' if ruler_kind == 'correct'
-           else f'stretched {S31_SPAN_STRETCH}x (pol)'))
+           else (f'the same cut offset +{S31_OFFSET_RULER_SHIFT:0.0f} s (pol)' if ruler_kind == 'offset'
+                 else f'stretched {S31_SPAN_STRETCH}x (pol)')))
 
 
 def scenario_s31_wrong_ruler(rig, args, ctx):
@@ -501,14 +512,17 @@ def scenario_s31_wrong_ruler(rig, args, ctx):
     confirm = [ln for ln in lines if 'confirmed by' in ln]
     discarded = [ln for ln in lines if 'discarded as a ruler' in ln]
     written = [ln for ln in lines if 'completed:' in ln]
-    ctx['observations'] = scores + cross + disagree + confirm + discarded + written
+    shape = [ln for ln in lines if 'ruler shape:' in ln]
+    skipped = [ln for ln in lines if 'audio cross-check is skipped' in ln]
+    ctx['observations'] = scores + shape + cross + disagree + confirm + discarded + written
     other_cut = getattr(args, 's31_ruler', 'other-cut') != 'correct'
 
     assertions = [
         ('the engine\'s alignment score is in the log', bool(scores),
          scores[0].split('INFO')[-1].strip()[:160] if scores else '(no score line: the build throws it away)'),
         ('a suspicious ruler is cross-checked against the film\'s own audio', bool(cross),
-         cross[0].split('INFO')[-1].strip()[:150] if cross else '(no cross-check ran)'),
+         cross[0].split('INFO')[-1].strip()[:150] if cross
+         else '(no cross-check ran)'),
     ]
     if other_cut:
         assertions += [
@@ -524,8 +538,12 @@ def scenario_s31_wrong_ruler(rig, args, ctx):
         ]
     else:
         assertions += [
-            ('a correct ruler is confirmed by the audio, not refused', bool(confirm),
-             confirm[0].split('INFO')[-1].strip()[:180] if confirm else '(the audio never confirmed it)'),
+            ('the ruler\'s shape score is in the log, as context', bool(shape),
+             shape[0].split('INFO')[-1].strip()[:180] if shape else '(no shape score line)'),
+            ('the audio cross-check runs whatever the shape score says, and confirms the ruler',
+             bool(cross) and bool(confirm),
+             (confirm[0].split('INFO')[-1].strip()[:180] if confirm
+              else (cross[0].split('INFO')[-1].strip()[:150] if cross else '(no cross-check ran)'))),
             ('nothing was discarded when the ruler was right', not discarded,
              discarded[0].split('INFO')[-1].strip()[:150] if discarded else 'no discard, as expected'),
             ('a subtitle was produced', bool(written),
@@ -980,7 +998,7 @@ def main() -> int:
     parser.add_argument('--timeout', type=float, default=900.0, help='seconds to wait for the evidence')
     parser.add_argument('--settle', type=float, default=20.0, help='seconds after a refresh before queueing')
     parser.add_argument('--keep-rig', action='store_true', help='leave the server running for inspection')
-    parser.add_argument('--s31-ruler', choices=('other-cut', 'correct'), default='other-cut',
+    parser.add_argument('--s31-ruler', choices=('other-cut', 'correct', 'offset'), default='other-cut',
                         help="S31's ruler: the same track from a different cut, or the film's own timeline")
     parser.add_argument('--fast-files', type=int, default=12,
                         help='walk fixtures (one engine run each): the reference needs 8 to count, so a few extra '

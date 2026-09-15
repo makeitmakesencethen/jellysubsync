@@ -41,9 +41,27 @@ public class SweepState
 {
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
+    /// <summary>
+    /// How many records may sit in memory before the state file is written again.
+    /// </summary>
+    /// <remarks>
+    /// Every write serializes the whole dictionary, so saving per record made a bulk run quadratic in the
+    /// size of the state: a 2 500-task batch over a state holding a few thousand entries rewrote the file
+    /// - and every entry in it - a few thousand times, for a file that only ever grows. Batching bounds
+    /// what an abrupt shutdown loses to the last few records, and those files are simply evaluated again by
+    /// the next sweep: far cheaper than the write amplification. The same reasoning, and the same order of
+    /// magnitude, as the skip-cache in Marnalas/jellyfin-subsync (MIT).
+    /// </remarks>
+    public const int SaveBatchSize = 25;
+
+    /// <summary>How long a pending record may wait for a write, so a slow trickle still reaches disk.</summary>
+    public static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(30);
+
     private readonly object _lock = new();
     private readonly string _filePath;
     private Dictionary<string, SweepEntry> _entries;
+    private int _pendingWrites;
+    private DateTime _lastSaveUtc = DateTime.UtcNow;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="SweepState"/> class.
@@ -59,6 +77,29 @@ public class SweepState
     /// Gets the max number of entries kept in the state file.
     /// </summary>
     public const int MaxEntries = 5000;
+
+    /// <summary>
+    /// Gets how many times the state file has been written since this instance was created.
+    /// </summary>
+    /// <remarks>
+    /// Reported rather than inferred: a bulk run's cost here is the number of whole-file writes it caused,
+    /// and nothing else in the log says how many there were.
+    /// </remarks>
+    public int Saves { get; private set; }
+
+    /// <summary>
+    /// Gets how many records are held in memory and not yet written.
+    /// </summary>
+    public int PendingWrites
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return _pendingWrites;
+            }
+        }
+    }
 
     /// <summary>
     /// Looks up an entry for a source path.
@@ -129,7 +170,34 @@ public class SweepState
             }
 
             entry.LastTouchedUtc = DateTime.UtcNow;
+            _pendingWrites++;
+
+            // Written in batches, not per record: the file holds the whole dictionary, so saving every
+            // record makes a long run quadratic in the number of records it makes.
+            if (_pendingWrites >= SaveBatchSize || DateTime.UtcNow - _lastSaveUtc >= SaveInterval)
+            {
+                SaveLocked();
+            }
+        }
+    }
+
+    /// <summary>
+    /// Writes whatever is pending. Called when a run ends and when the plugin shuts down, because those are
+    /// the only points that are guaranteed to happen - a canceled run's finished files still deserve to be
+    /// recognized by the next sweep.
+    /// </summary>
+    /// <returns>True when the file was actually written.</returns>
+    public bool Flush()
+    {
+        lock (_lock)
+        {
+            if (_pendingWrites == 0)
+            {
+                return false;
+            }
+
             SaveLocked();
+            return true;
         }
     }
 
@@ -187,10 +255,18 @@ public class SweepState
             var temp = _filePath + ".tmp";
             File.WriteAllText(temp, JsonSerializer.Serialize(_entries, JsonOptions));
             File.Move(temp, _filePath, overwrite: true);
+            Saves++;
         }
         catch (Exception)
         {
             // Persistence failure is non-fatal: the sweep still runs this run.
+        }
+        finally
+        {
+            // Whether it landed or not, the batch is not re-tried on the next record: a state file that
+            // cannot be written would otherwise be re-serialized on every single record.
+            _pendingWrites = 0;
+            _lastSaveUtc = DateTime.UtcNow;
         }
     }
 

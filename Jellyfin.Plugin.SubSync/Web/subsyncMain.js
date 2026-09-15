@@ -369,6 +369,7 @@
             $('ss-vad').value = c.VadMethod || 'subs_then_webrtc';
             $('ss-maxoffset').value = c.MaxOffsetSeconds || 60;
             $('ss-maxrefoffset').value = c.MaxSubtitleReferenceOffsetSeconds || 30;
+            $('ss-splitpenalty').value = c.SplitPenalty || 0;
             $('ss-maxsub').value = c.MaxSubtitleSeconds || 10;
             $('ss-encoding').value = c.OutputEncoding || 'utf-8';
             $('ss-ffmpeg').value = c.FfmpegPath || '';
@@ -397,6 +398,7 @@
             c.VadMethod = $('ss-vad').value;
             c.MaxOffsetSeconds = parseInt($('ss-maxoffset').value, 10) || 60;
             c.MaxSubtitleReferenceOffsetSeconds = parseFloat($('ss-maxrefoffset').value) || 30;
+            c.SplitPenalty = parseFloat($('ss-splitpenalty').value) || 0;
             c.MaxSubtitleSeconds = parseFloat($('ss-maxsub').value) || 10;
             c.OutputEncoding = $('ss-encoding').value || 'utf-8';
             c.FfmpegPath = $('ss-ffmpeg').value;

@@ -2590,9 +2590,267 @@ Check("a missing history file is an empty history, not an error (S25)",
 Console.WriteLine("---- S25 sample: what a restart now finds ----");
 Console.WriteLine("   " + BatchHistory.DescribeRestore(historyBack.Count, historyBack.Sum(b => b.Jobs.Count), historyPath));
 
+// ---------------- C1 was here: the sampled audio reference, measured and left out ----------------
+// tympanix/subsync's bounded slice, which this engine implements as --multi-segment-sync, was built and
+// measured on the 2,4 GB episode (FIX_PLAN C1): 16 segments answered correctly at two different shifts and
+// halved the pass, while 8 segments answered 63 s and 142 s wrong on the same file, in a shape the plugin's
+// own guard accepts as a 25/23,976 PAL correction. No segment count is both reliably right and much faster,
+// so the setting is not in the plugin - the numbers are in the row, and the harness that produced them is
+// tests/backend/engine_sampling_bench.py.
+
+// ---------------- C2: the piecewise (split-penalty) alignment ----------------
+Check("no split penalty emits no piecewise flag (C2)",
+    SubSyncService.PiecewiseArgs(new PluginConfiguration { SplitPenalty = 0 }).Count == 0);
+var piecewise = SubSyncService.PiecewiseArgs(new PluginConfiguration { SplitPenalty = 6 });
+Check("a split penalty is handed over in seconds of overlap (C2)",
+    piecewise.Count == 2 && piecewise[0] == "--split-penalty" && piecewise[1] == "6",
+    string.Join(" ", piecewise));
+Check("a split penalty outside the range is clamped, not stored as typed (C2)",
+    SettingsValidation.SplitPenaltyOf(new PluginConfiguration { SplitPenalty = 999 }) == 50
+    && SettingsValidation.SplitPenaltyOf(new PluginConfiguration { SplitPenalty = -3 }) == 0
+    && SettingsValidation.SplitPenaltyOf(new PluginConfiguration { SplitPenalty = double.NaN }) == 0);
+var penaltyNotes = SettingsValidation.Apply(new PluginConfiguration { SplitPenalty = 999 });
+Check("a split penalty outside the range says so (C2)",
+    penaltyNotes.Any(n => n.Contains("Split penalty")), string.Join(" | ", penaltyNotes));
+
+// ---------------- C2, measured: what a step looks like to each reading ----------------
+// Reproduced from the engine run of 2026-09-15: the episode's own subtitle with a 20 s discontinuity at its
+// midpoint. The piecewise answer moves the first half +7,54 s and the second +27,54 s; each half is flat, and
+// the least-squares line through the two is 1,01082x. The two readings disagree, which is the whole point.
+string Stamp(double ms)
+{
+    var total = (long)Math.Round(Math.Max(0, ms));
+    return (total / 3600000).ToString("00") + ":" + ((total / 60000) % 60).ToString("00") + ":"
+        + ((total / 1000) % 60).ToString("00") + "," + (total % 1000).ToString("000");
+}
+
+string BuildSrt(int count, double durationMs, Func<int, double> shiftMs)
+{
+    var blocks = new List<string>(count);
+    for (var i = 0; i < count; i++)
+    {
+        var start = i * 1000.0;
+        var shift = shiftMs(i);
+        blocks.Add((i + 1) + "\n" + Stamp(start + shift) + " --> " + Stamp(start + shift + durationMs) + "\nline " + (i + 1));
+    }
+
+    return string.Join("\n\n", blocks) + "\n";
+}
+
+var pieceDir = Path.Combine(Path.GetTempPath(), "piecewise-check-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(pieceDir);
+var flatIn = Path.Combine(pieceDir, "flat-in.srt");
+File.WriteAllText(flatIn, BuildSrt(1000, 900, _ => 0));
+var stepOut = Path.Combine(pieceDir, "step-out.srt");
+File.WriteAllText(stepOut, BuildSrt(1000, 900, i => i < 500 ? 7540 : 27540));
+var rampOut = Path.Combine(pieceDir, "ramp-out.srt");
+File.WriteAllText(rampOut, BuildSrt(1000, 900, i => i * 10.82));
+var farOut = Path.Combine(pieceDir, "far-out.srt");
+File.WriteAllText(farOut, BuildSrt(1000, 900, i => i < 500 ? 200000 : 220000));
+
+var stepChange = SubSyncService.MeasureSyncChange(flatIn, stepOut);
+var stepStructure = SubSyncService.MeasureSegmentStructure(flatIn, stepOut, SubSyncService.EngineSampleMs);
+var rampStructure = SubSyncService.MeasureSegmentStructure(flatIn, rampOut, SubSyncService.EngineSampleMs);
+var farStructure = SubSyncService.MeasureSegmentStructure(flatIn, farOut, SubSyncService.EngineSampleMs);
+const double SpreadCeiling = 7500;   // a quarter of the 30 s subtitle-reference ceiling, as the plugin uses it
+const double Window = 180000;        // the default search window
+
+Check("a 20 s step at the midpoint reads as two pieces, each flat (C2)",
+    stepStructure is { Segments: 2, MaxWithinSpreadMs: 0, SmallestStepMs: 20000 },
+    stepStructure is { } st ? $"segments={st.Segments} within={st.MaxWithinSpreadMs} step={st.SmallestStepMs}" : "null");
+// The step is what the line cannot describe: its size sets the ratio, so the same 20 s step reads 1,03000x over
+// this 17-minute fixture and 1,01082x over the 48-minute episode the numbers came from - and neither is a
+// framerate pair, so the guard refuses a result that is right in both halves. That is the interaction this
+// reading exists for.
+Check("the linear reading of that same step is a ratio the plugin's own guard refuses (C2)",
+    stepChange is { } sc && sc.Ratio > 1.02
+    && !SubSyncService.IsRescaleAcceptable(sc.Ratio, sc.ShiftMs, 180, true)
+    && !SubSyncService.IsRescaleAcceptable(1.01082, 7540, 180, true),
+    stepChange is { } s2 ? $"ratio={s2.Ratio:0.00000} median={s2.ShiftMs} ms" : "null");
+Check("the piecewise reading of that step holds (C2)",
+    stepStructure is { } s3 && SubSyncService.PiecewiseHolds(s3, SpreadCeiling, Window));
+Check("a rescale of the same size is not accepted as a staircase (C2)",
+    rampStructure is { } rs && !SubSyncService.PiecewiseHolds(rs, SpreadCeiling, Window),
+    rampStructure is { } rs2 ? $"segments={rs2.Segments} within={rs2.MaxWithinSpreadMs} step={rs2.SmallestStepMs}" : "null");
+Check("a piecewise answer that leaves the search window is refused (C2)",
+    farStructure is { } fs && fs.Segments == 2 && !SubSyncService.PiecewiseHolds(fs, SpreadCeiling, Window));
+Check("a single global offset is not mistaken for a piecewise answer (C2)",
+    !SubSyncService.PiecewiseHolds(new SubSyncService.SegmentStructure(1, 0, 7540, 0), SpreadCeiling, Window));
+Directory.Delete(pieceDir, recursive: true);
+
+// ---------------- C: the sweep state is written in batches ----------------
+// The candidate (from Marnalas/jellyfin-subsync, MIT, same reasoning as its skip-cache): every write
+// serializes the whole dictionary, so a save per record makes a bulk run quadratic in its record count.
+var sweepDir = Path.Combine(Path.GetTempPath(), "sweep-state-check-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(sweepDir);
+string[] sweepFiles = new string[100];
+for (var i = 0; i < sweepFiles.Length; i++)
+{
+    sweepFiles[i] = Path.Combine(sweepDir, "sub" + i + ".srt");
+    File.WriteAllText(sweepFiles[i], "1\n00:00:01,000 --> 00:00:02,000\nline " + i + "\n");
+}
+
+var batched = new SweepState(Path.Combine(sweepDir, "batched.json"));
+foreach (var file in sweepFiles)
+{
+    batched.Record(file, ok: true, outputPath: file + ".SYNCED.srt", error: null);
+}
+var batchedSaves = batched.Saves;
+var batchedPending = batched.PendingWrites;
+Check("100 records write the state 4 times, not 100 (the write amplification)",
+    batchedSaves == 4 && batchedPending == 0,
+    "saves=" + batchedSaves + " pending=" + batchedPending);
+Check("the batched records are still in memory and none was dropped",
+    batchedPending == 0 && batched.Get(sweepFiles[0]) is { FailStreak: 0 } && batched.Get(sweepFiles[99]) is not null);
+var flushed = batched.Flush();
+Check("flushing an already-written batch writes nothing (a drain is not a save storm)",
+    !flushed && batched.Saves == batchedSaves, "flushed=" + flushed + " saves=" + batched.Saves);
+
+// A record that cannot be flushed immediately (the file is gone) must not be lost, and a remainder smaller
+// than the batch size must reach disk on Flush - that is the point of the flush, not a nicety.
+var remainder = new SweepState(Path.Combine(sweepDir, "remainder.json"));
+foreach (var file in sweepFiles.Take(7))
+{
+    remainder.Record(file, ok: true, outputPath: file + ".SYNCED.srt", error: null);
+}
+Check("fewer records than one batch are held back, not written per record",
+    remainder.Saves == 0 && remainder.PendingWrites == 7, "saves=" + remainder.Saves + " pending=" + remainder.PendingWrites);
+Check("Flush writes what is pending", remainder.Flush() && remainder.Saves == 1);
+var reloaded = new SweepState(Path.Combine(sweepDir, "remainder.json"));
+Check("what was written is what a restart reads back",
+    reloaded.Get(sweepFiles[0]) is not null && reloaded.Get(sweepFiles[6]) is not null && reloaded.Get(sweepFiles[7]) is null,
+    "entry 0 and 6 present, 7 absent");
+
+// Sample: what the two write patterns cost, measured on the same code path - a Flush after every record is
+// exactly what the class did before this change, so the pair is the before and the after of one comparison.
+// It is printed rather than asserted: this is a measurement, and a timing assertion is a flaky check.
+var measureDir = Path.Combine(sweepDir, "measure");
+Directory.CreateDirectory(measureDir);
+string[] measureFiles = new string[2000];
+for (var i = 0; i < measureFiles.Length; i++)
+{
+    // Distinct files, so the state the write serializes actually grows as the run goes - that is the
+    // quadratic part of the per-record pattern, and it is what the two numbers below have to show.
+    measureFiles[i] = Path.Combine(sweepDir, "m" + i + ".srt");
+    File.WriteAllText(measureFiles[i], "1\n00:00:01,000 --> 00:00:02,000\nline " + i + "\n");
+}
+
+var perRecord = new SweepState(Path.Combine(measureDir, "per-record.json"));
+var perRecordWatch = System.Diagnostics.Stopwatch.StartNew();
+foreach (var file in measureFiles)
+{
+    perRecord.Record(file, ok: true, outputPath: file + ".SYNCED.srt", error: null);
+    perRecord.Flush();
+}
+perRecordWatch.Stop();
+var perRecordBytes = new FileInfo(Path.Combine(measureDir, "per-record.json")).Length;
+var perRecordSaves = perRecord.Saves;
+
+var inBatches = new SweepState(Path.Combine(measureDir, "batched.json"));
+var batchWatch = System.Diagnostics.Stopwatch.StartNew();
+foreach (var file in measureFiles)
+{
+    inBatches.Record(file, ok: true, outputPath: file + ".SYNCED.srt", error: null);
+}
+inBatches.Flush();
+batchWatch.Stop();
+var batchBytes = new FileInfo(Path.Combine(measureDir, "batched.json")).Length;
+
+Console.WriteLine("---- C: what 2000 sweep records cost, written per record and written in batches ----");
+Console.WriteLine("   per record: " + perRecordSaves + " write(s), " + perRecordWatch.ElapsedMilliseconds + " ms, "
+    + (perRecordSaves * perRecordBytes / 1024) + " KB written");
+Console.WriteLine("   batched:    " + inBatches.Saves + " write(s), " + batchWatch.ElapsedMilliseconds + " ms, "
+    + (inBatches.Saves * batchBytes / 1024) + " KB written");
+Console.WriteLine("   same state either way: " + perRecord.PendingWrites + " and " + inBatches.PendingWrites + " pending");
+Directory.Delete(sweepDir, recursive: true);
+
+// ---------------- the shape gate in front of the audio cross-check (s31-quality) ----------------
+// The gate's own two branches, on the real scoring code, plus the limitation it carries: a ruler that
+// is the same cut as the film but offset correlates with the target perfectly and is trusted. That
+// property is pinned here on purpose - it is what the audio cross-check is still for.
+string GateStamp(double ms)
+{
+    var total = (long)Math.Round(Math.Max(0, ms));
+    return (total / 3600000).ToString("00") + ":" + ((total / 60000) % 60).ToString("00") + ":"
+        + ((total / 1000) % 60).ToString("00") + "," + (total % 1000).ToString("000");
+}
+
+// Cue spacing is irregular on purpose, drawn from a fixed-seed LCG: a track whose cues sit at regular
+// intervals makes a comb of equally good alignments one spacing apart, and the peak of that comb is not
+// a peak (measured: quality 0.003 for a ruler on the film's own timeline). Real subtitles are irregular.
+string GateSrt(int count, double shiftSeconds, bool stretch = false)
+{
+    var blocks = new List<string>(count);
+    var cursor = 33000.0;
+    var seed = 12345u;
+    for (var i = 0; i < count; i++)
+    {
+        var placed = (cursor * (stretch ? 1.02 : 1.0)) + (shiftSeconds * 1000.0);
+        blocks.Add((i + 1) + "\n" + GateStamp(placed) + " --> " + GateStamp(placed + 900)
+            + "\nline " + (i + 1));
+        seed = (seed * 1103515245u) + 12345u;
+        cursor += 700.0 + ((seed >> 16) % 2000);
+    }
+
+    return string.Join("\n\n", blocks) + "\n";
+}
+
+var gateDir = Path.Combine(Path.GetTempPath(), "ruler-shape-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(gateDir);
+var gateTarget = Path.Combine(gateDir, "target.srt");
+File.WriteAllText(gateTarget, GateSrt(600, 0));
+var gateRulerSame = Path.Combine(gateDir, "ruler-same.srt");
+File.WriteAllText(gateRulerSame, GateSrt(600, 0));            // the film's own timeline: the ruler is right
+var gateRulerOffset = Path.Combine(gateDir, "ruler-offset.srt");
+File.WriteAllText(gateRulerOffset, GateSrt(600, 25));         // same cut, 25 s further along: the blind spot
+var gateRulerStretched = Path.Combine(gateDir, "ruler-stretched.srt");
+File.WriteAllText(gateRulerStretched, GateSrt(600, 0, stretch: true));
+
+var sameShape = SubtitleRulerShape.Score(gateTarget, gateRulerSame, 60);
+var offsetShape = SubtitleRulerShape.Score(gateTarget, gateRulerOffset, 60);
+var stretchedShape = SubtitleRulerShape.Score(gateTarget, gateRulerStretched, 60);
+
+Check("a ruler on the film's own timeline scores above the threshold (s31-quality)",
+    sameShape is { Trusted: true },
+    sameShape is { } ss ? ss.Describe() : "null");
+Check("a stretched ruler (another cut) scores below the threshold (s31-quality)",
+    stretchedShape is { Trusted: false },
+    stretchedShape is { } stretchedNote ? stretchedNote.Describe() : "null");
+Check("a ruler that is the same cut but offset scores above the threshold too - the blind spot the audio check covers (s31-quality)",
+    offsetShape is { Trusted: true, PeakShiftMs: 25000 },
+    offsetShape is { } os ? os.Describe() : "null");
+Check("an unreadable or too-short ruler scores nothing (s31-quality)",
+    SubtitleRulerShape.Score(gateTarget, Path.Combine(gateDir, "missing.srt"), 60) is null,
+    "null in, nothing scored");
+Directory.Delete(gateDir, recursive: true);
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
+
+
+def run_gate_source_checks():
+    """Source-level checks: the shape score is diagnostic context, and the audio cross-check always runs."""
+    service_path = pathlib.Path(REPO) / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
+    service = service_path.read_text(encoding='utf-8', errors='replace')
+    score_at = service.find('var rulerShape = SubtitleRulerShape.Score(')
+    context_at = service.find('context only; the audio cross-check runs either way')
+    cross_at = service.find('var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");')
+    failures = 0
+    checks = [
+        ('the ruler is still scored, and the score is logged before the cross-check (s31-quality)',
+         0 < score_at < cross_at, f'score@{score_at} cross@{cross_at}'),
+        ('the score never gates the cross-check: no shape condition wraps it (s31-quality)',
+         'shapeTrusted' not in service and 'if (!shapeTrusted)' not in service, ''),
+        ('the log says the score is context only (s31-quality)',
+         0 < context_at < cross_at, f'context@{context_at}'),
+    ]
+    print()
+    for name, ok, detail in checks:
+        print(('PASS  ' if ok else 'FAIL  ') + name + (f'   [{detail}]' if detail and not ok else ''))
+        if not ok:
+            failures += 1
+    return failures
 
 
 def run_page_checks():
@@ -2985,7 +3243,7 @@ def run_page_checks():
     main_js = main_html  # the page's script is checked with its markup, as everywhere else here
 
     report('settings are validated wherever they are stored, and the page is told what changed',
-           'var notes = Configuration.SettingsValidation.Apply(wanted);' in controller_source
+           'SettingsValidation.Apply(wanted);' in controller_source
            and 'Settings/ValidationNotes' in controller_source
            and 'Plugin.LastSettingsNotes = notes;' in controller_source
            and 'SettingsValidation.Apply(pluginConfiguration)' in plugin_source
@@ -2993,15 +3251,15 @@ def run_page_checks():
            and 'SubSync settings adjusted' in plugin_source)
 
     report('the engine and the plugin\'s own heuristics read the validated numbers, never the stored ones',
-           service_source.count('Configuration.SettingsValidation.MaxOffsetSecondsOf(config)') >= 8
-           and 'Configuration.SettingsValidation.MaxSubtitleSecondsOf(config)' in service_source
-           and 'Configuration.SettingsValidation.MaxSubtitleReferenceOffsetSecondsOf(config)' in service_source
-           and 'Configuration.SettingsValidation.OutputEncodingOf(config)' in service_source
+           service_source.count('SettingsValidation.MaxOffsetSecondsOf(config)') >= 8
+           and 'SettingsValidation.MaxSubtitleSecondsOf(config)' in service_source
+           and 'SettingsValidation.MaxSubtitleReferenceOffsetSecondsOf(config)' in service_source
+           and 'SettingsValidation.OutputEncodingOf(config)' in service_source
            and 'config.MaxOffsetSeconds' not in service_source
            and 'config.MaxSubtitleSeconds' not in service_source)
 
     report('a configured ffmpeg that is not there is not handed to the engine',
-           'Configuration.SettingsValidation.BinaryPathIsUsable(config.FfmpegPath)' in service_source)
+           'SettingsValidation.BinaryPathIsUsable(config.FfmpegPath)' in service_source)
 
     def _bound(name):
         found = re.search(rf'\b{name} = ([0-9.]+);', validation_source)
@@ -3237,7 +3495,7 @@ def run_page_checks():
            and 'refusing a reference-derived shift' not in service)
     report('the offset window is a search range: a result on it is retried wider, and only a definitive answer is written',
            'public int MaxOffsetSeconds { get; set; } = 180;' in config_source
-           and 'Math.Max(Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 2, 300)' in service
+           and 'MaxOffsetSecondsOf(config) * 2, 300)' in service
            and 'wide-window.srt' in service
            and 'wide-check.srt' in service
            and 'which a window that size cannot be trusted to have found' in service
@@ -3622,9 +3880,11 @@ def main():
     run = subprocess.run([DOTNET, f'{WORK}/bin/Release/net10.0/logictest.dll'], cwd=WORK, capture_output=True, text=True, env=ENV)
     print(run.stdout or run.stderr)
     page_failures = run_page_checks()
-    if page_failures:
-        print(f'{page_failures} FAILURE(S)')
-    return run.returncode or (1 if page_failures else 0)
+    source_failures = run_gate_source_checks()
+    total_failures = page_failures + source_failures
+    if total_failures:
+        print(f'{total_failures} FAILURE(S)')
+    return run.returncode or (1 if total_failures else 0)
 
 
 if __name__ == '__main__':
