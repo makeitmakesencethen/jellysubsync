@@ -1,3 +1,55 @@
+## 2.0.45 (beta)
+
+Two fixes, for the two ways a batch goes wrong without saying so: a subtitle that was only partly read, and a
+job that never finishes.
+
+**A partial extraction is discarded instead of being synced.** The ffmpeg fallback accepted a *failed* run
+whenever a file existed at the output path (`exitCode != 0 && !File.Exists(outputPath)`), so a kill, a decode
+error or a disk that filled up left a **prefix** of the subtitle behind and the engine was handed it as if it
+were the whole track. Reproduced cold with the real ffmpeg: reading a container cut short (the fixture
+truncated to 57 %) exits **0**, writes a well-formed SRT holding **17 of its 30 cues**, and reports the
+truncation only on stderr ("File ended prematurely") - exit code, file structure and size all look healthy, and
+the SRT ends at a cue boundary like any complete one. Every extraction is now judged on four things before
+anything downstream can see it: the exit code, ffmpeg's own statement about the input, the file existing, and
+the file being a structurally complete SRT. A refusal fails the job with the measured reason ("ffmpeg read a
+partial file - it reported 'ended prematurely' - so the 17 cue(s) it produced are only part of the track") and
+deletes the partial; an extraction that was stopped (kill, cancellation, extraction timeout) deletes what it
+wrote before it unwinds, so a partial can never sit in the shared extraction directory for a later job to
+find. A damaged *video* frame ("error while decoding", "corrupt decoded frame") is deliberately not a refusal:
+it cannot lose subtitle cues, and failing a job over it hands the user a problem they cannot act on.
+
+**A job can no longer stay `Running`.** A job left in Running holds its worker slot and keeps its batch
+unfinished, with a restart as the only way out. Two mechanisms, both closed:
+
+* every exit from a job now settles it - including the one that threw before the job's own error handling was
+  reached (a media file that had vanished between queueing and running), which ended the task and left the
+  status at Running for good;
+* a watchdog stops jobs that stop making progress. It separates waiting from wedged because it knows whether a
+  process is running for the job, and when that process last said anything: a job with **no** process and no
+  activity for 15 minutes is stopped, while a job with a live process is judged by that process's own output
+  over 60 minutes. A demux of a large episode over a share, or a feature film's audio analysis (measured: 5
+  minutes of engine silence inside a 6,7-minute run on this server, and a reported 91-minute analysis), is real
+  work with quiet stretches - the engine's stderr carried a line every ~0,5 s while it worked, so silence is
+  the signal and a live process is never judged by the job's own clock. A job waiting for another subtitle of
+  the same file (the file's audio is analysed once and the rest wait on its gate, which can take an hour) is
+  spared for as long as that job is working. A stopped job is failed with the reason and the numbers, its token
+  is cancelled so whatever it was waiting in unwinds and its slot comes back, and the cancellation handler no
+  longer relabels a stopped job "Cancelled by user". The audio-analysis gate wait is cancellable now, so the
+  Kill control reaches a job parked there too (it did not, before).
+
+Both windows are settings - `StuckJobTimeoutMinutes` (default 15) and `WedgedProcessTimeoutMinutes` (default
+60) in the plugin's config.xml, clamped server-side (2-240 and 5-1440) with the adjustment named on save - and
+the plugin log carries the measured numbers when one fires.
+
+Verification: `python3 tests/run_checks.py` passes (744 checks, 0 failures) with 48 new ones - the guard's
+decisions on real files (a killed prefix, a partial that ends inside a cue at exit 0, an empty file, a missing
+file, a malformed cue, and a damaged-video-frame log that must *not* refuse), the real-ffmpeg integration
+through the plugin's own extraction path (a truncated container is refused and nothing is left at the output
+path; the same file whole extracts all 30 cues and the file is kept for the engine), and the watchdog's rules,
+its selection out of a mixed batch, the stop it applies, the terminal-state guarantee and the process registry
+behind it. ffmpeg is not a dependency of the suite: without it the two ffmpeg-backed checks print as SKIP and
+the rest still run.
+
 ## 2.0.44 (beta)
 
 One fix, on the layer that reads the file, and two counters that make it visible.

@@ -54,6 +54,18 @@ public static class SettingsValidation
     /// <summary>Longest extraction timeout, in minutes.</summary>
     public const int ExtractionTimeoutMinutesMax = 240;
 
+    /// <summary>Shortest window in which a running job may show no activity at all.</summary>
+    public const int StuckJobTimeoutMinutesMin = 2;
+
+    /// <summary>Longest window in which a running job may show no activity at all.</summary>
+    public const int StuckJobTimeoutMinutesMax = 240;
+
+    /// <summary>Shortest window a live process may stay silent in, for the wedged-process rule.</summary>
+    public const int WedgedProcessTimeoutMinutesMin = 5;
+
+    /// <summary>Longest window a live process may stay silent in, for the wedged-process rule.</summary>
+    public const int WedgedProcessTimeoutMinutesMax = 1440;
+
     /// <summary>Smallest sweep failure streak the sweep will honour.</summary>
     public const int SweepFailStreakLimitMin = 1;
 
@@ -100,6 +112,18 @@ public static class SettingsValidation
         => double.IsNaN(config.SplitPenalty)
             ? 0
             : Clamp(config.SplitPenalty, SplitPenaltyMin, SplitPenaltyMax);
+
+    /// <summary>Reads the window in which a running job may show no activity at all.</summary>
+    /// <param name="config">The stored configuration.</param>
+    /// <returns>The stored value, brought into range.</returns>
+    public static int StuckJobTimeoutOf(PluginConfiguration config)
+        => Clamp(config.StuckJobTimeoutMinutes, StuckJobTimeoutMinutesMin, StuckJobTimeoutMinutesMax);
+
+    /// <summary>Reads the window in which a live process may stay silent before its job is treated as wedged.</summary>
+    /// <param name="config">The stored configuration.</param>
+    /// <returns>The stored value, brought into range.</returns>
+    public static int WedgedProcessTimeoutOf(PluginConfiguration config)
+        => Clamp(config.WedgedProcessTimeoutMinutes, WedgedProcessTimeoutMinutesMin, WedgedProcessTimeoutMinutesMax);
 
     /// <summary>Reads the output encoding, falling back to utf-8 for anything the engine cannot be given.</summary>
     /// <param name="config">The stored configuration.</param>
@@ -174,6 +198,22 @@ public static class SettingsValidation
             notes.Add($"Extraction timeout: {config.ExtractionTimeoutMinutes} minutes is outside "
                       + $"{ExtractionTimeoutMinutesMin}-{ExtractionTimeoutMinutesMax}; {timeout} is stored");
             config.ExtractionTimeoutMinutes = timeout;
+        }
+
+        var stuck = StuckJobTimeoutOf(config);
+        if (stuck != config.StuckJobTimeoutMinutes)
+        {
+            notes.Add($"Stuck-job timeout: {config.StuckJobTimeoutMinutes} minutes is outside "
+                      + $"{StuckJobTimeoutMinutesMin}-{StuckJobTimeoutMinutesMax}; {stuck} is stored");
+            config.StuckJobTimeoutMinutes = stuck;
+        }
+
+        var wedged = WedgedProcessTimeoutOf(config);
+        if (wedged != config.WedgedProcessTimeoutMinutes)
+        {
+            notes.Add($"Wedged-process timeout: {config.WedgedProcessTimeoutMinutes} minutes is outside "
+                      + $"{WedgedProcessTimeoutMinutesMin}-{WedgedProcessTimeoutMinutesMax}; {wedged} is stored");
+            config.WedgedProcessTimeoutMinutes = wedged;
         }
 
         if (double.IsNaN(config.MaxSubtitleSeconds))

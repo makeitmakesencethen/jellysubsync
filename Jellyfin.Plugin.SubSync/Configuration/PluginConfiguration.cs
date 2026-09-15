@@ -23,6 +23,22 @@ public class PluginConfiguration : BasePluginConfiguration
     public int ExtractionTimeoutMinutes { get; set; } = 20;
 
     /// <summary>
+    /// Gets or sets how long a running job may show no activity at all before it is stopped so its worker
+    /// slot and the rest of its run can move on (minutes). A job is showing activity whenever its phase or
+    /// progress changes, which covers every step it takes and everything its processes report, so nothing
+    /// that is still working reaches this window.
+    /// </summary>
+    public int StuckJobTimeoutMinutes { get; set; } = 15;
+
+    /// <summary>
+    /// Gets or sets how long a process that is still running but has printed nothing for a job may stay
+    /// silent before the job is treated as wedged (minutes). This is a much longer window than
+    /// <see cref="StuckJobTimeoutMinutes"/> on purpose: a demux of a large episode over a share, or a
+    /// feature film's speech analysis, is real work with quiet stretches in it.
+    /// </summary>
+    public int WedgedProcessTimeoutMinutes { get; set; } = 60;
+
+    /// <summary>
     /// Gets or sets how multiple subtitles of the same media file are synced.
     /// <c>normal</c> = one at a time, audio analysed every run;
     /// <c>parallel</c> = up to <see cref="ParallelWorkers"/> subtitles at once;

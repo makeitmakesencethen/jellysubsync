@@ -2824,9 +2824,469 @@ Check("an unreadable or too-short ruler scores nothing (s31-quality)",
     "null in, nothing scored");
 Directory.Delete(gateDir, recursive: true);
 
+// ---------------- B8: a partial extraction is discarded, never used ----------------
+//
+// The rule this replaced was `exitCode != 0 && !File.Exists(outputPath)`, i.e. a failed run was accepted
+// whenever a file happened to be on disk - and a truncated read does not even fail: ffmpeg reading a
+// cut-short container exits 0, writes a well-formed SRT that ends at a cue boundary, and says so only on
+// stderr. Both shapes are checked here against the real guard and real files, and the ffmpeg-backed run at
+// the end of this section proves the truncated-container case with the real binary.
+var b8Dir = Path.Combine(Path.GetTempPath(), "b8-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(b8Dir);
+string B8Path(string name) => Path.Combine(b8Dir, name);
+
+string B8Stamp(int seconds) => $"00:{(seconds / 60).ToString("00")}:{(seconds % 60).ToString("00")},000";
+
+string B8Srt(int cues)
+{
+    var sb = new System.Text.StringBuilder();
+    for (var i = 0; i < cues; i++)
+    {
+        sb.Append(i + 1).Append('\n')
+          .Append(B8Stamp(i * 2)).Append(" --> ").Append(B8Stamp((i * 2) + 1)).Append('\n')
+          .Append("line ").Append(i + 1).Append("\n\n");
+    }
+
+    return sb.ToString();
+}
+
+var b8Complete = B8Srt(30);                                   // what ffmpeg writes for a healthy track
+
+// 1. The healthy case: accepted, and the file is left alone for the engine to read.
+var b8Keep = B8Path("keep.srt");
+File.WriteAllText(b8Keep, b8Complete);
+var b8KeepVerdict = ExtractionOutputGuard.Judge(0, b8Keep, new[] { "progress", "out_time_us=59000000" });
+Check("B8: a complete extraction is accepted and its cues counted",
+    b8KeepVerdict.Accept && b8KeepVerdict.Cues == 30 && File.Exists(b8Keep),
+    $"accept={b8KeepVerdict.Accept} cues={b8KeepVerdict.Cues}");
+
+// 2. A kill mid-write: the file is a byte prefix of a healthy one, so it ends inside a cue. The exit code
+//    alone refuses this one; case 3 keeps the exit code honest and lets only the structure decide.
+var b8Killed = B8Path("killed.srt");
+var b8CompleteBytes = System.Text.Encoding.UTF8.GetBytes(b8Complete);
+var b8Cut = Math.Max(16, (b8CompleteBytes.Length * 45) / 100);
+// Keep the cut inside a cue, which is what a killed process leaves: a prefix of the same bytes.
+while (b8Cut + 3 < b8CompleteBytes.Length
+       && System.Text.Encoding.UTF8.GetString(b8CompleteBytes, 0, b8Cut).EndsWith("\n\n", StringComparison.Ordinal))
+{
+    b8Cut += 3;
+}
+
+var b8PartialBytes = b8CompleteBytes[..b8Cut];
+File.WriteAllBytes(b8Killed, b8PartialBytes);
+var b8KilledVerdict = ExtractionOutputGuard.Judge(137, b8Killed, new[] { "Killed" });
+Check("B8: a killed extraction is refused and its partial file deleted",
+    !b8KilledVerdict.Accept && !File.Exists(b8Killed) && b8KilledVerdict.Reason.Contains("137"),
+    $"accept={b8KilledVerdict.Accept} exists={File.Exists(b8Killed)} bytes={b8Cut}");
+Check("B8: the refusal says what was removed and how much of it there was",
+    b8KilledVerdict.Reason.Contains("discarded") && b8KilledVerdict.Reason.Contains($"{b8Cut} bytes"),
+    b8KilledVerdict.Reason);
+
+// 3. The same partial file with a success exit code - a killed child of a wrapper, or a write that stopped
+//    without the exit code noticing. Now only the structure can tell, and it does.
+var b8HalfCue = B8Path("half-cue.srt");
+File.WriteAllBytes(b8HalfCue, b8PartialBytes);
+var b8HalfCueVerdict = ExtractionOutputGuard.Judge(0, b8HalfCue, Array.Empty<string>());
+Check("B8: a partial file that ends inside a cue is refused even when ffmpeg reported success",
+    !b8HalfCueVerdict.Accept && !File.Exists(b8HalfCue) && b8HalfCueVerdict.Reason.Contains("ends inside a cue"),
+    b8HalfCueVerdict.Reason);
+
+// 3. The defect itself: a failed run that left a file behind used to be accepted.
+var b8Failed = B8Path("failed.srt");
+File.WriteAllText(b8Failed, b8Complete);
+var oldRuleAccepted = !(1 != 0 && !File.Exists(b8Failed));            // `exitCode != 0 && !File.Exists(...)`
+var b8FailedVerdict = ExtractionOutputGuard.Judge(1, b8Failed, new[] { "Error while opening encoder" });
+Check("B8: the acceptance rule this replaced did accept a failed run with a file on disk",
+    oldRuleAccepted,
+    "the old rule's verdict on exit=1 with a file present");
+Check("B8: a failed extraction is refused even though a file exists, and the file is deleted",
+    !b8FailedVerdict.Accept && !File.Exists(b8Failed),
+    $"accept={b8FailedVerdict.Accept} exists={File.Exists(b8Failed)}");
+
+// 4. The truncated-container shape, measured on a real ffmpeg run: exit 0, a well-formed SRT holding only
+//    part of the track, and the truncation reported on stderr and nowhere else.
+var b8Truncated = B8Path("truncated.srt");
+File.WriteAllText(b8Truncated, B8Srt(17));
+var b8TruncVerdict = ExtractionOutputGuard.Judge(
+    0, b8Truncated, new[] { "[matroska,webm @ 0x55] File ended prematurely", "codec_type=subtitle" });
+Check("B8: a structurally complete but truncated extraction is refused on ffmpeg's own report",
+    !b8TruncVerdict.Accept && !File.Exists(b8Truncated),
+    b8TruncVerdict.Reason);
+Check("B8: the refusal says the track is only part of it, with the cue count",
+    b8TruncVerdict.Reason.Contains("partial") && b8TruncVerdict.Reason.Contains("17"),
+    b8TruncVerdict.Reason);
+
+// 5. A video decode complaint is not a truncation: the subtitle is unaffected, and refusing here would fail
+//    jobs the user cannot fix.
+var b8VideoNoise = B8Path("video-noise.srt");
+File.WriteAllText(b8VideoNoise, b8Complete);
+var b8NoiseVerdict = ExtractionOutputGuard.Judge(
+    0, b8VideoNoise,
+    new[] { "[h264 @ 0x1] error while decoding MB 12 34, bytestream -5", "[h264 @ 0x1] corrupt decoded frame" });
+Check("B8: a damaged video frame does not cost the extraction its subtitle",
+    b8NoiseVerdict.Accept && b8NoiseVerdict.Cues == 30 && File.Exists(b8VideoNoise),
+    $"accept={b8NoiseVerdict.Accept} cues={b8NoiseVerdict.Cues}");
+
+// 6. An empty output is no subtitle at all.
+var b8Empty = B8Path("empty.srt");
+File.WriteAllText(b8Empty, "\n");
+var b8EmptyVerdict = ExtractionOutputGuard.Judge(0, b8Empty, Array.Empty<string>());
+Check("B8: an empty extraction is refused and deleted",
+    !b8EmptyVerdict.Accept && !File.Exists(b8Empty),
+    b8EmptyVerdict.Reason);
+
+// 7. Nothing written at all.
+var b8MissingVerdict = ExtractionOutputGuard.Judge(0, B8Path("never-written.srt"), Array.Empty<string>());
+Check("B8: an extraction that wrote nothing is refused",
+    !b8MissingVerdict.Accept && b8MissingVerdict.Reason.Contains("no subtitle file"),
+    b8MissingVerdict.Reason);
+
+// 8. A cue without a timing line is not a cue.
+var b8Malformed = B8Path("malformed.srt");
+File.WriteAllText(b8Malformed, "1\nthis line should be a timing line\nsomething\n\n2\n00:00:02,000 --> 00:00:03,000\ntext\n\n");
+var b8MalformedVerdict = ExtractionOutputGuard.Judge(0, b8Malformed, Array.Empty<string>());
+Check("B8: a file whose cue has no timing line is refused and deleted",
+    !b8MalformedVerdict.Accept && !File.Exists(b8Malformed) && b8MalformedVerdict.Reason.Contains("timing"),
+    b8MalformedVerdict.Reason);
+
+// 9. Every marker the guard knows is found in the line ffmpeg really prints it in.
+Check("B8: each truncation marker is recognised",
+    ExtractionOutputGuard.TruncationMarkers.All(marker =>
+        ExtractionOutputGuard.TruncationMarkerIn(new[] { "prefix " + marker + " suffix" }) == marker),
+    string.Join(", ", ExtractionOutputGuard.TruncationMarkers));
+Check("B8: a clean log has no truncation marker",
+    ExtractionOutputGuard.TruncationMarkerIn(new[] { "Stream mapping:", "out_time_us=59000000" }) is null);
+
+// 10. The real thing: ffmpeg, the production extraction path, and a container that was cut short.
+var b8Video = Environment.GetEnvironmentVariable("B8_FIX_TRUNC");
+if (string.IsNullOrEmpty(b8Video))
+{
+    Console.WriteLine("SKIP  B8 with the real ffmpeg (no fixture: ffmpeg is not on PATH here)");
+}
+else
+{
+    var b8Stream = int.TryParse(Environment.GetEnvironmentVariable("B8_FIX_STREAM"), out var parsedStream)
+        ? parsedStream
+        : 1;
+    var b8OutTrunc = B8Path("production-truncated.srt");
+    var b8Job = new SyncJob { Mode = "auto" };
+    var b8Service = new SubSyncService(null!, null!, null!, null!);
+    string? b8Thrown = null;
+    try
+    {
+        await b8Service.ExtractSubtitleWithProgressAsync(
+            b8Video ?? string.Empty, b8Stream, b8OutTrunc, 60.0, b8Job, CancellationToken.None);
+    }
+    catch (InvalidOperationException ex)
+    {
+        b8Thrown = ex.Message;
+    }
+
+    Check("B8: the production extraction refuses a truncated container's partial subtitle",
+        b8Thrown is not null && b8Thrown.Contains("prematurely"),
+        b8Thrown ?? "no failure - the partial extraction was accepted");
+    Check("B8: nothing partial is left at the output path afterwards",
+        !File.Exists(b8OutTrunc),
+        File.Exists(b8OutTrunc) ? "the partial file is still there" : "the file was deleted");
+
+    var b8Full = Environment.GetEnvironmentVariable("B8_FIX_FULL");
+    var b8OutFull = B8Path("production-full.srt");
+    var b8FullJob = new SyncJob { Mode = "auto" };
+    int b8FullCues;
+    string? b8FullError = null;
+    try
+    {
+        b8FullCues = await b8Service.ExtractSubtitleWithProgressAsync(
+            b8Full ?? string.Empty, b8Stream, b8OutFull, 60.0, b8FullJob, CancellationToken.None);
+    }
+    catch (Exception ex)
+    {
+        b8FullCues = -1;
+        b8FullError = ex.Message;
+    }
+
+    Check("B8: the same file whole extracts all of its cues, and the file is kept for the engine",
+        b8FullCues == EnvInt("B8_FIX_FULL_CUES") && File.Exists(b8OutFull),
+        b8FullError ?? $"cues={b8FullCues} expected={EnvInt("B8_FIX_FULL_CUES")}");
+}
+
+Directory.Delete(b8Dir, recursive: true);
+
+// ---------------- B6: a job cannot stay Running for good ----------------
+//
+// Two questions, both answered by pure policy code that takes its evidence with it, so the checks can move
+// the clock instead of waiting for a stall: which running jobs a sweep would stop, and whether a job that
+// left its status Running is settled.
+var b6Windows = new StuckJobWindows(TimeSpan.FromMinutes(15), TimeSpan.FromMinutes(60));
+var b6Now = new DateTime(2026, 9, 15, 12, 0, 0, DateTimeKind.Utc);
+
+SyncJob B6Job(string id, SyncJobStatus status = SyncJobStatus.Running)
+    => new() { Id = id, BatchId = "batch-b6", Mode = "auto", Status = status };
+
+// The job and what was observed about it: when it last reported something, and how long any process of its
+// own has been quiet. Timestamps are handed in, so "an hour ago" costs nothing to test.
+JobObservation B6Seen(SyncJob job, string video, DateTime activity, bool alive = false, DateTime? silentSince = null)
+    => new(job, video, activity, alive, silentSince);
+
+var b6FreshJob = B6Job("fresh");
+var b6Fresh = B6Seen(b6FreshJob, "/media/a.mkv", b6Now);
+
+// 1. A job that has just reported activity is not stuck.
+var b6FreshReason = StuckJobPolicy.WhyStuck(b6Now, b6Fresh, false, b6Windows);
+Check("B6: a job that just reported activity is not stuck", b6FreshReason is null, b6FreshReason ?? "null");
+
+// 2. The idle window: nothing running for it and no activity - the wait that was never released, or the
+//    reader on a share that stopped answering. 14 minutes of quiet is inside the window; 16 is not.
+Check("B6: 14 minutes of no activity is still inside the window",
+    StuckJobPolicy.WhyStuck(b6Now.AddMinutes(14), b6Fresh, false, b6Windows) is null);
+var b6IdleReason = StuckJobPolicy.WhyStuck(b6Now.AddMinutes(16), b6Fresh, false, b6Windows);
+Check("B6: 16 minutes with nothing running and no activity is stuck, and the reason names the wait",
+    b6IdleReason is not null && b6IdleReason.Contains("16") && b6IdleReason.Contains("no activity"),
+    b6IdleReason ?? "null");
+
+// 3. An engine that is still running is not a stall, however long the job has been going: a feature film's
+//    audio analysis was measured at 91 minutes, and a 6,7-minute run on the user's own share spent most of
+//    it in a demux that the plugin never sees.
+var b6Engine = B6Seen(B6Job("engine"), "/media/b.mkv", b6Now.AddMinutes(44), alive: true, silentSince: b6Now.AddMinutes(44));
+var b6EngineReason = StuckJobPolicy.WhyStuck(b6Now.AddMinutes(45), b6Engine, false, b6Windows);
+Check("B6: a live process that printed a minute ago is not stuck, at any job age",
+    b6EngineReason is null, b6EngineReason ?? "null");
+
+// 4. A live process that has said nothing for an hour is wedged - the other half of the rule, and its window
+//    is four times the job's own because a quiet stretch is legitimate work.
+Check("B6: a live process silent for 59 minutes is still working",
+    StuckJobPolicy.WhyStuck(b6Now.AddMinutes(59), B6Seen(b6Engine.Job, "/media/b.mkv", b6Now, alive: true, silentSince: b6Now), false, b6Windows) is null);
+var b6WedgedReason = StuckJobPolicy.WhyStuck(
+    b6Now.AddMinutes(61), B6Seen(b6Engine.Job, "/media/b.mkv", b6Now, alive: true, silentSince: b6Now), false, b6Windows);
+Check("B6: a live process silent for 61 minutes is treated as wedged, and the reason says so",
+    b6WedgedReason is not null && b6WedgedReason.Contains("without printing a single line"),
+    b6WedgedReason ?? "null");
+
+// 5. A job waiting for another subtitle of the same file, while that one is working, is not stuck: the file's
+//    audio is analysed once and the others wait on its gate, legitimately, for as long as that takes.
+var b6HolderJob = B6Job("holder");
+var b6WaiterJob = B6Job("waiter");
+var b6Waiting = new[]
+{
+    B6Seen(b6HolderJob, "/media/c.mkv", b6Now.AddMinutes(29)),
+    B6Seen(b6WaiterJob, "/media/c.mkv", b6Now.AddMinutes(29))
+};
+var b6Spared = StuckJobPolicy.Stuck(b6Waiting, b6Now.AddMinutes(30), b6Windows);
+Check("B6: a job waiting for its file's analysis is spared while that job is working",
+    b6Spared.Count == 0,
+    $"{b6Spared.Count} stopped");
+
+// 6. ...but not once the holder has stopped working too: that is the recovery, and both end up stopped.
+var b6BothStalled = new[]
+{
+    B6Seen(b6HolderJob, "/media/c.mkv", b6Now),
+    B6Seen(b6WaiterJob, "/media/c.mkv", b6Now)
+};
+var b6Recovered = StuckJobPolicy.Stuck(b6BothStalled, b6Now.AddMinutes(150), b6Windows);
+Check("B6: when the holder itself stalled, its waiter is recovered too",
+    b6Recovered.Count == 2 && b6Recovered.All(row => row.Reason.Length > 0),
+    $"{b6Recovered.Count} stopped");
+
+// 7. A holder whose process is alive, but whose own activity has aged, keeps its waiter alive: that is the
+//    demux stretch, not a stall, and the waiter's own clock says nothing about it.
+var b6QuietHolder = StuckJobPolicy.Stuck(
+    new[]
+    {
+        B6Seen(b6HolderJob, "/media/c.mkv", b6Now, alive: true, silentSince: b6Now.AddMinutes(148)),
+        B6Seen(b6WaiterJob, "/media/c.mkv", b6Now)
+    },
+    b6Now.AddMinutes(150), b6Windows);
+Check("B6: a waiter is spared while its file's holder still has a live process",
+    b6QuietHolder.Count == 0 && b6QuietHolder.Count == 0, $"{b6QuietHolder.Count} stopped");
+
+// 8. The sweep picks exactly the stuck jobs out of a mixed set - one idle, one wedged, one waiting on a
+//    working sibling, and one that has finished.
+var b6IdleJob = B6Job("idle");
+var b6WedgedJob = B6Job("wedged");
+var b6Mixed = new[]
+{
+    B6Seen(b6IdleJob, "/media/d.mkv", b6Now),
+    B6Seen(b6WedgedJob, "/media/e.mkv", b6Now, alive: true, silentSince: b6Now),
+    B6Seen(B6Job("waiting"), "/media/f.mkv", b6Now),
+    B6Seen(B6Job("working"), "/media/f.mkv", b6Now.AddMinutes(88)),
+    B6Seen(B6Job("done", SyncJobStatus.Completed), "/media/g.mkv", b6Now)
+};
+var b6Sweep = StuckJobPolicy.Stuck(b6Mixed, b6Now.AddMinutes(90), b6Windows);
+var b6Stopped = b6Sweep.Select(row => row.Job.Id).OrderBy(id => id).ToList();
+Check("B6: a sweep stops the idle job and the wedged process, and nothing else",
+    b6Stopped.SequenceEqual(new[] { "idle", "wedged" }),
+    string.Join(",", b6Stopped));
+
+// 9. Recovery, exactly as the service performs it: the job is failed first, and its token is cancelled so
+//    whatever it is waiting in unwinds and its worker slot comes back.
+var b6Token = new CancellationTokenSource();
+var b6Reason = b6Sweep.First(row => row.Job.Id == "idle").Reason;
+var b6ToRecover = b6IdleJob;
+var b6Batch = new[] { b6ToRecover, b6Mixed[4].Job };
+bool B6AllDone() => b6Batch.All(job => job.Status is SyncJobStatus.Completed or SyncJobStatus.Failed or SyncJobStatus.Cancelled);
+var b6BatchDoneBefore = !B6AllDone() && b6Batch.Count(job => job.Status == SyncJobStatus.Running) == 1;
+var b6WasStopped = StuckJobPolicy.Stop(b6ToRecover, b6Reason, b6Now.AddMinutes(90));   // what the sweep does
+b6Token.Cancel();                                                                    // then its token goes
+Check("B6: the sweep's own completion test is false while one job of the batch is Running",
+    b6BatchDoneBefore,
+    string.Join(",", b6Batch.Select(job => job.Status)));
+Check("B6: after the stop the same test is true - the run can finish",
+    b6WasStopped && B6AllDone() && b6ToRecover.Status == SyncJobStatus.Failed,
+    $"{b6ToRecover.Status} error='{b6ToRecover.Error}'");
+Check("B6: a stopped job records when it stopped, why, and that its token was cancelled",
+    b6ToRecover.FinishedAtUtc is not null && b6Token.IsCancellationRequested
+    && b6ToRecover.Error is not null && b6ToRecover.Error.Contains("Nothing was written"),
+    b6ToRecover.Error ?? "no error");
+Check("B6: a stopped job does not report itself as cancelled by the user",
+    !(b6ToRecover.Error ?? string.Empty).Contains("user") && b6ToRecover.Phase == "Stopped (no progress)",
+    $"{b6ToRecover.Phase}: {b6ToRecover.Error}");
+
+// 10. The terminal-state guarantee: a job that ended while Running is failed and says so, and one that has
+//     already settled is left exactly as it is.
+var b6Unsettled = B6Job("unsettled");
+var b6SettleReason = "the job ended without reaching a terminal state";
+var b6DidSettle = StuckJobPolicy.Settle(b6Unsettled, b6Now, b6SettleReason);
+Check("B6: a job that ended while still Running is failed and carries the reason",
+    b6DidSettle && b6Unsettled.Status == SyncJobStatus.Failed && b6Unsettled.Error == b6SettleReason
+    && b6Unsettled.FinishedAtUtc is not null,
+    $"{b6Unsettled.Status} '{b6Unsettled.Error}'");
+Check("B6: settling is idempotent - a terminal job is not judged or relabelled again",
+    !StuckJobPolicy.Settle(b6Unsettled, b6Now, b6SettleReason)
+    && !StuckJobPolicy.Settle(b6Mixed[4].Job, b6Now, b6SettleReason)
+    && b6Mixed[4].Job.Status == SyncJobStatus.Completed
+    && b6Mixed[4].Job.Error is null);
+Check("B6: a queued or finished job is never called stuck",
+    StuckJobPolicy.WhyStuck(b6Now.AddDays(1), B6Seen(B6Job("queued", SyncJobStatus.Queued), "/media/i.mkv", b6Now), false, b6Windows) is null
+    && StuckJobPolicy.WhyStuck(b6Now.AddDays(1), B6Seen(B6Job("done2", SyncJobStatus.Completed), "/media/i.mkv", b6Now), false, b6Windows) is null);
+
+// 11. The windows are the user's settings, and the defaults are the ones the config model documents.
+var b6Config = new PluginConfiguration();
+Check("B6: the default windows are the ones the settings model states",
+    b6Config.StuckJobTimeoutMinutes == StuckJobPolicy.IdleMinutesDefault
+    && b6Config.WedgedProcessTimeoutMinutes == StuckJobPolicy.SilenceMinutesDefault,
+    $"{b6Config.StuckJobTimeoutMinutes}/{b6Config.WedgedProcessTimeoutMinutes}");
+var b6WindowsFromConfig = StuckJobWindows.From(b6Config);
+Check("B6: the windows in force come from the configuration",
+    b6WindowsFromConfig.Idle == TimeSpan.FromMinutes(b6Config.StuckJobTimeoutMinutes)
+    && b6WindowsFromConfig.Silence == TimeSpan.FromMinutes(b6Config.WedgedProcessTimeoutMinutes));
+Check("B6: a configured window is what the rule is judged by, not a constant",
+    StuckJobPolicy.WhyStuck(b6Now.AddMinutes(4), b6Fresh, false, new StuckJobWindows(TimeSpan.FromMinutes(3), TimeSpan.FromMinutes(60))) is not null
+    && StuckJobPolicy.WhyStuck(b6Now.AddMinutes(4), b6Fresh, false, b6Windows) is null);
+var b6OutOfRange = new PluginConfiguration { StuckJobTimeoutMinutes = 0, WedgedProcessTimeoutMinutes = 99999 };
+var b6Notes = SettingsValidation.Apply(b6OutOfRange);
+Check("B6: a window outside its bounds is clamped and the page is told",
+    b6OutOfRange.StuckJobTimeoutMinutes == SettingsValidation.StuckJobTimeoutMinutesMin
+    && b6OutOfRange.WedgedProcessTimeoutMinutes == SettingsValidation.WedgedProcessTimeoutMinutesMax
+    && b6Notes.Count(note => note.Contains("timeout")) == 2,
+    string.Join(" | ", b6Notes));
+
+// 12. The process registry the policy reads: ref-counted, and silent-since is the last line or the start.
+JobProcessRegistry.Begin("reg-1");
+JobProcessRegistry.Begin("reg-1");
+JobProcessRegistry.End("reg-1");
+Check("B6: a job with two live processes is still alive after one of them ends",
+    JobProcessRegistry.IsAlive("reg-1"));
+JobProcessRegistry.End("reg-1");
+Check("B6: a job whose processes have all ended is not alive, and still reports when its silence began",
+    !JobProcessRegistry.IsAlive("reg-1") && JobProcessRegistry.SilentSinceUtc("reg-1") is not null);
+JobProcessRegistry.Begin("reg-2");
+var b6Started = JobProcessRegistry.SilentSinceUtc("reg-2");
+Check("B6: a process that has never printed anything dates its silence from its start",
+    b6Started is not null && DateTime.UtcNow - b6Started.Value < TimeSpan.FromMinutes(1));
+JobProcessRegistry.SawOutput("reg-2");
+var b6AfterOutput = JobProcessRegistry.SilentSinceUtc("reg-2");
+Check("B6: a line from the process resets its silence",
+    b6AfterOutput is not null && b6AfterOutput > b6Started);
+JobProcessRegistry.End("reg-2");
+JobProcessRegistry.Forget("reg-2");
+Check("B6: a finished job's entry is dropped, so nothing accumulates",
+    !JobProcessRegistry.IsAlive("reg-2") && JobProcessRegistry.SilentSinceUtc("reg-2") is null
+    && JobProcessRegistry.LiveProcesses == 0);
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 """
+
+
+def prepare_b8_fixtures(fixtures):
+    """Builds the real-container fixtures the B8 checks need, with the real ffmpeg.
+
+    The shape that matters is a *truncated* container: measured with ffmpeg 7.1, reading a file cut short
+    makes ffmpeg exit 0, write a well-formed SRT holding only the cues that were still there (17 of 30 on
+    this fixture) and report the truncation on stderr only ("File ended prematurely"). That is exactly the
+    case the plugin used to hand to the engine as if it were the whole track, so the fixture and the exit
+    code are asserted here, from the same command line the plugin runs.
+
+    ffmpeg is not a dependency of this suite: when it is absent the harness prints its B8-with-real-ffmpeg
+    checks as SKIP and the policy checks - which use real files and the real guard - still run.
+    """
+    def check(label, ok, detail=''):
+        print(('PASS  ' if ok else 'FAIL  ') + label + (f'   [{detail}]' if detail else ''))
+        return 0 if ok else 1
+
+    failures = 0
+    ffmpeg = shutil.which('ffmpeg')
+    if not ffmpeg:
+        print('SKIP  B8 with the real ffmpeg (ffmpeg is not on PATH; the guard itself is still checked)')
+        return 0
+
+    work = pathlib.Path(fixtures) / 'b8'
+    work.mkdir(parents=True, exist_ok=True)
+    subs = work / 'subs.srt'
+    subs.write_text(''.join(
+        f'{i + 1}\n00:{i * 2 // 60:02d}:{i * 2 % 60:02d},000 --> 00:{((i * 2) + 1) // 60:02d}:{((i * 2) + 1) % 60:02d},000\n'
+        f'line {i + 1} of the track\n\n' for i in range(30)), encoding='utf-8')
+
+    full = work / 'full.mkv'
+    built = subprocess.run(
+        [ffmpeg, '-y', '-nostdin', '-v', 'error',
+         '-f', 'lavfi', '-i', 'testsrc=d=60:size=128x72:rate=5', '-i', str(subs),
+         '-c:v', 'mpeg4', '-q:v', '30', '-c:s', 'srt', '-shortest', str(full)],
+        capture_output=True, text=True)
+    if built.returncode != 0 or not full.exists():
+        last = ((built.stderr or '').strip().splitlines() or ['no output'])[-1]
+        return check('the B8 fixture could be built with ffmpeg', False, last)
+
+    truncated = work / 'truncated.mkv'
+    data = full.read_bytes()
+    truncated.write_bytes(data[:int(len(data) * 0.57)])
+
+    # The container stream index the plugin maps with -map 0:N: ffmpeg's own numbering, never Jellyfin's.
+    probe = subprocess.run(
+        ['ffprobe', '-v', 'error', '-select_streams', 's', '-show_entries', 'stream=index', '-of', 'csv=p=0', str(full)],
+        capture_output=True, text=True)
+    stream = (probe.stdout or '').strip().splitlines()
+    if not stream:
+        return check('the B8 fixture has a subtitle stream to extract', False, 'ffprobe found none')
+
+    # The same command line the plugin runs for the fallback, on the cut-short file: this is the repro.
+    partial = work / 'pre-fix-partial.srt'
+    run = subprocess.run(
+        [ffmpeg, '-y', '-nostdin', '-i', str(truncated), '-map', f'0:{stream[0]}', '-f', 'srt',
+         '-progress', 'pipe:2', '-nostats', str(partial)],
+        capture_output=True, text=True)
+    cues = partial.read_text(encoding='utf-8', errors='replace').count(' --> ') if partial.exists() else -1
+    marker = 'ended prematurely' in (run.stderr or '')
+    whole = subprocess.run(
+        [ffmpeg, '-y', '-nostdin', '-v', 'error', '-i', str(full), '-map', f'0:{stream[0]}', '-f', 'srt',
+         str(work / 'whole.srt')],
+        capture_output=True, text=True)
+
+    print()
+    failures += check(
+        'the B8 repro: ffmpeg exits 0 on a truncated container and writes only part of the track',
+        run.returncode == 0 and marker and 0 < cues < 30,
+        f'exit={run.returncode} cues={cues}/30 marker={marker} size={truncated.stat().st_size}/{len(data)}')
+    failures += check(
+        'the B8 repro: the same file whole extracts every cue',
+        whole.returncode == 0 and (work / 'whole.srt').read_text(encoding='utf-8').count(' --> ') == 30,
+        f'exit={whole.returncode}')
+
+    ENV['B8_FIX_TRUNC'] = str(truncated)
+    ENV['B8_FIX_FULL'] = str(full)
+    ENV['B8_FIX_STREAM'] = stream[0]
+    ENV['B8_FIX_FULL_CUES'] = '30'
+    return failures
 
 
 def run_gate_source_checks():
@@ -3143,7 +3603,11 @@ def run_page_checks():
     # so only one job may run it while the file's speech cache is empty; the others wait for the harvest.
     report('only one job per file runs the audio analysis, the others wait for its harvest',
            '_speechGates' in service_source
-           and 'await speechGate.WaitAsync()' in service_source
+           # The wait carries the job's own token: it can last as long as the file's audio analysis (over an
+           # hour on a feature film), so the user's Kill and the stall watchdog have to be able to end it -
+           # without the token the job held its worker slot until the server was restarted (B6).
+           and 'await speechGate.WaitAsync(cancellationToken)' in service_source
+           and 'await speechGate.WaitAsync()' not in service_source
            and 'harvestedWhileWaiting' in service_source
            and 'ReleaseSpeechGate(job, videoPath);' in service_source
            and 'job.HoldsSpeechGate = true;' in service_source
@@ -3240,7 +3704,10 @@ def run_page_checks():
            'ProbeBytes = 16 * 1024' in service_source
            and 'TryBeginProbe()' in service_source
            and service_source.count('ProbeVolumeIfUnmeasured(') == 2      # the method and one call site
-           and 'ProbeVolumeIfUnmeasured(\n            _jobContexts.TryGetValue' in service_source
+           # The call site is the top of the job's own try block (where every job passes), which is where it
+           # belongs for a second reason since B6: a probe that throws there is caught by the job's handler and
+           # its cleanup runs, instead of leaving the job Running with its slot held.
+           and re.search(r'ProbeVolumeIfUnmeasured\(\s*_jobContexts\.TryGetValue', service_source) is not None
            # and not back in the audio-reference branch, which jobs on a real server never take (S38, 2026-09-14)
            and 'ProbeVolumeIfUnmeasured(videoPath);' not in service_source
            and 'needs the queue lock' not in service_source)
@@ -3790,6 +4257,33 @@ def run_page_checks():
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)
 
+    # B8: a partial extraction is judged before anything downstream can use it, and the file it left behind
+    # goes. The rule that was there accepted a *failed* run whenever a file existed at the output path, which
+    # is how a kill or a demux error handed the engine a prefix of the track as if it were all of it.
+    report('a failed extraction is no longer accepted just because a file exists (B8)',
+           'exitCode != 0 && !File.Exists(outputPath)' not in service
+           and 'ExtractionOutputGuard.Judge(' in service
+           and 'DiscardPartialExtraction(' in service
+           and 'extract: rejected' in service)
+    # B6: the two halves - a job that returns while Running is settled, and a job that stops making progress
+    # is stopped - and both callers of the sweep (the pump, and the cleanup timer that runs even if the pump
+    # has died).
+    report('a job cannot be left Running: it is settled on every exit, and stalled jobs are stopped (B6)',
+           'StuckJobPolicy.Settle(' in service
+           and service.count('ReapStuckJobs()') == 3          # the method and its two call sites
+           and 'JobProcessRegistry.Begin(owner)' in service
+           and 'JobProcessRegistry.SawOutput(owner)' in service
+           and 'JobProcessRegistry.End(owner)' in service
+           and 'StuckJobPolicy.Stop(job, reason, now)' in service)
+    report('the job watchdog reads its windows from the settings, not from constants (B6)',
+           'StuckJobWindows.From(Services.SettingsSource.Current())' in service
+           and 'StuckJobTimeoutMinutes' in open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                                                             'PluginConfiguration.cs'), encoding='utf-8').read()
+           and 'WedgedProcessTimeoutMinutes' in open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                                                                  'PluginConfiguration.cs'), encoding='utf-8').read()
+           and 'StuckJobTimeoutMinutesMin' in open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Configuration',
+                                                                'SettingsValidation.cs'), encoding='utf-8').read())
+
     return failures
 
 
@@ -3908,6 +4402,8 @@ def main():
     ENV.clear()
     ENV.update(env)
 
+    b8_fixture_failures = prepare_b8_fixtures(fixtures)
+
     os.makedirs(WORK, exist_ok=True)
 
     build = subprocess.run([DOTNET, 'build', '-c', 'Release', '--nologo', '-v', 'q'], cwd=WORK, capture_output=True, text=True, env=ENV)
@@ -3917,10 +4413,15 @@ def main():
 
     run = subprocess.run([DOTNET, f'{WORK}/bin/Release/net10.0/logictest.dll'], cwd=WORK, capture_output=True, text=True, env=ENV)
     print(run.stdout or run.stderr)
+    if run.returncode != 0 and run.stderr.strip():
+        # A harness that died part-way says why on stderr, and only stdout used to be printed - which hid the
+        # reason behind a truncated list of passes.
+        print('---- harness stderr ----')
+        print(run.stderr)
     page_failures = run_page_checks()
     source_failures = run_gate_source_checks()
     cost_failures = run_s26_cost_checks()
-    total_failures = page_failures + source_failures + cost_failures
+    total_failures = page_failures + source_failures + cost_failures + b8_fixture_failures
     if total_failures:
         print(f'{total_failures} FAILURE(S)')
     return run.returncode or (1 if total_failures else 0)

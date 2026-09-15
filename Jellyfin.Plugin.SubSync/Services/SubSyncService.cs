@@ -72,6 +72,9 @@ public class SubtitleInfo
 /// </summary>
 public class SyncJob
 {
+    private double _progress;
+    private string _phase = "Preparing";
+
     /// <summary>Gets or sets the unique job identifier.</summary>
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
 
@@ -84,17 +87,55 @@ public class SyncJob
     /// <summary>Gets or sets the subtitle stream index.</summary>
     public int SubtitleIndex { get; set; }
 
-    /// <summary>Gets or sets the current status.</summary>
+    /// <summary>
+    /// Gets or sets the current status.
+    /// </summary>
     public SyncJobStatus Status { get; set; } = SyncJobStatus.Queued;
 
-    /// <summary>Gets or sets a progress value from 0.0 to 1.0.</summary>
-    public double Progress { get; set; }
+    /// <summary>
+    /// Gets or sets a progress value from 0.0 to 1.0.
+    /// </summary>
+    /// <remarks>
+    /// Setting either this or <see cref="Phase"/> counts as activity: those two are what every progress signal
+    /// in the plugin writes - the engine's own output, the extraction lanes' progress lines, the phases the job
+    /// passes through - so recording it here means no call site can forget to and leave a working job looking
+    /// stalled (see <see cref="StuckJobPolicy"/>).
+    /// </remarks>
+    public double Progress
+    {
+        get => _progress;
+        set
+        {
+            _progress = value;
+            LastActivityUtc = DateTime.UtcNow;
+        }
+    }
 
     /// <summary>
     /// Gets or sets the current phase label (e.g. "Extracting subtitle", "Syncing", "Replacing").
     /// The frontend displays this to give the user context about what's happening.
     /// </summary>
-    public string Phase { get; set; } = "Preparing";
+    public string Phase
+    {
+        get => _phase;
+        set
+        {
+            _phase = value;
+            LastActivityUtc = DateTime.UtcNow;
+        }
+    }
+
+    /// <summary>
+    /// Gets when this job last showed activity: a phase or progress change, which is every signal the plugin's
+    /// own work and the processes it runs produce.
+    /// </summary>
+    [JsonIgnore]
+    public DateTime LastActivityUtc { get; private set; } = DateTime.UtcNow;
+
+    /// <summary>
+    /// Records that this job did something, for the stall watchdog.
+    /// </summary>
+    public void MarkActivity() => LastActivityUtc = DateTime.UtcNow;
 
     /// <summary>Gets or sets the error message if the job failed.</summary>
     public string? Error { get; set; }
@@ -411,6 +452,15 @@ public class SubSyncService : IDisposable
 
     /// <summary>When the lane last finished a pass, used to tell a lane that is gone from one that is busy.</summary>
     private DateTime _lastPassFinishedUtc = DateTime.UtcNow;
+
+    /// <summary>When the stall watchdog last looked at the running jobs; ticks, so both callers can read it.</summary>
+    private long _lastReapTicks;
+
+    /// <summary>
+    /// How often the stall watchdog looks, in seconds. The pump runs more often than this; the throttle keeps
+    /// a batch of running jobs from being walked on every pass.
+    /// </summary>
+    private const int ReapIntervalSeconds = 20;
 
     // Subtitle text extracted from a file while it was being read for another subtitle of the same
     // file. Each entry is a few kilobytes of text; the queue keeps the oldest ones out.
@@ -2045,6 +2095,13 @@ public class SubSyncService : IDisposable
 
     private const int MaxExtractionLanes = 3;
 
+    /// <summary>
+    /// How many stderr lines of an extraction are kept for judging it. ffmpeg reports a truncation when it
+    /// reaches the end of the input, so the tail holds it; the bound keeps a long demux's progress lines from
+    /// growing the job's memory.
+    /// </summary>
+    private const int ExtractionStderrTailLines = 200;
+
     /// <summary>True while at least one extraction lane is running.</summary>
     private bool LaneAlive
     {
@@ -3517,6 +3574,10 @@ public class SubSyncService : IDisposable
             MaybeLogProgress();
             MaybePersistBatchHistory();
 
+            // A job that has stopped making progress is stopped here, so a run cannot hang on it (B6). It
+            // runs on the scheduler's own thread and is throttled inside, so this is a cheap call per pass.
+            ReapStuckJobs();
+
             // The lock now covers bookkeeping and a snapshot, and nothing else.
             //
             // Planning inside it is what the enqueue path waits on: the enqueue takes this same lock to add its
@@ -3756,6 +3817,19 @@ public class SubSyncService : IDisposable
         }
     }
 
+    /// <summary>
+    /// Runs one job and guarantees that it leaves a terminal state behind (B6).
+    /// </summary>
+    /// <remarks>
+    /// A job set to <c>Running</c> and left there is the whole of B6: it holds a worker slot and the run it
+    /// belongs to never reports itself finished, with a restart as the only way out. The paths that produced it
+    /// were an exception raised outside the job's own error handling (a media file that vanished, a fault
+    /// before the job's <c>try</c> was reached) and any path that returned without settling its status. Neither
+    /// can happen quietly any more: every exit passes <see cref="StuckJobPolicy.Settle"/>, which fails a job
+    /// that is still running and says so in the plugin log, and a watchdog stops jobs that stop making progress
+    /// (see <see cref="ReapStuckJobs"/>).
+    /// </remarks>
+    /// <param name="job">The job to run.</param>
     private async Task RunSyncJobWithContext(SyncJob job)
     {
         if (!_jobContexts.TryGetValue(job.Id, out var ctx))
@@ -3773,14 +3847,44 @@ public class SubSyncService : IDisposable
         }
         catch (OperationCanceledException)
         {
-            job.Status = SyncJobStatus.Cancelled;
-            job.Phase = "Cancelled";
-            job.Error = "Cancelled by user.";
-            _logger.LogInformation("Job {JobId} cancelled by user", job.Id);
+            // A job the watchdog already settled keeps the reason it was stopped for: "cancelled by user"
+            // would name an action nobody took.
+            if (job.Status == SyncJobStatus.Running)
+            {
+                job.Status = SyncJobStatus.Cancelled;
+                job.Phase = "Cancelled";
+                job.Error = "Cancelled by user.";
+                _logger.LogInformation("Job {JobId} cancelled by user", job.Id);
+            }
+        }
+        catch (Exception ex)
+        {
+            // Anything the job's own handler did not catch - the failure used to end the task and leave the
+            // job Running for good.
+            _logger.LogError(ex, "Sync job {JobId} ended with an unhandled error", job.Id);
+            PluginLog.Error($"job {job.Id} ended with an unhandled error: {ex.Message}", ex);
+            if (job.Status is SyncJobStatus.Running or SyncJobStatus.Queued)
+            {
+                job.Status = SyncJobStatus.Failed;
+                job.Error = ex.Message;
+            }
         }
         finally
         {
             _jobCancellation.TryRemove(job.Id, out _);
+            JobProcessRegistry.Forget(job.Id);
+
+            // The phase is read before settling: it is the last thing the job reported, and it is the only
+            // thing in the log that says where a job that never finished had got to.
+            var phaseAtExit = job.Phase;
+            if (StuckJobPolicy.Settle(
+                    job, DateTime.UtcNow,
+                    "the job ended without reaching a terminal state; the plugin log has the last phase it reported"))
+            {
+                PluginLog.Warn(
+                    $"[{job.Id}] job ended while still running (phase '{phaseAtExit}') - marked failed so it "
+                    + "cannot hold its worker slot or keep its run looking unfinished");
+            }
         }
 
         // Sweep cache: successful syncs of external subtitle files are remembered
@@ -4826,13 +4930,6 @@ public class SubSyncService : IDisposable
         CancellationToken cancellationToken)
     {
         job.Status = SyncJobStatus.Running;
-
-        // Every job passes here, and a job about to run is the right place to notice that nothing has measured
-        // its volume: the next planning pass can then judge that volume on a measurement instead of holding it.
-        // The first attempt at this sat in the audio-reference branch, which jobs on a real server do not take -
-        // 17 engine runs on 2026-09-14, several on the fast volume, and no probe ever fired (S38).
-        ProbeVolumeIfUnmeasured(
-            _jobContexts.TryGetValue(job.Id, out var probeContext) ? probeContext.Video.Path : null);
         job.StartedAtUtc = DateTime.UtcNow;
         job.Progress = 0.0;
 
@@ -4841,19 +4938,6 @@ public class SubSyncService : IDisposable
         var videoNameNoExt = Path.GetFileNameWithoutExtension(videoPath);
         var videoExt = Path.GetExtension(videoPath);
         var tempDir = Path.Combine(Plugin.Instance?.TempPath ?? Path.GetTempPath(), job.Id);
-        Directory.CreateDirectory(tempDir);
-
-        // The extracted subtitle is not the job's private business: every job of this file reads the same
-        // tracks out of it, and it outlives the job that happened to extract it (see SharedExtractionStore).
-        var sharedExtractDir = SharedExtractionStore.Acquire(video.Path, job.Id);
-
-        // The file is checked here instead of when the task is queued: queueing must not touch the
-        // media share (a stat per task slowed a 50-task batch to a minute while a job was reading the
-        // same share, which starved the scheduler). One stat per job, at the point where it matters.
-        if (!File.Exists(videoPath))
-        {
-            throw new FileNotFoundException($"The video file is no longer on disk: {videoPath}");
-        }
 
         // Stream of the media file ffsubsync should take its speech signal from. Embedded
         // inputs set this so the subtitle being fixed is not used as its own reference.
@@ -4883,9 +4967,34 @@ public class SubSyncService : IDisposable
 
         try
         {
+            // Everything that can throw lives inside this block, including the checks below: a job that
+            // threw before reaching it skipped its own error handling and its cleanup, which is one of the
+            // two ways a job stayed Running for good (B6).
+            //
             // Step 0: Ensure ffsubsync is available
             job.Phase = "Preparing";
             job.Progress = 0.0;
+
+            // Every job passes here, and a job about to run is the right place to notice that nothing has measured
+            // its volume: the next planning pass can then judge that volume on a measurement instead of holding it.
+            // The first attempt at this sat in the audio-reference branch, which jobs on a real server do not take -
+            // 17 engine runs on 2026-09-14, several on the fast volume, and no probe ever fired (S38).
+            ProbeVolumeIfUnmeasured(
+                _jobContexts.TryGetValue(job.Id, out var probeContext) ? probeContext.Video.Path : null);
+
+            Directory.CreateDirectory(tempDir);
+
+            // The extracted subtitle is not the job's private business: every job of this file reads the same
+            // tracks out of it, and it outlives the job that happened to extract it (see SharedExtractionStore).
+            var sharedExtractDir = SharedExtractionStore.Acquire(video.Path, job.Id);
+
+            // The file is checked here instead of when the task is queued: queueing must not touch the
+            // media share (a stat per task slowed a 50-task batch to a minute while a job was reading the
+            // same share, which starved the scheduler). One stat per job, at the point where it matters.
+            if (!File.Exists(videoPath))
+            {
+                throw new FileNotFoundException($"The video file is no longer on disk: {videoPath}");
+            }
 
             var ffsubsyncExe = ResolveFfSubSyncPath();
 
@@ -5084,7 +5193,12 @@ public class SubSyncService : IDisposable
                 // The analysis is per *file*, not per subtitle: hold the file's gate so the first job does
                 // it and the rest reuse the harvest. They wait here rather than starting a second analysis.
                 var speechGate = _speechGates.GetOrAdd(videoPath, _ => new SemaphoreSlim(1, 1));
-                await speechGate.WaitAsync().ConfigureAwait(false);
+
+                // Cancellable, and that is the point: this wait can last as long as the file's audio analysis
+                // (a feature film's is over an hour), so a job parked here has to be reachable by the user's
+                // Kill and by the stall watchdog. Without the token neither could end it, and the job held its
+                // worker slot until the server was restarted (B6).
+                await speechGate.WaitAsync(cancellationToken).ConfigureAwait(false);
                 job.HoldsSpeechGate = true;
 
                 var harvestedWhileWaiting = SpeechCache.TryGet(speechKey);
@@ -6506,12 +6620,94 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
+    /// Stops jobs that have held their worker slot without making progress, so a run can finish (B6).
+    /// </summary>
+    /// <remarks>
+    /// A job that is stuck does not just waste a slot: the batch it belongs to counts it as unfinished, the
+    /// interface shows a run that never ends, and the only way out was to restart Jellyfin. The decision is
+    /// made by <see cref="StuckJobPolicy" /> from what was observed - the job's own activity, whether a child
+    /// process is running for it, how long that process has been silent, and whether another subtitle of the
+    /// same file is working - and the numbers are the user's own settings
+    /// (<c>StuckJobTimeoutMinutes</c>, <c>WedgedProcessTimeoutMinutes</c>).
+    /// <para>
+    /// The job is failed rather than cancelled, and it is failed <i>before</i> its token is cancelled: the
+    /// cancellation handler would otherwise relabel it "Cancelled by user", which is an action nobody took, and
+    /// the cancel is what unwinds whatever the job was waiting in so its slot comes back.
+    /// </para>
+    /// </remarks>
+    private void ReapStuckJobs()
+    {
+        try
+        {
+            var now = DateTime.UtcNow;
+            var last = new DateTime(Interlocked.Read(ref _lastReapTicks), DateTimeKind.Utc);
+            if (now - last < TimeSpan.FromSeconds(ReapIntervalSeconds))
+            {
+                return;
+            }
+
+            Interlocked.Exchange(ref _lastReapTicks, now.Ticks);
+
+            var windows = StuckJobWindows.From(Services.SettingsSource.Current());
+            var observations = _jobs.Values
+                .Select(job => new JobObservation(
+                    job,
+                    _jobContexts.TryGetValue(job.Id, out var ctx) ? ctx.Video?.Path : null,
+                    job.LastActivityUtc,
+                    JobProcessRegistry.IsAlive(job.Id),
+                    JobProcessRegistry.SilentSinceUtc(job.Id)))
+                .ToList();
+
+            var stuckJobs = StuckJobPolicy.Stuck(observations, now, windows);
+
+            foreach (var (job, reason) in stuckJobs)
+            {
+                StuckJobPolicy.Stop(job, reason, now);
+
+                var hadToken = _jobCancellation.TryGetValue(job.Id, out var cts);
+                if (hadToken)
+                {
+                    try
+                    {
+                        cts!.Cancel();
+                    }
+                    catch (ObjectDisposedException)
+                    {
+                        // The job had already finished; nothing to stop.
+                    }
+                }
+
+                PluginLog.Warn(
+                    $"job {job.Id} stopped: {reason} (mode={job.Mode} batch={job.BatchId ?? "(standalone)"} "
+                    + $"item={job.ItemId} stream={job.SubtitleIndex} stopped={hadToken})");
+                _logger.LogWarning("Sync job {JobId} stopped: {Reason}", job.Id, reason);
+            }
+
+            if (stuckJobs.Count > 0)
+            {
+                // A stopped job frees its slot as soon as it unwinds, and the next queued task may already be
+                // startable - the planner has to look, since the stop did not come from a job finishing.
+                WakePump();
+            }
+        }
+        catch (Exception ex)
+        {
+            // Never let the watchdog be the thing that breaks a run.
+            _logger.LogDebug(ex, "Error while checking jobs for progress");
+        }
+    }
+
+    /// <summary>
     /// Evicts completed and failed jobs from the in-memory store to prevent memory leaks.
     /// </summary>
     private void CleanupOldJobs()
     {
         try
         {
+            // Recovery, not just housekeeping: this timer runs whether or not the scheduler is working, so a
+            // job that stopped making progress is stopped even if the pump itself is wedged (B6, B31).
+            ReapStuckJobs();
+
             // Bound the refresh gate as well: entries whose window has passed are useless, and the
             // gate must not grow with the size of the library.
             var prunedRefreshes = _refreshGate.Prune();
@@ -7130,7 +7326,21 @@ public class SubSyncService : IDisposable
     /// Runs the ffmpeg extraction while translating its reported timestamps into job
     /// progress (5% → 20%), so the UI shows movement instead of a stalled bar.
     /// </summary>
-    private async Task ExtractSubtitleWithProgressAsync(
+    /// <remarks>
+    /// This is the last resort for a track no index reader could produce, and the one extraction whose output
+    /// cannot be checked against anything else: whatever it writes is handed on as the subtitle. So what it
+    /// wrote is checked instead (B8, <see cref="ExtractionOutputGuard"/>), and a run that failed, was killed or
+    /// read a cut-short file leaves nothing behind - a partial subtitle is silently wrong in every way that
+    /// matters (cues missing, the tail of the film untimed) and the engine cannot tell it from a complete one.
+    /// </remarks>
+    /// <param name="videoPath">Media file to demux.</param>
+    /// <param name="streamIndex">Real container stream index to map.</param>
+    /// <param name="outputPath">Where the SRT is written.</param>
+    /// <param name="durationSeconds">Media duration, used to turn ffmpeg's progress into a fraction.</param>
+    /// <param name="job">Job whose phase and progress are updated.</param>
+    /// <param name="cancellationToken">Cancellation token.</param>
+    /// <returns>How many cues the verified extraction produced.</returns>
+    internal async Task<int> ExtractSubtitleWithProgressAsync(
         string videoPath,
         int streamIndex,
         string outputPath,
@@ -7151,40 +7361,99 @@ public class SubSyncService : IDisposable
             outputPath
         };
 
+        // ffmpeg's own account of the input: the truncation markers live in these lines, and on a cut-short
+        // container they are the only sign that the SRT is a prefix of the track (exit code 0).
+        var stderrTail = new List<string>();
         var lastReported = -1.0;
-        var exitCode = await RunProcessWithStderrCallbackAsync(
-            ffmpegPath,
-            args,
-            null,
-            line =>
-            {
-                if (durationSeconds <= 0)
-                {
-                    return;
-                }
+        var exitCode = 0;
+        var processEnded = false;
 
-                var seconds = ParseFfmpegProgressSeconds(line);
-                if (seconds < 0)
-                {
-                    return;
-                }
-
-                var fraction = Math.Min(1.0, seconds / durationSeconds);
-                if (fraction - lastReported < 0.01)
-                {
-                    return;
-                }
-
-                lastReported = fraction;
-                job.Progress = 0.05 + (0.15 * fraction); // 5% → 20% is the extraction window
-                job.Phase = $"Extracting subtitle with ffmpeg — {fraction * 100:0}% of the file read";
-            },
-            cancellationToken).ConfigureAwait(false);
-
-        if (exitCode != 0 && !File.Exists(outputPath))
+        try
         {
-            throw new InvalidOperationException($"ffmpeg subtitle extraction failed with exit code {exitCode}.");
+            exitCode = await RunProcessWithStderrCallbackAsync(
+                ffmpegPath,
+                args,
+                null,
+                line =>
+                {
+                    // Undiscriminating and bounded: the whole line goes to the guard, and a progress line is
+                    // cheap to keep. Truncation is reported at the moment the file ends, so a tail is enough
+                    // and a marker that repeats stays in it.
+                    lock (stderrTail)
+                    {
+                        stderrTail.Add(line);
+                        if (stderrTail.Count > ExtractionStderrTailLines)
+                        {
+                            stderrTail.RemoveAt(0);
+                        }
+                    }
+
+                    if (durationSeconds <= 0)
+                    {
+                        return;
+                    }
+
+                    var seconds = ParseFfmpegProgressSeconds(line);
+                    if (seconds < 0)
+                    {
+                        return;
+                    }
+
+                    var fraction = Math.Min(1.0, seconds / durationSeconds);
+                    if (fraction - lastReported < 0.01)
+                    {
+                        return;
+                    }
+
+                    lastReported = fraction;
+                    job.Progress = 0.05 + (0.15 * fraction); // 5% → 20% is the extraction window
+                    job.Phase = $"Extracting subtitle with ffmpeg — {fraction * 100:0}% of the file read";
+                },
+                cancellationToken,
+                jobId: job.Id).ConfigureAwait(false);
+            processEnded = true;
         }
+        catch (OperationCanceledException)
+        {
+            // Cancelled or past the extraction timeout: ffmpeg was killed mid-write, so what is on disk is a
+            // prefix of the subtitle. The caller turns this into a failure (or a kill); the file goes first.
+            DiscardPartialExtraction(job, outputPath, "the extraction was stopped before it finished");
+            throw;
+        }
+        finally
+        {
+            if (!processEnded)
+            {
+                DiscardPartialExtraction(job, outputPath, "the extraction did not run to completion");
+            }
+        }
+
+        var verdict = ExtractionOutputGuard.Judge(exitCode, outputPath, stderrTail);
+        if (!verdict.Accept)
+        {
+            PluginLog.Warn(
+                $"extract: rejected file={videoPath} stream={streamIndex} exit={exitCode} "
+                + $"reason={verdict.Reason}");
+            throw new InvalidOperationException("ffmpeg subtitle extraction failed: " + verdict.Reason);
+        }
+
+        return verdict.Cues;
+    }
+
+    /// <summary>
+    /// Throws away what a stopped extraction wrote, and says so in the plugin's own log.
+    /// </summary>
+    /// <remarks>
+    /// Nothing downstream may see a partial extraction: the file is the engine's input, so a prefix of the
+    /// track produces a confidently wrong offset rather than an error.
+    /// </remarks>
+    /// <param name="job">The job the extraction belonged to.</param>
+    /// <param name="outputPath">Where the extraction was writing.</param>
+    /// <param name="why">Why it is being discarded.</param>
+    private static void DiscardPartialExtraction(SyncJob job, string outputPath, string why)
+    {
+        var note = ExtractionOutputGuard.Discard(outputPath);
+        PluginLog.Warn($"[{job.Id}] {why} - {note}");
     }
 
     /// <summary>
@@ -7590,10 +7859,16 @@ public class SubSyncService : IDisposable
 
     // watch (optional): when set, a heartbeat line is written to the plugin's own log every few minutes
     // for as long as the process runs (S27). Visibility only - no deadline and no kill is added by it.
+    //
+    // jobId (optional): the job this process belongs to, so the stall watchdog can tell "waiting for a slow
+    // read" from "wedged" (B6). Every process the plugin runs for a job registers here: a live child is work
+    // in progress even when it is quiet, and its own output is what dates its silence.
     private async Task<int> RunProcessWithStderrCallbackAsync(
         string executable, IReadOnlyList<string> arguments, string? workingDir,
-        Action<string>? onStderrLine, CancellationToken cancellationToken, EngineWatch? watch = null)
+        Action<string>? onStderrLine, CancellationToken cancellationToken, EngineWatch? watch = null,
+        string? jobId = null)
     {
+        var owner = jobId ?? watch?.JobId;
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -7621,6 +7896,10 @@ public class SubSyncService : IDisposable
 
         process.Start();
         _liveProcesses[process.Id] = process;
+        if (owner is not null)
+        {
+            JobProcessRegistry.Begin(owner);
+        }
 
         // S27: while this process runs, say so in the plugin's own log. Started once the process is
         // live and disposed when it exits, so no line can ever describe a process that is already gone.
@@ -7651,6 +7930,13 @@ public class SubSyncService : IDisposable
                     break;
                 }
 
+                if (owner is not null)
+                {
+                    // A line from the process is the process saying it is working: this is what dates its
+                    // silence for the wedged-process rule (B6).
+                    JobProcessRegistry.SawOutput(owner);
+                }
+
                 onStderrLine?.Invoke(line);
             }
         }, cancellationToken);
@@ -7662,6 +7948,10 @@ public class SubSyncService : IDisposable
         finally
         {
             _liveProcesses.TryRemove(process.Id, out _);
+            if (owner is not null)
+            {
+                JobProcessRegistry.End(owner);
+            }
         }
 
         await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
