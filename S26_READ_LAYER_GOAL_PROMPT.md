@@ -57,9 +57,12 @@ whatever the evidence names.
 
 ## Done means (verified, not asserted)
 
-1. **A repro that runs in seconds and does not need fabji's library**: the file itself if it can be copied,
-   or a synthetic fixture of the same shape built by the existing fixture makers — cold (page cache
-   dropped, or a fresh copy of the file), with plan vs actual printed side by side.
+1. **A repro that runs in seconds and does not need fabji's library.** The server's media is **not**
+   mounted on the development host (`/media` is an empty directory there), so the first step is to obtain
+   the shape: copy `Sunes Sommar 1993 WEB-DL 1080p.mkv` into the rig's media directory if it can be
+   fetched, or rebuild the layout with the fixture makers (`tests/fixtures/make_remux.py` and its
+   `--grouped-cues` / `MKV_FIX_*` switches — the same instruments E2 used). It must be **cold** (page
+   cache dropped, or a fresh copy of the file), with plan vs actual printed side by side.
 2. **The over-read is gone on that repro**: plan vs actual within a small factor (state the factor and
    why), not "improved". The same numbers, before and after, in the release notes.
 3. **Both ledger rules hold at zero on the repro and on the fixtures**: `bytesTwice` and
@@ -67,7 +70,9 @@ whatever the evidence names.
    its `Describe` at `:212`) — a pass that breaks them is not fixed, whatever its bytes say.
 4. **The extraction result is bit-identical**: `kopps 829`, `Sune i Grekland 1019`, D17 mixed-index `803`,
    Helikopterrånet 803/726/898, Mauri 320 cues — unchanged, and the standing correctness tool
-   (`tests/backend/nebml_compare.py`, the NEbml-driven cross-check kept for exactly this) agrees.
+   (`tests/backend/nebml_compare.py` + `tests/backend/nebmlrig/`, the NEbml-driven cross-check kept for
+   exactly this — note its source lives on the branch `eval/nebml-structure-parser`, not in this tree;
+   `tests/backend/nebmlrig/` here holds only build output) agrees.
 5. **The suite is green** (`python3 tests/run_checks.py` exits 0), with **new checks that can fail** for
    the defect: the cost invariant this file breaks, expressed on a fixture (e.g. a located plan must not
    read more than N× its planned bytes, with the ledger counters asserted at zero on every fixture).
