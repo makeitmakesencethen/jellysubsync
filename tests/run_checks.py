@@ -4122,8 +4122,12 @@ else
         $"window={SettingsSource.StatTtlMsValue} ms");
 }
 
+// {{JOB_CHECK_STATEMENTS}}
+
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
+
+// {{JOB_CHECK_TYPES}}
 """
 
 
@@ -5790,6 +5794,64 @@ def run_s26_cost_checks():
     return sum(1 for line in lines if line.startswith('FAIL'))
 
 
+def program_with_job_checks():
+    """The logictest program, with the RunSyncJob characterization cases (tests/job_checks.cs) spliced in.
+
+    The file is split at its marker because the class it declares has to follow every top-level statement in the
+    generated Program.cs: the statements go before the final result line, the types after it.
+    """
+    path = os.path.join(REPO, 'tests', 'job_checks.cs')
+    with open(path, encoding='utf-8') as f:
+        text = f.read()
+    statements, _, types = text.partition('// @@TYPES@@')
+    return PROGRAM.replace('// {{JOB_CHECK_STATEMENTS}}', statements).replace('// {{JOB_CHECK_TYPES}}', types)
+
+
+def prepare_fake_engine(root):
+    """Writes the stand-in ffsubsync and ffmpeg the RunSyncJob cases drive, and returns their paths.
+
+    The engine script is what makes every terminal reachable: `behaviour`, `payload.N.srt` and `stderr.txt` in
+    its own directory tell each invocation what to write, what to say and how to exit. The ffmpeg stand-in is
+    only reachable through JELLYFIN_FFMPEG, so no other check in this suite can pick it up by accident.
+    """
+    engine_dir = os.path.join(root, 'engine')
+    ffmpeg_dir = os.path.join(root, 'ffmpeg')
+    os.makedirs(engine_dir, exist_ok=True)
+    os.makedirs(ffmpeg_dir, exist_ok=True)
+
+    engine = os.path.join(engine_dir, 'ffsubsync')
+    shutil.copyfile(os.path.join(REPO, 'tests', 'fixtures', 'fake_ffsubsync.sh'), engine)
+    os.chmod(engine, 0o755)
+
+    ffmpeg = os.path.join(ffmpeg_dir, 'ffmpeg')
+    shutil.copyfile(os.path.join(REPO, 'tests', 'fixtures', 'fake_ffmpeg.sh'), ffmpeg)
+    os.chmod(ffmpeg, 0o755)
+
+    # `ffmpeg -i` only, in the shape ParseProbeSubtitleIndexes/ParseProbeSubtitleCodecs read: one subtitle
+    # stream at container index 2, which is the stream the embedded cases put in Jellyfin's own list.
+    with open(os.path.join(ffmpeg_dir, 'banner.txt'), 'w', encoding='utf-8') as f:
+        f.write("Input #0, matroska,webm, from 'Probe Movie (2026).mkv':\n"
+                "  Duration: 01:10:00.00, start: 0.000000, bitrate: 1000 kb/s\n"
+                "    Stream #0:0: Video: h264 (High), yuv420p, 1280x720, 25 fps, 25 tbr\n"
+                "    Stream #0:1: Audio: aac (LC), 48000 Hz, stereo, fltp\n"
+                "    Stream #0:2(eng): Subtitle: subrip (srt)\n")
+
+    cues = ''.join(
+        f"{i + 1}\n{_srt_time(600 + (i * 80))} --> {_srt_time(600 + (i * 80) + 2)}\nLine {i + 1}.\n\n"
+        for i in range(40))
+    with open(os.path.join(ffmpeg_dir, 'extracted.srt'), 'w', encoding='utf-8') as f:
+        f.write(cues)
+
+    return engine_dir, ffmpeg
+
+
+def _srt_time(seconds):
+    """Seconds as an SRT timestamp."""
+    hours, rest = divmod(seconds, 3600)
+    minutes, secs = divmod(rest, 60)
+    return f'{hours:02d}:{minutes:02d}:{secs:02d},000'
+
+
 def main():
     shutil.rmtree(WORK, ignore_errors=True)
     os.makedirs(WORK)
@@ -5811,7 +5873,7 @@ def main():
 </Project>
 """)
     with open(f'{WORK}/Program.cs', 'w') as f:
-        f.write(PROGRAM)
+        f.write(program_with_job_checks())
 
     fixtures = os.path.join(WORK, 'fixtures')
     shutil.rmtree(fixtures, ignore_errors=True)
@@ -5883,6 +5945,17 @@ def main():
     env['MKV_FIX_ORDINALS'] = ordinals_path
     ENV.clear()
     ENV.update(env)
+
+    # RunSyncJob is private, so its terminals are driven by reflection from the logictest program
+    # (tests/job_checks.cs). The engine those cases run is a script that writes exactly the subtitle each case
+    # needs, which is how every refusal and every success terminal is reached without a real ffsubsync: the
+    # plugin finds it on PATH because the harness has no bundled binary and no settings file. The stand-in ffmpeg
+    # is only reachable through SUBSYNC_FAKE_FFMPEG, which the one embedded case points JELLYFIN_FFMPEG at for its
+    # own run: this suite's own ffmpeg checks (B8) must keep the real binary.
+    fake_engine_dir, fake_ffmpeg = prepare_fake_engine(os.path.join(WORK, 'fakes'))
+    ENV['SUBSYNC_FAKE_ENGINE'] = fake_engine_dir
+    ENV['SUBSYNC_FAKE_FFMPEG'] = fake_ffmpeg
+    ENV['PATH'] = fake_engine_dir + os.pathsep + ENV.get('PATH', '')
 
     b8_fixture_failures = prepare_b8_fixtures(fixtures)
 
