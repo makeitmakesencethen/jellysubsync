@@ -543,3 +543,31 @@ run before it:
    real mutation look harmless: the speech cache is consulted three times, so breaking one lookup left the other two
    to rescue the branch. It now replaces every occurrence, and `tests/backend/mutation_probe.py` runs a single
    mutation and prints what actually failed, instead of a one-line verdict.
+
+## 14. P19, the failure path, done (2026-09-16)
+
+The last piece, and the shortest diff: the two `catch` blocks and the `finally` become `MarkCancelled`,
+`FailJobAndRollBack` and `CleanUpAfterJob`. Nothing here is bulk logic - 5 + 28 + 51 lines - but it is the job's
+failure path, which is exactly the code that should read like a sentence rather than sit at the end of a
+thousand-line method.
+
+**Order preserved, and it matters:** the cleanup releases the temp directory, then the file's speech gate, then
+the audio-analysis link (S46: it has to outlive every *run* of the job, not the job itself), then the shared
+extraction tree - which goes away only when the last job reading it is done. Every step stays best-effort, so a
+cleanup failure still cannot change a job that already finished.
+
+**Both dependencies the earlier phases created are visible at the call sites now:** the rollback takes the backup
+path as a parameter rather than reading the write step's return value (Phase 3's lesson - a throwing write returns
+nothing), and the cleanup takes `reference.SerializeSpeech` / `reference.SpeechKey` from the P3 context.
+
+**The shrink: `RunSyncJob` 983 → 904 lines (−79)**, with `MarkCancelled` (8 lines), `FailJobAndRollBack` (28) and
+`CleanUpAfterJob` (55) in its place. Modest compared with P3, as expected - this phase removes the failure path, not
+a pipeline. **Since the map was written: 1562 → 904 = −658 lines**, and the method that was one 1562-line pipeline
+now reads as twenty phases calling named steps, with nine extracted methods beside it.
+
+**A coverage gap found while doing it, and closed:** nothing asserted that the analysis link is *dropped*, only
+that the job's own retries can still read it (S46's check). A cleanup that forgot to drop it would have been
+invisible - and a symlink per analysed file left behind forever is a real leak. The harness now counts the
+`.mkv` links in the speech cache before and after a job that does its own analysis
+(`P19: the audio-analysis link does not outlive the job that made it`), and the new `P19-link-leak` mutation
+(skip the drop) is caught by it.

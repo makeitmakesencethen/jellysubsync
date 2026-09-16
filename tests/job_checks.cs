@@ -462,6 +462,21 @@
             && cacheSecondArg.Contains("speech-cache", StringComparison.Ordinal),
             $"second job {sjCacheSecond.Job.Status}, runs={SjEngineRuns()}, reference='{cacheSecondArg}'");
 
+        // ---------------- P19: the analysis link is dropped when its job ends ----------------
+        // S46 moved the drop into the job's finally so the retries inside the job can still read the link; this
+        // pins the other half of that trade - the link must not outlive the job, or every analysed file leaves a
+        // symlink in the speech cache for good. The cache root is the one the harness's engine is pointed at.
+        int SjLinksInCache() => Directory.Exists("/tmp/speech-cache")
+            ? Directory.GetFiles("/tmp/speech-cache", "*.mkv").Length
+            : 0;
+
+        var sjLinksBefore = SjLinksInCache();
+        var sjLinkLifetime = await SjRunCase("p19-link-lifetime", "payload", SjSubtitle(40, 5));
+        Check("P19: the audio-analysis link does not outlive the job that made it",
+            sjLinkLifetime.Job.Status == SyncJobStatus.Completed
+            && SjLinksInCache() == sjLinksBefore,
+            $"links in the speech cache: {sjLinksBefore} before the job, {SjLinksInCache()} after it");
+
         // ---------------- P8: a wrong-cut subtitle ruler ----------------
         var sjWrongCut = await SjRunCase("p8-ruler-discarded", "payload", SjSubtitle(40, 45), sibling: true, payload2: SjSubtitle(40, 5));
         var sjWrongCutText = sjWrongCut.Job.OutputPath is not null && File.Exists(sjWrongCut.Job.OutputPath)

@@ -6290,94 +6290,15 @@ public class SubSyncService : IDisposable
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _logger.LogInformation("Sync job {JobId} was killed by the user", job.Id);
-            job.Status = SyncJobStatus.Cancelled;
-            job.Phase = "Killed";
-            job.Error = "Killed by the user.";
-            job.FinishedAtUtc = DateTime.UtcNow;
+            MarkCancelled(job);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Subtitle sync failed for job {JobId}", job.Id);
-            PluginLog.Error($"job {job.Id} failed: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}", ex);
-
-            // ROLLBACK: if we created a backup but didn't complete successfully,
-            // restore the original file from backup
-            if (write.BackupPath is not null && File.Exists(write.BackupPath))
-            {
-                try
-                {
-                    // Determine what the original file was
-                    var originalPath = write.BackupPath.Substring(0, write.BackupPath.Length - ".bak.subsync".Length);
-                    _logger.LogWarning("Rolling back: restoring {Original} from backup {Backup}", originalPath, write.BackupPath);
-                    File.Copy(write.BackupPath, originalPath, overwrite: true);
-                    SafeDelete(write.BackupPath);
-                    _logger.LogInformation("Rollback complete: {Original} restored", originalPath);
-                }
-                catch (Exception rollbackEx)
-                {
-                    _logger.LogError(rollbackEx, "ROLLBACK FAILED for job {JobId}! Backup file preserved at {Backup}", job.Id, write.BackupPath);
-                    // Do NOT delete the backup — it's the user's last resort
-                }
-            }
-
-            job.Status = SyncJobStatus.Failed;
-            job.Error = ex.Message;
+            FailJobAndRollBack(job, ex, write.BackupPath);
         }
         finally
         {
-            // Clean up temp directory (contains ffsubsync output, extracted subs, etc.)
-            try
-            {
-                if (Directory.Exists(tempDir))
-                {
-                    Directory.Delete(tempDir, true);
-                }
-            }
-            catch
-            {
-                // Non-critical
-            }
-
-            // The shared extraction directory goes away only when the last job reading it is done; this job
-            // deleting it is exactly what used to fail the jobs that came after it.
-            try
-            {
-                ReleaseSpeechGate(job, video.Path);
-            }
-            catch
-            {
-                // Non-critical: the next job of this file will do its own analysis.
-            }
-
-            // The audio-analysis symlink this job created outlives its engine runs and goes away here, with
-            // the job that made it (S46). Dropping it as soon as the first run finished left the
-            // wider-window retry and the verification run of the *same* job asking the engine for a file that
-            // no longer existed, so a job whose answer had reached the search window refused instead of
-            // being rescued: 7 of the 8 refusals in one field run were exactly this, all of them naming a
-            // path under speech-cache/ that the plugin itself had deleted. The harvested .npz stays - that
-            // is the artefact worth keeping - and Prune() only ever touches .npz and .ref.srt, so a link
-            // that outlives its job is still cleared by the next prune or by the next job's own link.
-            try
-            {
-                if (reference.SpeechKey is not null && reference.SerializeSpeech)
-                {
-                    SpeechCache.DropLink(reference.SpeechKey);
-                }
-            }
-            catch
-            {
-                // Non-critical: the link is a temp artefact and the next prune clears it.
-            }
-
-            try
-            {
-                SharedExtractionStore.Release(video.Path, job.Id);
-            }
-            catch
-            {
-                // Non-critical: the next cleanup clears it.
-            }
+            CleanUpAfterJob(job, video, tempDir, reference.SerializeSpeech, reference.SpeechKey);
         }
     }
 
@@ -7217,6 +7138,124 @@ public class SubSyncService : IDisposable
                     "no reference subtitle could be built for this job", cancellationToken).ConfigureAwait(false);
             }
         }
+    }
+
+    /// <summary>
+    /// Ends a job the user killed: the cancellation is the outcome, not a failure, and the temp directory is
+    /// removed by the cleanup that follows every run.
+    /// </summary>
+    /// <param name="job">The job that was killed.</param>
+    private void MarkCancelled(SyncJob job)
+    {
+            _logger.LogInformation("Sync job {JobId} was killed by the user", job.Id);
+            job.Status = SyncJobStatus.Cancelled;
+            job.Phase = "Killed";
+            job.Error = "Killed by the user.";
+            job.FinishedAtUtc = DateTime.UtcNow;
+    }
+
+    /// <summary>
+    /// Ends a job that threw, after undoing an in-place replace. The backup is kept when the rollback itself
+    /// fails - it is the user's last resort - and the take is taken from <paramref name="backupPath"/> rather than
+    /// from the write step's return value, because a write that throws returns nothing.
+    /// </summary>
+    /// <param name="job">The job that failed.</param>
+    /// <param name="ex">What it failed with.</param>
+    /// <param name="backupPath">The kept original of a replaced subtitle, if any.</param>
+    private void FailJobAndRollBack(SyncJob job, Exception ex, string? backupPath)
+    {
+            _logger.LogError(ex, "Subtitle sync failed for job {JobId}", job.Id);
+            PluginLog.Error($"job {job.Id} failed: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}", ex);
+
+            // ROLLBACK: if we created a backup but didn't complete successfully,
+            // restore the original file from backup
+            if (backupPath is not null && File.Exists(backupPath))
+            {
+                try
+                {
+                    // Determine what the original file was
+                    var originalPath = backupPath.Substring(0, backupPath.Length - ".bak.subsync".Length);
+                    _logger.LogWarning("Rolling back: restoring {Original} from backup {Backup}", originalPath, backupPath);
+                    File.Copy(backupPath, originalPath, overwrite: true);
+                    SafeDelete(backupPath);
+                    _logger.LogInformation("Rollback complete: {Original} restored", originalPath);
+                }
+                catch (Exception rollbackEx)
+                {
+                    _logger.LogError(rollbackEx, "ROLLBACK FAILED for job {JobId}! Backup file preserved at {Backup}", job.Id, backupPath);
+                    // Do NOT delete the backup — it's the user's last resort
+                }
+            }
+
+            job.Status = SyncJobStatus.Failed;
+            job.Error = ex.Message;
+    }
+
+    /// <summary>
+    /// Releases everything a finished job held, in the order it was taken: the temp directory, the file's speech
+    /// gate, the audio-analysis link (S46 - it has to outlive every run of this job, not just the first), and the
+    /// shared extraction tree, which goes away only when the last job reading it is done. Every step is
+    /// best-effort: a cleanup that fails must not change a job that already finished.
+    /// </summary>
+    /// <param name="job">The job that finished.</param>
+    /// <param name="video">Its media item, for the per-file gate and the shared tree.</param>
+    /// <param name="tempDir">The job's temp directory.</param>
+    /// <param name="serializeSpeech">Whether this job's own analysis produced the cached speech.</param>
+    /// <param name="speechKey">The speech-cache key of that analysis, if there is one.</param>
+    private void CleanUpAfterJob(SyncJob job, Video video, string tempDir, bool serializeSpeech, string? speechKey)
+    {
+            // Clean up temp directory (contains ffsubsync output, extracted subs, etc.)
+            try
+            {
+                if (Directory.Exists(tempDir))
+                {
+                    Directory.Delete(tempDir, true);
+                }
+            }
+            catch
+            {
+                // Non-critical
+            }
+
+            // The shared extraction directory goes away only when the last job reading it is done; this job
+            // deleting it is exactly what used to fail the jobs that came after it.
+            try
+            {
+                ReleaseSpeechGate(job, video.Path);
+            }
+            catch
+            {
+                // Non-critical: the next job of this file will do its own analysis.
+            }
+
+            // The audio-analysis symlink this job created outlives its engine runs and goes away here, with
+            // the job that made it (S46). Dropping it as soon as the first run finished left the
+            // wider-window retry and the verification run of the *same* job asking the engine for a file that
+            // no longer existed, so a job whose answer had reached the search window refused instead of
+            // being rescued: 7 of the 8 refusals in one field run were exactly this, all of them naming a
+            // path under speech-cache/ that the plugin itself had deleted. The harvested .npz stays - that
+            // is the artefact worth keeping - and Prune() only ever touches .npz and .ref.srt, so a link
+            // that outlives its job is still cleared by the next prune or by the next job's own link.
+            try
+            {
+                if (speechKey is not null && serializeSpeech)
+                {
+                    SpeechCache.DropLink(speechKey);
+                }
+            }
+            catch
+            {
+                // Non-critical: the link is a temp artefact and the next prune clears it.
+            }
+
+            try
+            {
+                SharedExtractionStore.Release(video.Path, job.Id);
+            }
+            catch
+            {
+                // Non-critical: the next cleanup clears it.
+            }
     }
 
     /// <summary>
