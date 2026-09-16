@@ -139,7 +139,7 @@
 
     // The plugin's own quoting is what makes the string runners safe for its own call sites: EscapeArg's
     // output survives that parser as a single argument, which is the property a consolidation must keep.
-    var svcEscape = (string)(SvcMethod("EscapeArg")!.Invoke(null, new object?[] { "/tmp/a b/subsync" }) ?? string.Empty);
+    var svcEscape = (string)(typeof(FfSubSyncEngine).GetMethod("EscapeArg", BindingFlags.NonPublic | BindingFlags.Static)!.Invoke(null, new object?[] { "/tmp/a b/subsync" }) ?? string.Empty);
     var svcArgvD = Path.Combine(svcRoot, "argv-escaped.txt");
     var svcEscapedRunner = SvcDumpScript("argv-escaped.sh", svcArgvD);
     await SvcCall(svcProcesses, "RunProcessAsync", svcEscapedRunner, "-m venv " + svcEscape, svcBin, CancellationToken.None);
@@ -301,6 +301,10 @@
     // runs after every other C# check in the harness and restores what it changes.
     // ===========================================================================================
     var svcEngine = new SubSyncService(Microsoft.Extensions.Logging.Abstractions.NullLogger<SubSyncService>.Instance, null!, null!, null!);
+    // The engine resolver, the install gate and the version probes live in FfSubSyncEngine (the C9 extraction),
+    // and the service holds exactly one - taken out of it here so a check drives the object the service uses,
+    // not a second one that would have its own gate.
+    var svcEngineLayer = (FfSubSyncEngine)SvcField(svcEngine, "_engine")!;
 
     // Without a plugin instance: the plugin-side fields say so, and the managed path is only a relative name.
     var svcOrphanStatus = await svcEngine.GetInstallationStatusAsync();
@@ -340,11 +344,11 @@
     Check("C9: install without a plugin instance refuses by name, and the retry is not blocked by the gate",
         svcOrphanInstall == "Plugin not initialized."
         && svcOrphanRetry == "Plugin not initialized."
-        && (int)(SvcField(svcEngine, "_installing") ?? -1) == 0,
-        $"first='{svcOrphanInstall}' retry='{svcOrphanRetry}' gate={SvcField(svcEngine, "_installing")}");
+        && (int)(SvcField(svcEngineLayer, "_installing") ?? -1) == 0,
+        $"first='{svcOrphanInstall}' retry='{svcOrphanRetry}' gate={SvcField(svcEngineLayer, "_installing")}");
 
     // The re-entrancy guard itself.
-    SvcSetField(svcEngine, "_installing", 1);
+    SvcSetField(svcEngineLayer, "_installing", 1);
     var svcBusyInstall = string.Empty;
     try
     {
@@ -355,7 +359,7 @@
         svcBusyInstall = ex.Message;
     }
 
-    SvcSetField(svcEngine, "_installing", 0);
+    SvcSetField(svcEngineLayer, "_installing", 0);
     Check("C9: a second install while one is running is refused by the gate",
         svcBusyInstall == "Installation is already in progress.",
         $"'{svcBusyInstall}'");
@@ -468,7 +472,7 @@
         svcInstalled
         && File.Exists(svcManaged)
         && svcAfterInstall.IsInstalled
-        && (int)(SvcField(svcEngine, "_installing") ?? -1) == 0,
+        && (int)(SvcField(svcEngineLayer, "_installing") ?? -1) == 0,
         $"threw={svcInstallError} binary={File.Exists(svcManaged)} installed={svcAfterInstall.IsInstalled}");
 
     // A failing pip is reported as a failure with its exit code, and does not leave the gate set.
@@ -497,7 +501,7 @@
     Check("C9: a failing pip install is reported with its exit code, and the gate is released afterwards",
         svcPipFailed.Contains("pip install ffsubsync failed with exit code 3", StringComparison.Ordinal)
         && svcPipRetry == svcPipFailed
-        && (int)(SvcField(svcEngine, "_installing") ?? -1) == 0,
+        && (int)(SvcField(svcEngineLayer, "_installing") ?? -1) == 0,
         $"'{svcPipFailed}' retry='{svcPipRetry}'");
 
     // pip exits 0 but nothing lands at the expected path: reported, not accepted as an install.
@@ -567,7 +571,7 @@
         Check("C9: a missing python3 on a non-root process is refused with the cause and the fix, before any pip run",
             svcNoPython.Contains("not running as root", StringComparison.Ordinal)
             && svcNoPython.Contains("apt-get install -y python3 python3-venv", StringComparison.Ordinal)
-            && (int)(SvcField(svcEngine, "_installing") ?? -1) == 0,
+            && (int)(SvcField(svcEngineLayer, "_installing") ?? -1) == 0,
             $"'{svcNoPython}'");
     }
 
@@ -579,7 +583,7 @@
     try
     {
         Environment.SetEnvironmentVariable("PATH", svcEmptyPathDir);
-        svcVenvReady = (bool?)await SvcCall(svcEngine, "IsPythonVenvReadyAsync");
+        svcVenvReady = (bool?)await SvcCall(svcEngineLayer, "IsPythonVenvReadyAsync");
     }
     catch (Exception)
     {

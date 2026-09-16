@@ -32,7 +32,7 @@ def service_classes():
     behaviour rather than at the layout.
     """
     names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs',
-             'SubSyncProcesses.cs']
+             'SubSyncProcesses.cs', 'FfSubSyncEngine.cs']
     return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
 
 
@@ -3863,18 +3863,18 @@ else
 {
     var d2Exists = new Func<string, bool>(path => path == "/opt/engine/ffsubsync");
     Check("D2: a configured engine path that exists counts as installed",
-        SubSyncService.EngineIsUsable("/opt/engine/ffsubsync", d2Exists, null));
+        FfSubSyncEngine.EngineIsUsable("/opt/engine/ffsubsync", d2Exists, null));
     Check("D2: a configured engine path that does not exist is not installed",
-        !SubSyncService.EngineIsUsable("/opt/engine/missing", d2Exists, null));
+        !FfSubSyncEngine.EngineIsUsable("/opt/engine/missing", d2Exists, null));
     Check("D2: a bare command name is looked up on PATH, exactly as the shell would",
-        SubSyncService.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin:/opt/engine")
-        && !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin"));
+        FfSubSyncEngine.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin:/opt/engine")
+        && !FfSubSyncEngine.EngineIsUsable("ffsubsync", d2Exists, "/usr/bin"));
     Check("D2: an empty or missing PATH finds nothing, so the answer fails closed",
-        !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, string.Empty)
-        && !SubSyncService.EngineIsUsable("ffsubsync", d2Exists, null));
+        !FfSubSyncEngine.EngineIsUsable("ffsubsync", d2Exists, string.Empty)
+        && !FfSubSyncEngine.EngineIsUsable("ffsubsync", d2Exists, null));
     Check("D2: no resolved path at all is not installed",
-        !SubSyncService.EngineIsUsable(string.Empty, d2Exists, "/usr/bin")
-        && !SubSyncService.EngineIsUsable(null, d2Exists, "/usr/bin"));
+        !FfSubSyncEngine.EngineIsUsable(string.Empty, d2Exists, "/usr/bin")
+        && !FfSubSyncEngine.EngineIsUsable(null, d2Exists, "/usr/bin"));
 }
 
 // D8: one rule for what can be synced, applied wherever a request arrives.
