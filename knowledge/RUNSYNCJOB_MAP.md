@@ -401,10 +401,17 @@ states that raising "Maximum offset" will not help. Two checks: the classifier's
 wider retry exits 1 saying it could not open the reference — the field's exact shape (see the S22 row for the
 before/after sentence).
 
-**Reading S22's field evidence turned up its root cause, filed as S46 and *not* fixed:** the reference the engine
-could not read is a symlink the plugin deletes *itself* (`SpeechCache.DropLink` after a cached-speech run), so the
-wider-window retry that exists to rescue a window-pinned answer cannot start. That is a "refuses when it could
-retry" defect rather than silent wrongness, and it needs its own before/after.
+**Reading S22's field evidence turned up its root cause - filed as S46, and then reproduced and fixed.** The
+reference the engine could not read is a symlink the plugin deletes *itself*: after a run that analysed the speech,
+`SpeechCache.DropLink` removed the link (and only the link - `Prune` never touches it, since it matches `.npz` and
+`.ref.srt`), while the wider-window retry and the verification run of the *same job* still held that path as their
+reference. So the retry that exists to rescue a window-pinned answer could not start, and the job refused: 7 of one
+field run's 8 refusals, every one of them a job whose answer had reached the search window. Reproduced first (the
+stand-in engine's `check-reference` marker makes it fail on a reference it cannot open, as the real engine does),
+fixed by moving the single drop into the job's `finally`, and the check now asserts the rescue: same job,
+`Completed`, `+3000 ms offset`, three engine runs - the retry's answer, not the window-pinned first one. The one
+thing left on purpose: the link dies with *its* job rather than never, so a second job of the same file overlapping
+that moment could still lose it (narrower than before, and not the field's shape).
 
 **Re-verified after the extraction** (the mutation anchors moved with the code, so they were re-pointed at the new
 call shapes and re-run): `P7`, `P12`, `P13`, `P8-refusal` and the new `S22-cause` are all still CAUGHT, and the

@@ -398,6 +398,26 @@
             && SjEngineRuns() == 2,
             $"{sjUnreadable.Job.Status}/{sjUnreadable.Job.Phase} error='{sjUnreadable.Job.Error}' runs={SjEngineRuns()}");
 
+        // ---------------- S46: the reference the plugin deletes under its own retries ----------------
+        // The marker below turns on the stand-in engine's reference check, so it behaves like the real ffsubsync
+        // on a reference it cannot open. This job analyses the audio itself - so the plugin creates the
+        // speech-cache symlink and drops it as soon as the first run is over - and its answer lands on the search
+        // window, so the wider-window retry in the same job is handed that same link. Read off the field log on
+        // 2026-09-15: 7 of one run's 8 refusals were `unable to read reference .../speech-cache/<key>.mkv`, every
+        // one of them a job whose retry could not start.
+        File.WriteAllText(Path.Combine(sjEngineDir, "check-reference"), "1");
+        var sjDroppedLink = await SjRunCase("s46-dropped-reference", "payload", SjSubtitle(40, 180),
+            payload2: SjSubtitle(40, 3), payload3: SjSubtitle(40, 3));
+        File.Delete(Path.Combine(sjEngineDir, "check-reference"));
+        Check("S46: a job that analysed the audio itself can still use its wider window - the reference outlives the job's retries",
+            sjDroppedLink.Job.Status == SyncJobStatus.Completed
+            && (sjDroppedLink.Job.Outcome ?? string.Empty).Contains("+3000 ms", StringComparison.Ordinal)
+            && !(sjDroppedLink.Job.Outcome ?? string.Empty).Contains("+180000", StringComparison.Ordinal)
+            && sjDroppedLink.Job.OutputPath is not null
+            && File.Exists(sjDroppedLink.Job.OutputPath)
+            && SjEngineRuns() == 3,
+            $"{sjDroppedLink.Job.Status}/{sjDroppedLink.Job.Phase} runs={SjEngineRuns()} outcome='{sjDroppedLink.Job.Outcome}' error='{sjDroppedLink.Job.Error}'");
+
         // ---------------- P8: a wrong-cut subtitle ruler ----------------
         var sjWrongCut = await SjRunCase("p8-ruler-discarded", "payload", SjSubtitle(40, 45), sibling: true, payload2: SjSubtitle(40, 5));
         var sjWrongCutText = sjWrongCut.Job.OutputPath is not null && File.Exists(sjWrongCut.Job.OutputPath)

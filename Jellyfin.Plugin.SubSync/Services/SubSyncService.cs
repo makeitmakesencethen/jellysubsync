@@ -5441,6 +5441,11 @@ public class SubSyncService : IDisposable
         string? changedDir = null;   // folder touched by this job (for the targeted library rescan)
         string? cuesNote = null;     // set when the subtitle looks like a signs/forced track
 
+        // The job's own audio analysis, if it makes one. Declared here because the link's lifetime is the
+        // job's lifetime: see the comment on the drop in the finally below (S46).
+        var serializeSpeech = false;
+        string? speechKey = null;
+
         try
         {
             // Everything that can throw lives inside this block, including the checks below: a job that
@@ -5620,8 +5625,6 @@ public class SubSyncService : IDisposable
             // so it is computed once and reused for the other subtitles of that file.
             var mode = NormalizeMode(job.Mode);
             var referencePath = videoPath;
-            var serializeSpeech = false;
-            string? speechKey = null;
             var usingCachedSpeech = false;
 
             // The reference this job is aligned against is one of exactly two things: the file's own
@@ -6013,10 +6016,12 @@ public class SubSyncService : IDisposable
 
             if (speechKey is not null && serializeSpeech)
             {
-                // Harvest covers the fallback where ffsubsync wrote the .npz next to the
-                // media file; DropLink removes the temporary symlink either way.
+                // Harvest covers the fallback where ffsubsync wrote the .npz next to the media file. The link
+                // itself is not dropped here: the wider-window retry and the verification run later in this
+                // same job are handed the same reference, and a retry pointed at a file the plugin deleted
+                // under it cannot start (S46 - measured in the field, 7 of one run's 8 refusals). It is
+                // dropped once, in this job's finally.
                 SpeechCache.Harvest(referencePath, speechKey);
-                SpeechCache.DropLink(speechKey);
                 SpeechCache.Prune();
             }
 
@@ -6175,7 +6180,6 @@ public class SubSyncService : IDisposable
                     if (speechKey is not null && serializeSpeech)
                     {
                         SpeechCache.Harvest(audioReference, speechKey);
-                        SpeechCache.DropLink(speechKey);
                         SpeechCache.Prune();
                     }
 
@@ -6524,7 +6528,6 @@ public class SubSyncService : IDisposable
                     if (speechKey is not null && serializeSpeech)
                     {
                         SpeechCache.Harvest(crossReference, speechKey);
-                        SpeechCache.DropLink(speechKey);
                         SpeechCache.Prune();
                     }
 
@@ -6926,6 +6929,26 @@ public class SubSyncService : IDisposable
             catch
             {
                 // Non-critical: the next job of this file will do its own analysis.
+            }
+
+            // The audio-analysis symlink this job created outlives its engine runs and goes away here, with
+            // the job that made it (S46). Dropping it as soon as the first run finished left the
+            // wider-window retry and the verification run of the *same* job asking the engine for a file that
+            // no longer existed, so a job whose answer had reached the search window refused instead of
+            // being rescued: 7 of the 8 refusals in one field run were exactly this, all of them naming a
+            // path under speech-cache/ that the plugin itself had deleted. The harvested .npz stays - that
+            // is the artefact worth keeping - and Prune() only ever touches .npz and .ref.srt, so a link
+            // that outlives its job is still cleared by the next prune or by the next job's own link.
+            try
+            {
+                if (speechKey is not null && serializeSpeech)
+                {
+                    SpeechCache.DropLink(speechKey);
+                }
+            }
+            catch
+            {
+                // Non-critical: the link is a temp artefact and the next prune clears it.
             }
 
             try

@@ -115,6 +115,13 @@ Web/configPage.html              — Legacy Dashboard plugin-settings page.
   which is the artefact worth keeping). **"Last job" means queued or running** — releasing the tree
   while a worker still holds the path as its ffsubsync argument makes the engine fail with
   `unable to read reference` and, worse, sends later jobs to a whole-file demux of the container.
+- **The audio-analysis symlink lives as long as its job, never just its first run.** `SpeechCache.CreateReferenceLink`
+  points the engine at the media file through `<state>/speech-cache/<key>.mkv`, and `DropLink` deletes that link (the
+  `.npz` is the artefact to keep). Do not drop it when the first run finishes: the wider-window retry and the
+  verification run of the *same* job hold that same path, so a retry pointed at a deleted file cannot start and the
+  job refuses with `unable to read reference` — measured in the field, 7 of one run's 8 refusals, all of them jobs
+  whose answer had reached the search window (S46, fixed in 2.0.57). If the link is ever deleted early again, the
+  suite's `s46-dropped-reference` case fails: its stand-in engine checks that the reference it was handed exists.
 - **The reference is built from text, never by handing ffsubsync the container.** A job waiting on a
   sibling reference reads the track from this run's memory, then the extracted-subtitle cache, then
   the container index (`TryReadReferenceTextAsync`), under a per-file gate so only one job builds it.

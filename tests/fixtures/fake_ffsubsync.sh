@@ -25,6 +25,14 @@ echo "$n" > "$dir/calls"
 printf '%s\n' "$*" >> "$dir/argv.log"
 
 mode="$(cat "$dir/behaviour.$n" 2>/dev/null || cat "$dir/behaviour" 2>/dev/null || echo payload)"
+
+# With this marker the stand-in behaves like the real engine on a reference it cannot open: a hard failure
+# naming the path. Only the S46 case turns it on; the others model a lenient engine so they can exercise
+# their own branch without the reference's existence being part of the question.
+if [ -f "$dir/check-reference" ] && [ -n "$1" ] && [ ! -e "$1" ]; then
+  echo "ffsubsync: unable to read reference $1; try ensuring file exists and has correct permissions" >&2
+  exit 1
+fi
 out=""
 prev=""
 for a in "$@"; do
