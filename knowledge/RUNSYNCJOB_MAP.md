@@ -330,7 +330,7 @@ the input here, the *engine's* answer merely looks like a rescale, which is the 
   P18 check meaningful, but the *effect* of a real folder report is only covered by the rig scenarios that read the
   sidecar back through Jellyfin.
 
-### S45 — fixed 2026-09-16, **held for go-ahead before shipping** (the version and the changelog are untouched)
+### S45 — fixed and shipped in 2.0.55 (beta)
 
 The observation above was fixed in this pass rather than carried into the extraction. The audio retry now writes
 to a path of its own — `audio-fallback.srt`, deleted before the run — so `File.Exists` can only be true of a file
@@ -365,5 +365,9 @@ subtitle ruler demanding a shift past the ceiling is discarded and the audio's a
 answer reached the library — `00:10:05,000` (the audio's `+5 s`), and not `00:10:45,000` (the ruler's `+45 s`).
 
 Suite green at 963 checks after the fix; `P8-stale` caught by both the S45 check and `P8-refusal`; `check_fixplan`
-passes. With S45 fixed, Phase 1 of the extraction (the terminal blocks plus S22) can proceed as sequenced in §7 —
-the P8 block is no longer carrying a known silent-wrongness bug into the new structure.
+passes. Shipped in 2.0.55 (beta) and checked as an installer sees it: the catalog reports 2.0.55.0, the
+42 508 168-byte zip's MD5 is `e0b2326fe3c9b2c6d28099518f2c1e8a` and matches the published checksum, the packaged
+`meta.json` and the DLL both carry 2.0.55.0 with the bundled ffsubsync inside (177 members), and the assembly
+carries the fix's own path `audio-fallback.srt` as a UTF-16 literal. Phase 1 of the extraction (the terminal blocks
+plus S22) can now proceed as sequenced in §7 — the P8 block is no longer carrying a known silent-wrongness bug into
+the new structure.
