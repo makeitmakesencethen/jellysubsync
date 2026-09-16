@@ -4619,7 +4619,7 @@ def run_page_checks():
            and 'config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,' in service_source
            and 'VadForReference(referenceSpec)' in service_source)
     report('a subtitle reference that is not the same cut is replaced by the audio, not refused',
-           'ReferenceStore.Discard(videoPath, referenceSpec);' in service_source
+           'ReferenceStore.Discard(videoPath, reference.Spec);' in service_source
            and 'discarding that ' in service_source
            and 'the reference subtitle is not the same cut as the video' in service_source
            and 'audioFallback = true;' in service_source
@@ -4772,7 +4772,7 @@ def run_page_checks():
            'RulerSpreadTooWide(spread, referenceCeilingMs)' in service_source
            and 'the cues did not move together against' in service_source
            and 'SubtitleReferenceSpreadFraction = 0.25' in service_source
-           and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service_source)
+           and 'ReferenceStore.Discard(videoPath, reference.Spec);' in service_source)
 
     report('the first measurement of a volume is more than one read, and says what its median stands on',
            'private const int ProbeReads = 3;' in service_source
@@ -5040,7 +5040,7 @@ def run_page_checks():
     report('a reference-derived shift past the limit drops the reference and uses the audio',
            'MaxSubtitleReferenceOffsetSeconds' in service
            and 'it demanded {fromReference.ShiftMs} ms' in service
-           and 'ReferenceStore.Discard(videoPath, referenceSpec);' in service
+           and 'ReferenceStore.Discard(videoPath, reference.Spec);' in service
            and 'worth checking, a shift this size' in service
            and 'refusing a reference-derived shift' not in service)
     report('the offset window is a search range: a result on it is retried wider, and only a definitive answer is written',
