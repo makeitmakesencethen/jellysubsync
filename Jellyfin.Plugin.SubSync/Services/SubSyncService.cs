@@ -1917,10 +1917,6 @@ public class SubSyncService : IDisposable
         }
     }
 
-    /// <summary>How many child processes are tracked right now (used by the status endpoint).</summary>
-    /// <returns>Number of live processes.</returns>
-    private int LiveProcessCount() => _liveProcesses.Values.Count(p => !SafeHasExited(p));
-
     /// <summary>
     /// Gets a summary of what is executing right now, so the UI can tell the user whether
     /// anything is still running after a cancel.
