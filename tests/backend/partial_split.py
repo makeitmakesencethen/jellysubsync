@@ -159,8 +159,10 @@ def regions_for(cluster, lines, members):
                 picked.append(index)
                 break
     for extra in EXTRAS[cluster]:
+        # Match the declaration, not the extracted name: `public sealed class X : InvalidOperationException`
+        # extracts as `InvalidOperationException`, which silently left that type behind the first time.
         for index, (first, last, member) in enumerate(members):
-            if member == extra:
+            if member == extra or re.search(rf'\bclass {re.escape(extra)}\b', lines[first - 1]):
                 used.add(index)
                 picked.append(index)
                 break

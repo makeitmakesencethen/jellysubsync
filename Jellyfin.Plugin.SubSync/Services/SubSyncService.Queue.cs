@@ -791,4 +791,23 @@ public partial class SubSyncService
         => PluginLog.Info(
             $"job {job.Id} cancelled: mode={job.Mode} item={job.ItemId} stream={job.SubtitleIndex}");
 
+    /// <summary>
+    /// Thrown when the work a request asks for is already queued by a different account (F4).
+    /// </summary>
+    /// <remarks>
+    /// Distinct from a plain refusal so the endpoints can answer 409 rather than 400: nothing about the request is
+    /// wrong, the queue simply holds that work for somebody else.
+    /// </remarks>
+    public sealed class SyncQueueConflictException : InvalidOperationException
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SyncQueueConflictException"/> class.
+        /// </summary>
+        /// <param name="message">Why the request conflicts with the queue.</param>
+        public SyncQueueConflictException(string message)
+            : base(message)
+        {
+        }
+    }
+
 }
