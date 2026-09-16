@@ -13,6 +13,52 @@ document is the only file written.
 > C4 is therefore **four** runners, and the four are now covered by checks: `tests/service_checks.cs`, with
 > its mutations in `tests/backend/mutation_phase0_checks.py`.
 
+> **Phase 2 done (2026-09-16): the tangled core is five partial files.** §7's step 3, executed in the order
+> that the *boundaries* recommend rather than the sizes: a partial-class move's only real risk is the cut
+> itself, so the cluster with the smallest surface and the least run-state went first and the most interleaved
+> went last. Five commits, one per cluster, each proved to be a text move rather than described as one.
+>
+> | cluster (map §1 lines) | became | commit | moved | cuts | purity |
+> |---|---|---|---|---|---|
+> | C8 (615) | `SubSyncService.SweepHistory.cs` | `2f9b3f9` | 761 lines | 7 | 7/7 regions byte-identical, `subtraction: exact` |
+> | C1 (634) | `SubSyncService.Queue.cs` | `557e36a` + `56b9422` | 757 + 18 | 10 | 10/10 |
+> | C3 (1 031) | `SubSyncService.Extraction.cs` | `0f4a333` | 1 238 | 5 | 5/5 |
+> | C5 (2 159) | `SubSyncService.JobPipeline.cs` | `2900112` | 2 520 | 5 | 5/5 |
+> | C2 (900) | `SubSyncService.Scheduler.cs` | `c80f64a` | 1 252 | 11 | 11/11 |
+>
+> `SubSyncService.cs` is **9 646 → 7 811 (Phase 1) → 1 263 lines**. What is left in it is what §7 said would be
+> left: the six DTOs above the class, the 48 fields and the 26 constants/static-readonly (that is the state the five parts
+> read as one class), the constructor, `Dispose`, the seven-member C9 facade, the C10 maintenance glue
+> (`ClearStaleJobDirectories`, `LogLockHold`, `ResolveEnqueueTraceMs`, `SweepLongLivedStores`, `ReapStuckJobs`,
+> `CleanupOldJobs`) and seven members no cluster list in §1 names (`SyncPhaseLabel`, `SpeechCacheReferenceHint`,
+> `NormalizeMode`, `IsParallelMode`, `IsSpeechCachingMode`, `WaitForTasks`, `LogPluginCompletion`).
+>
+> **The four things that were not clean, stated rather than smoothed over** (all four are in the commits):
+>
+> 1. **The split tool cut less than it said.** Its member scanner stepped one line past each declaration, so
+>    every member beginning immediately after another was invisible - which silently left three C8 members
+>    (`LogPluginProgress`, `SnapshotBatchHistory`, `RecordSweepOutcome`) and `RunSyncJob` (905 lines) behind.
+>    What found it is this document: the tool reports the map names it cannot find in the file, and names that
+>    the map lists turned out to exist. C8's first cut was redone (9 regions/700 lines → 7 regions/761), and
+>    C5's cut carries `RunSyncJob` because of it.
+> 2. **The source-shape pins had to follow, twice.** `service_classes()` - the aggregate every pin reads -
+>    listed the moved-out files by hand, and 10 pins went red on the C1 cut. It now finds the
+>    `SubSyncService.*.cs` parts itself; my first version of that fix listed the main file among its own parts
+>    (its name matches the prefix), which doubled every count a pin makes for one run (5 pins red).
+> 3. **The C4 cancel check was still flaky, and Phase 0's driver is what said so** - it refuses to run against
+>    a red baseline and refused twice. The check waited 1 s for its child to appear in the tracked table, which
+>    is not enough under a suite plus a build on the same machine; the budgets are 10 s and 5 s now.
+> 4. **The retarget tool wrote the wrong *kind* of constant** for the RunSyncJob driver (a path relative to the
+>    repo, where that driver's constants are `pathlib.Path` values built from `REPO`), which would have died on
+>    `path.read_text()` with a `KeyError`. Fixed in the same step that exposed it (C5).
+>
+> **Verification, per step, not once at the end:** the suite was green at 1008 checks after each of the five
+> cuts and after the follow-up; both mutation drivers were re-run after each cut (43 of 43 and 25 of 25 caught
+> every time, with a green baseline) - 19 Phase 0 anchors and 24 RunSyncJob anchors re-pointed as their code
+> moved, `tests/backend/retarget_mutations.py` computing each one and reporting anything it could not resolve.
+> The moves themselves are reproducible: `python3 tests/backend/partial_split.py C8 --dry-run` prints the
+> cut, the purity count and the subtraction check for a cluster without writing anything.
+
 > **Phase 1 done (2026-09-16): the four separable clusters left the class.** The §6 recommendation was
 > executed in the order §7 proposed, one commit each, and the §1-§2 line numbers are now **historical** -
 > the code they point at lives in its own file:

@@ -36,8 +36,18 @@ Api/SubSyncMiddleware.cs         — Response middleware: injects <script src="/
 Configuration/PluginConfiguration.cs — Settings model (XML-serialized by Jellyfin).
 Api/SubSyncController.cs         — REST API at /SubSync/* ([ApiController], [Authorize]).
                                    Serves the client JS via GET /SubSync/ClientScript.
-Services/SubSyncService.cs       — Queue pump + sync engine (ffsubsync/ffmpeg), job tracking,
-                                   batch model, copy/replace output, folder rescan.
+Services/SubSyncService.cs       — The service's own state: fields, constants, constructor, Dispose, the
+                                   engine/install facade and the maintenance glue. The behaviour lives in
+                                   partial-class parts of the same class, one per concern (see
+                                   knowledge/SUBSYNCSERVICE_MAP.md §7):
+                                     SubSyncService.Queue.cs        — enqueue, batch, cancel, kill, job lookup
+                                     SubSyncService.Scheduler.cs    — pump, wave policy, walk/read-cost policy
+                                     SubSyncService.Extraction.cs   — extraction lanes, chain and caches
+                                     SubSyncService.JobPipeline.cs  — the sync job pipeline
+                                     SubSyncService.SweepHistory.cs — read models, access, sweep, history
+                                   Classes genuinely split out (real types, not partials):
+                                     SubSyncProcesses, FfSubSyncEngine, AlignmentMetrics,
+                                     MediaStreamMap, SyncedTargetNaming.
 Web/subsyncMain.html             — Main-menu page: Sync browser, History, Settings.
 Web/subsync.js                   — Client script for detail/library ⋮ menus (single-item sync dialog).
 Web/configPage.html              — Legacy Dashboard plugin-settings page.

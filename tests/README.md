@@ -67,6 +67,23 @@ before any class extraction touches them:
 Every one of these is mutation-verified: `tests/backend/mutation_phase0_checks.py` breaks one production
 line per check and reports which check caught it.
 
+**Where the service's code lives, and why the checks do not care.** The map's Phase 1 and 2 split
+`SubSyncService` into real classes (`SubSyncProcesses`, `FfSubSyncEngine`, `AlignmentMetrics`,
+`MediaStreamMap`, `SyncedTargetNaming`) and, for the clusters that share the run-state, into
+partial-class parts of the same class (`SubSyncService.Queue.cs`, `.Scheduler.cs`, `.Extraction.cs`,
+`.JobPipeline.cs`, `.SweepHistory.cs`). Source-shape checks - the pins that read the C# as text - read
+`service_classes()`, the aggregate of the main file and every part, so a pin stays pointed at the
+behaviour and not at a file boundary. That is also why a *move* is the one change that can make a pin
+fail for a reason that has nothing to do with the code: if a pin reads one path directly (or the
+aggregate misses a part), it searches a string the code has left and reports a regression instead of a
+gap in the check. Nothing in this suite does that now; keep it that way.
+
+The moves themselves are reproducible and self-reporting:
+`python3 tests/backend/partial_split.py <cluster> --dry-run` prints the regions it would cut, the purity
+count (each region byte-identical in the new file) and the subtraction check (the main file is exactly
+the original minus the moved lines). `tests/backend/retarget_mutations.py` moves each mutation anchor to
+the file its line now lives in and reports anything it cannot resolve rather than guessing.
+
 ## Adding a check
 
 Add the assertion to `tests/run_checks.py` (C# checks live in the `PROGRAM` string, Python checks
