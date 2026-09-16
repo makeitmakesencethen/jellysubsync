@@ -494,3 +494,52 @@ fix's +23 inside the method.
 **Also re-pointed:** three mutation anchors that lived inside the moved text (`P15-replace`, `P18-catch`, and
 `P19`'s — which reads the holder now, since the rollback moved with it) and the extraction driver's label pattern,
 which is how the first two verification runs silently reported "MISSED" instead of a real result.
+
+## 13. P3, reference resolution, done (2026-09-16)
+
+The last major phase, and the one §7 held back. It cannot be extracted by moving a block: the audio reference is
+prepared by a *local function* called from four places - two inside the phase, two outside it (P8's wrong-cut
+fallback, P11's cross-check) - and the job's `finally` reads two of the values it writes (S46's link drop). A method
+cannot reach RunSyncJob's locals, so those values travel in a context object the caller owns, declared before the
+job's `try`, exactly as Phase 3's write outcome had to be.
+
+**Two commits, in the order the risk demanded:**
+
+- **Step A - the closure becomes a method, with `ReferenceResolution` carrying the three speech-cache facts**
+  (`SpeechKey`, `SerializeSpeech`, `UsingCachedSpeech`). Four call sites updated, two of them outside the phase;
+  15 lines renamed inside `RunSyncJob`. Suite green on its own.
+- **Step B - the phase's body becomes `ResolveReferenceAsync`**, with the four remaining values (`Path`, `Spec`,
+  `Stream`, `UsedSubtitleReference`) in the same context. 38 lines renamed inside `RunSyncJob`, and **three
+  source-shape pins had to follow** (`'ReferenceStore.Discard(videoPath, referenceSpec);'` → `…reference.Spec);'`,
+  in three different checks): that is what this phase's "not pure" cost looks like when it lands on the test suite
+  rather than on the code.
+
+**Measured line by line - moved versus renamed** (compared programmatically, not eyeballed): the closure's body is
+**52 lines: 45 identical, 7 pure renames, 0 anything else**; the decision comment is 7 lines, all identical; the
+decision + sibling + fallback is **148 → 149 lines: 125 identical, 20 pure renames, and 4 lines that are the two
+call sites gaining `reference, job, videoPath,` and `cancellationToken`**. The phase's logic moved verbatim; what
+changed is renames and call arguments.
+
+**The shrink: `RunSyncJob` 1201 → 983 lines (−218)** - the largest of the four phases - with
+`ResolveReferenceAsync` (174 lines) and `PrepareAudioReferenceAsync` (61) in its place.
+**Since the map was written: 1562 → 983 = −579 lines.**
+
+**One dead line removed separately, as agreed:** `var mode = NormalizeMode(job.Mode);` normalised a value nothing
+reads, and `SyncJobMode.Normalize` is pure, so the call had no effect at all. Own commit, labelled as such.
+
+**Coverage added before the extraction** (Phase 1's discipline, applied to the one uncovered branch): the
+speech-cache *hit* - two jobs of one file, the second reusing the analysis, read off the engine's argv - and the
+argv-based S11 pin (the engine's reference argument is a file in the plugin's own tree, never the media path). Both
+mutation-verified (`P3-cache-hit`, `P3-container`), and the phase's neighbours re-run afterwards.
+
+**Two tooling defects found and fixed while doing this**, both of which had been quietly degrading every mutation
+run before it:
+
+1. The driver's label pattern was an explicit list of check families, so a *new* family's failures were reported as
+   "MISSED" - S22's, S46's and P3's all read like uncovered mutations until each label was added by hand. It is now a
+   rule on the prefix (`P\d|S\d|RunSyncJob`). That alone showed the baseline is **39** characterization checks, not
+   the 24 the old pattern counted.
+2. The driver replaced only the **first** occurrence of a mutation's anchor (`replace(old, new, 1)`), which made a
+   real mutation look harmless: the speech cache is consulted three times, so breaking one lookup left the other two
+   to rescue the branch. It now replaces every occurrence, and `tests/backend/mutation_probe.py` runs a single
+   mutation and prints what actually failed, instead of a one-line verdict.
