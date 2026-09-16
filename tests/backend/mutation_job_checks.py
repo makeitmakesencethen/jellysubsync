@@ -23,7 +23,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = REPO / '.tests-work'
 SERVICE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
-LABELS = re.compile(r'FAIL  (P5|P7|P8|P9|P10|P12|P13|P14|P15|P17|P18|P19|S43|RunSyncJob)')
+LABELS = re.compile(r'FAIL  (P5|P7|P8|P9|P10|P12|P13|P14|P15|P17|P18|P19|S43|S45|RunSyncJob)')
 
 # name -> (text to break, what it becomes)
 MUTATIONS = {
@@ -63,8 +63,8 @@ MUTATIONS = {
                    'job.Error = $"refused: the subtitle was aligned against a subtitle track {referenceSpec}, "'),
     'S43-vad': ('referencePath = referenceTarget;\n                                    referenceStream = null;\n                                    usedSubtitleReference = true;\n                                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);',
                 'referencePath = videoPath;\n                                    referenceStream = null;\n                                    usedSubtitleReference = true;\n                                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);'),
-    'P8-stale': ('if (audioExit == 0 && File.Exists(tempOutput))',
-                 'if (audioExit == 0 && false)'),
+    'P8-stale': ('if (audioExit == 0 && File.Exists(audioOutput))',
+                 'if (audioExit == 0 && File.Exists(tempOutput))'),
     'P18-catch': ('catch (Exception ex)\n                {\n                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);',
                   'catch (InvalidOperationException ex)\n                {\n                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);'),
 }

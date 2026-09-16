@@ -261,7 +261,7 @@ substitutions make that possible, and each is stated in the code:
 | `P9: a wide-window answer that holds against the audio is written` | P9 6293–6306 | Completed, outcome `+250000 ms offset`, sidecar exists |
 | `P8: a subtitle ruler demanding a shift past the ceiling is discarded and the audio's answer written` | P8 6111–6187 | outcome starts `the file's own subtitle track is not the same cut, so this was aligned against the audio`, 2 engine runs, the second not handed the reference file |
 | `P8: a wrong-cut ruler whose audio retry produces nothing refuses and says nothing was written` | P8 6188–6208 | Failed / phase `Refused` / error contains `demanded a 45000 ms shift` and `Nothing was written.` / `OutputPath` null |
-| `P8: with the reference run's output left in place, that stale file is accepted as the audio's answer` | P8 (see §9) | Completed, outcome as above, and the **written cue is the reference-aligned one** (`00:10:45,000`) although the audio run wrote nothing |
+| `S45: the audio retry writes to its own path, so a stale reference output is not taken for its answer` | P8/S45 (see §9) | the same case as `p8-refusal`, with the *stale file left in place*: Failed / phase `Refused` / the refusal sentence / `OutputPath` null / no sidecar / 2 engine runs |
 | `S43: a vetted subtitle ruler is handed to the engine as a file and the audio VAD is not forced` | P3/P5 5709–5860 | one engine run, argv contains `/subsync/ref/` and not `--vad webrtc` |
 | `P18: a job that wrote a subtitle completes even with no library monitor and no library manager` | P18 6817–6857 | every case that wrote a subtitle is Completed (the monitor and the manager were null throughout) |
 
@@ -289,7 +289,7 @@ the named check failed with the phase broken; missed means the check would not h
 | `P9-accepted` | the accepted wide answer writes the *first* run's file | CAUGHT — P9-accepted |
 | `P8-discard` | the reference ceiling never trips (×100 the limit) | CAUGHT — P8-refusal and P8-stale |
 | `P8-refusal` | the refusal no longer says "the file's own subtitle track" | CAUGHT — P8-refusal |
-| `P8-stale` | the audio-retry gate never accepts a file | CAUGHT — P8-discard and P8-stale |
+| `P8-stale` | the audio retry's gate is put back on the reference run's path (`File.Exists(audioOutput)` → `File.Exists(tempOutput)`), which is the bug S45 fixed | CAUGHT — the S45 check and `P8-refusal` |
 | `S43-vad` | the reference handed to the engine becomes the media file | CAUGHT — S43 |
 | `P18-catch` | the item refresh catches only `InvalidOperationException`, so the null-manager failure escapes | CAUGHT — eight checks (every case that writes) |
 
@@ -330,20 +330,16 @@ the input here, the *engine's* answer merely looks like a rescale, which is the 
   P18 check meaningful, but the *effect* of a real folder report is only covered by the rig scenarios that read the
   sidecar back through Jellyfin.
 
-### An observation the characterization tests found (not fixed here)
+### S45 — fixed 2026-09-16, **held for go-ahead before shipping** (the version and the changelog are untouched)
 
-Writing the P8 case turned up a behaviour that looks like a defect. It is **recorded, not corrected** (this pass
-is tests only), and it is pinned by the check that fails above under the `P8-stale` mutation.
+The observation above was fixed in this pass rather than carried into the extraction. The audio retry now writes
+to a path of its own — `audio-fallback.srt`, deleted before the run — so `File.Exists` can only be true of a file
+that retry wrote. That is the pattern the wide-window ladder and the audio cross-check have always used
+(`wide-window.srt`, `wide-check.srt`, `audio-cross-check.srt`, each deleted before its run), so this branch was the
+odd one out rather than the design.
 
-**What happens.** When a subtitle ruler is discarded for demanding a shift past the ceiling, the code re-aligns
-against the audio (`RunSyncJob` 6142–6187) and hands that run `tempOutput` — **the same path the reference run
-just wrote to**. The gate afterwards is `if (audioExit == 0 && File.Exists(tempOutput))`, so when the audio run
-exits 0 *without writing* (ffsubsync suppresses its write when the shift is under its threshold, which is exactly
-what "this subtitle is already in sync with the film's audio" means) the file left behind by the *discarded ruler's*
-run is still there. The job then takes the success branch, measures that stale file, and reports it as the
-audio's answer.
-
-**Reproduced deterministically** in `tests/job_checks.cs` (`p8-stale-output`), which asserts today's behaviour:
+**Before** — measured on the pre-fix build, and reproducible today by the `P8-stale` mutation, which puts the gate
+back on the reference run's path. The harness recorded:
 
 ```
 status=Completed
@@ -351,18 +347,23 @@ outcome='the file's own subtitle track is not the same cut, so this was aligned 
 runs=2   written-cue=00:10:45,000 --> 00:10:47,000
 ```
 
-The engine's second run wrote nothing (`payload.2.srt` = `__NONE__`), and the cue written to the library is the
-one the **reference** run produced (`+45 s`, the ruler's timeline). With the same case but the stale file removed
-(`payload.2.srt` = `__DELETE__`) the job refuses instead, with the sentence the refusal row describes —
-`...which demanded a 45000 ms shift — that track is not the same cut — and aligning against the audio instead
-produced nothing. Nothing was written.` So the difference is entirely the leftover file, not anything the audio
-produced.
+The audio run wrote nothing (`payload.2.srt` = `__NONE__`), and the cue written to the library was the **discarded
+ruler's** `+45 s` answer, reported as the audio's.
 
-**Why it matters.** The row this code exists for (`S31`) is about not writing a wrong-cut ruler's answer. Here the
-plugin writes that exact answer and labels it as the checked one, which is the same family as `S22` (a message
-that does not describe what happened) with a written sidecar attached.
+**After** — the same case on this build:
 
-**Suggested repair for the later pass** (not done here): delete or rename `tempOutput` before the audio retry, or
-give the audio retry its own output path, so `File.Exists(tempOutput)` can only be true of a file the audio run
-wrote. That is a behaviour change and needs its own before/after evidence, which is why it is a plan row rather
-than part of a characterization pass.
+```
+status=Failed/Refused
+error='refused: the subtitle was aligned against the file's own subtitle track s:0, which demanded a 45000 ms shift
+       — that track is not the same cut — and aligning against the audio instead produced nothing. Nothing was written.'
+runs=2   sidecar=False
+```
+
+`S45: the audio retry writes to its own path, so a stale reference output is not taken for its answer`
+(`tests/job_checks.cs:373`) is that assertion. The neighbour check was strengthened at the same time: `P8: a
+subtitle ruler demanding a shift past the ceiling is discarded and the audio's answer written` now asserts *which*
+answer reached the library — `00:10:05,000` (the audio's `+5 s`), and not `00:10:45,000` (the ruler's `+45 s`).
+
+Suite green at 963 checks after the fix; `P8-stale` caught by both the S45 check and `P8-refusal`; `check_fixplan`
+passes. With S45 fixed, Phase 1 of the extraction (the terminal blocks plus S22) can proceed as sequenced in §7 —
+the P8 block is no longer carrying a known silent-wrongness bug into the new structure.

@@ -6141,8 +6141,19 @@ public class SubSyncService : IDisposable
 
                 var audioReference = await PrepareAudioReferenceAsync(
                     "the reference subtitle is not the same cut as the video").ConfigureAwait(false);
+
+                // S45: the audio retry writes to a path of its own. It used to be handed `tempOutput` - the file
+                // the *discarded* ruler's run had just written - and the test afterwards was
+                // `audioExit == 0 && File.Exists(tempOutput)`, so an audio run that exited 0 without writing
+                // (the engine suppresses its write when the shift is under its threshold, which is exactly what
+                // "this subtitle already matches the film" looks like) left that stale file in place: the job
+                // then wrote the discarded ruler's answer and reported it as the audio's. With a path of its own,
+                // "did the audio write this?" is answerable again, because nothing else can have. The wide-window
+                // and cross-check retries below have always used their own paths for the same reason.
+                var audioOutput = Path.Combine(tempDir, "audio-fallback.srt");
+                SafeDelete(audioOutput);
                 var audioArgs = BuildFfSubSyncArgs(
-                    config, audioReference, subtitleInputPath, tempOutput, tempDir, serializeSpeech, null,
+                    config, audioReference, subtitleInputPath, audioOutput, tempDir, serializeSpeech, null,
                     vadOverride: AudioReferenceVad);
 
                 double? audioScore = null;
@@ -6165,7 +6176,7 @@ public class SubSyncService : IDisposable
                     new EngineWatch(job.Id, Path.GetFileName(videoPath), "audio")).ConfigureAwait(false);
                 LogEngineAlignment(job.Id, "the audio", audioScore, audioOffsetSeconds);
 
-                if (audioExit == 0 && File.Exists(tempOutput))
+                if (audioExit == 0 && File.Exists(audioOutput))
                 {
                     if (speechKey is not null && serializeSpeech)
                     {
@@ -6180,6 +6191,7 @@ public class SubSyncService : IDisposable
                     referenceStream = null;
                     referenceArg = audioReference;
                     audioFallback = true;
+                    tempOutput = audioOutput;
                     measured = MeasureSyncChange(subtitleInputPath, tempOutput);
                     PluginLog.Info(
                         $"[{job.Id}] reference: method=audio why=the reference subtitle was not the same cut "

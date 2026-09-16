@@ -347,13 +347,19 @@
 
         // ---------------- P8: a wrong-cut subtitle ruler ----------------
         var sjWrongCut = await SjRunCase("p8-ruler-discarded", "payload", SjSubtitle(40, 45), sibling: true, payload2: SjSubtitle(40, 5));
+        var sjWrongCutText = sjWrongCut.Job.OutputPath is not null && File.Exists(sjWrongCut.Job.OutputPath)
+            ? File.ReadAllText(sjWrongCut.Job.OutputPath)
+            : string.Empty;
         Check("P8: a subtitle ruler demanding a shift past the ceiling is discarded and the audio's answer written",
             sjWrongCut.Job.Status == SyncJobStatus.Completed
             && (sjWrongCut.Job.Outcome ?? string.Empty).StartsWith("the file's own subtitle track is not the same cut, so this was aligned against the audio", StringComparison.Ordinal)
             && sjWrongCut.Job.OutputPath is not null
             && SjEngineRuns() == 2
-            && !SjArgv(1).Contains("/subsync/ref/", StringComparison.Ordinal),
-            $"status={sjWrongCut.Job.Status} outcome='{sjWrongCut.Job.Outcome}' runs={SjEngineRuns()} run2={SjArgv(1)}");
+            && !SjArgv(1).Contains("/subsync/ref/", StringComparison.Ordinal)
+            && sjWrongCutText.Contains("00:10:05,000", StringComparison.Ordinal)     // the audio's answer (+5 s)
+            && !sjWrongCutText.Contains("00:10:45,000", StringComparison.Ordinal),   // not the discarded ruler's (+45 s)
+            $"status={sjWrongCut.Job.Status} outcome='{sjWrongCut.Job.Outcome}' runs={SjEngineRuns()} "
+            + $"written-cue={sjWrongCutText.Split('\n').Skip(1).FirstOrDefault() ?? "(none)"}");
 
         var sjRefused = await SjRunCase("p8-refusal", "payload", SjSubtitle(40, 45), sibling: true, payload2: "__DELETE__");
         Check("P8: a wrong-cut ruler whose audio retry produces nothing refuses and says nothing was written",
@@ -365,22 +371,22 @@
             && sjRefused.Job.OutputPath is null,
             $"{sjRefused.Job.Status}/{sjRefused.Job.Phase} error='{sjRefused.Job.Error}' runs={SjEngineRuns()}");
 
-        // ---------------- P8, the stale-output shape, characterized as it behaves today ----------------
-        // Reported as an observation in the report: the audio retry writes to the same temp path the reference
-        // run wrote to, so when it produces nothing the file from the *reference* run is still there, and the
-        // job writes that and says it was "aligned against the audio". This check captures exactly that, because
-        // the extraction must not change it silently either.
+        // ---------------- S45: the audio retry must not write the discarded ruler's answer ----------------
+        // The audio retry writes to a path of its own (audio-fallback.srt), so a run that exits 0 without writing
+        // cannot be mistaken for the file the discarded ruler's run left behind. Before that fix this case wrote
+        // the reference's +45 s answer to the library and reported it as the audio's; it now refuses, which is the
+        // sentence the refusal is supposed to produce.
         var sjStale = await SjRunCase("p8-stale-output", "payload", SjSubtitle(40, 45), sibling: true, payload2: "__NONE__");
-        var sjStaleWritten = sjStale.Job.OutputPath is not null && File.Exists(sjStale.Job.OutputPath)
-            ? File.ReadAllText(sjStale.Job.OutputPath)
-            : string.Empty;
-        Check("P8: with the reference run's output left in place, that stale file is accepted as the audio's answer",
-            sjStale.Job.Status == SyncJobStatus.Completed
-            && (sjStale.Job.Outcome ?? string.Empty).StartsWith("the file's own subtitle track is not the same cut, so this was aligned against the audio", StringComparison.Ordinal)
-            && (sjStale.Job.Outcome ?? string.Empty).Contains("+45000 ms offset", StringComparison.Ordinal)
-            && sjStaleWritten.Contains(SjSubtitle(40, 45).Split('\n')[1], StringComparison.Ordinal),
-            $"status={sjStale.Job.Status} outcome='{sjStale.Job.Outcome}' runs={SjEngineRuns()} "
-            + $"written-cue={sjStaleWritten.Split('\n').Skip(1).FirstOrDefault() ?? "(none)"}");
+        Check("S45: the audio retry writes to its own path, so a stale reference output is not taken for its answer",
+            sjStale.Job.Status == SyncJobStatus.Failed
+            && sjStale.Job.Phase == "Refused"
+            && (sjStale.Job.Error ?? string.Empty).Contains("demanded a 45000 ms shift", StringComparison.Ordinal)
+            && (sjStale.Job.Error ?? string.Empty).Contains("Nothing was written.", StringComparison.Ordinal)
+            && sjStale.Job.OutputPath is null
+            && !File.Exists(SjSidecarFor(sjStale.CaseDir, sjStale.Sidecar))
+            && SjEngineRuns() == 2,
+            $"status={sjStale.Job.Status}/{sjStale.Job.Phase} error='{sjStale.Job.Error}' runs={SjEngineRuns()} "
+            + $"sidecar={File.Exists(SjSidecarFor(sjStale.CaseDir, sjStale.Sidecar))}");
 
         // ---------------- the reference the engine is actually handed (S43) ----------------
         var sjVad = await SjRunCase("p8-audio-vad", "payload", SjSubtitle(40, 5), sibling: true);
