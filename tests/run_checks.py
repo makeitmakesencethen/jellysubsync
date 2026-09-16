@@ -51,9 +51,19 @@ ENV = (dict(os.environ, DOTNET_SYSTEM_GLOBALIZATION_INVARIANT='1')
 PROGRAM = r"""
 using System.Globalization;
 using System.Text.Json;
+using Jellyfin.Plugin.SubSync;
 using Jellyfin.Plugin.SubSync.Api;
 using Jellyfin.Plugin.SubSync.Configuration;
 using Jellyfin.Plugin.SubSync.Services;
+using Jellyfin.Data;
+using Jellyfin.Database.Implementations.Entities;
+using Jellyfin.Database.Implementations.Enums;
+using Jellyfin.Database.Implementations.Interfaces;
+using MediaBrowser.Common.Configuration;
+using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Serialization;
+using System.Reflection;
 
 int failures = 0;
 
@@ -4123,11 +4133,13 @@ else
 }
 
 // {{JOB_CHECK_STATEMENTS}}
+// {{SERVICE_CHECK_STATEMENTS}}
 
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 
 // {{JOB_CHECK_TYPES}}
+// {{SERVICE_CHECK_TYPES}}
 """
 
 
@@ -5799,16 +5811,28 @@ def run_s26_cost_checks():
 
 
 def program_with_job_checks():
-    """The logictest program, with the RunSyncJob characterization cases (tests/job_checks.cs) spliced in.
+    """The logictest program, with the characterization cases spliced in.
 
-    The file is split at its marker because the class it declares has to follow every top-level statement in the
-    generated Program.cs: the statements go before the final result line, the types after it.
+    Two files, each split at its own marker because the class it declares has to follow every top-level
+    statement in the generated Program.cs: the statements go before the final result line, the types after it.
+    tests/job_checks.cs drives RunSyncJob; tests/service_checks.cs drives the clusters the service map found
+    with no coverage (the process runners, the access-control surface, engine status and install).
+
+    Order matters and is deliberate: RunSyncJob's cases expect no plugin instance and no settings file, so they
+    run first, and service_checks.cs builds the plugin instance it needs at the end of its own block.
     """
-    path = os.path.join(REPO, 'tests', 'job_checks.cs')
-    with open(path, encoding='utf-8') as f:
-        text = f.read()
-    statements, _, types = text.partition('// @@TYPES@@')
-    return PROGRAM.replace('// {{JOB_CHECK_STATEMENTS}}', statements).replace('// {{JOB_CHECK_TYPES}}', types)
+    def splice(path, statements, types, text):
+        with open(path, encoding='utf-8') as f:
+            source = f.read()
+        head, _, tail = source.partition('// @@TYPES@@')
+        return text.replace(statements, head).replace(types, tail)
+
+    program = PROGRAM
+    program = splice(os.path.join(REPO, 'tests', 'job_checks.cs'),
+                     '// {{JOB_CHECK_STATEMENTS}}', '// {{JOB_CHECK_TYPES}}', program)
+    program = splice(os.path.join(REPO, 'tests', 'service_checks.cs'),
+                     '// {{SERVICE_CHECK_STATEMENTS}}', '// {{SERVICE_CHECK_TYPES}}', program)
+    return program
 
 
 def prepare_fake_engine(root):
