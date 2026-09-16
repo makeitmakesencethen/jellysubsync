@@ -5436,7 +5436,9 @@ public class SubSyncService : IDisposable
             : TimeSpan.Zero;
 
         // Paths for the safe atomic-replace workflow
-        string? backupPath = null;   // .bak of original subtitle file (replace mode only)
+        // Filled in by the write step as it goes, and read by the failure path below: a write that throws
+        // returns nothing, so the backup it created has to be published where the catch can still see it.
+        var write = new SyncWriteOutcome();
         string? tempOutput = null;   // ffsubsync output in temp dir
         string? changedDir = null;   // folder touched by this job (for the targeted library rescan)
         string? cuesNote = null;     // set when the subtitle looks like a signs/forced track
@@ -6475,124 +6477,26 @@ public class SubSyncService : IDisposable
                 return;
             }
 
-            // Step 2b: the result is checked *before* anything is written next to the media. The engine
-            // writes an output file even when it holds nothing — an embedded track with no text is the
-            // usual case — and copying it first left a 0-byte ".SYNCED.eng.srt" in the library for a job
-            // that then failed: the next library scan logs `FfmpegException: ffprobe failed - streams and
-            // format are both null` for it, and nothing ever removes it. Nothing is copied until the
-            // engine's own output is known to hold subtitles.
-            if (!File.Exists(tempOutput) || new FileInfo(tempOutput).Length == 0)
-            {
-                throw new InvalidOperationException(
-                    "Subtitle verification failed — synced output is missing or empty. Nothing was written next to "
-                    + "the media: the engine produced no subtitles for this track.");
-            }
-
-            // Step 3: Save the synced subtitle (copy mode by default — original untouched)
-            if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
-            {
-                if (config.SyncModeCopy)
-                {
-                    job.Phase = "Saving synced copy";
-                    job.Progress = 0.85;
-
-                    var original = subtitleStream.Path;
-                    var dir = Path.GetDirectoryName(original) ?? ".";
-                    var stem = Path.GetFileNameWithoutExtension(original);
-                    // Jellyfin recognises a sidecar only when it starts with the exact media
-                    // filename and continues with DOT-separated fields (see the media naming
-                    // docs: "Film.mkv" -> "Film.en.sdh.srt"). A hyphenated marker
-                    // ("...-SYNCED.srt") leaves Jellyfin unable to associate the file with the
-                    // video, so nothing appears in the interface. The marker is therefore a
-                    // field, not part of the name.
-                    var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
-                        ? null
-                        : subtitleStream.Language.Trim().ToLowerInvariant();
-
-                    // A stem the plugin already marked loses that marker first (S12): re-syncing its own output updates
-                    // that file, where appending a second marker wrote a name no player associates with the episode.
-                    var target = SyncedTargetName(dir, stem, lang);
-
-                    RequireWritable(dir);
-                    File.Copy(tempOutput, target, overwrite: true);
-                    job.OutputPath = target;
-                    changedDir = dir;
-                    _logger.LogInformation("Synced copy written: {Original} → {Target} (stem={Stem}, lang={Lang}, original untouched)", original, target, stem, lang ?? "(none)");
-                }
-                else
-                {
-                    job.Phase = "Replacing subtitle";
-                    job.Progress = 0.85;
-
-                    RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
-
-                    // The backup path is chosen (and therefore known to the rollback below) *before*
-                    // the original is touched: the destructive copy is inside ReplaceExternalSubtitle,
-                    // and a failure there used to leave `backupPath` null, so the only rollback there is
-                    // was skipped for exactly the case that needs it.
-                    backupPath = NextBackupPath(subtitleStream.Path);
-                    await ReplaceExternalSubtitle(subtitleStream.Path, backupPath, tempOutput).ConfigureAwait(false);
-                    changedDir = Path.GetDirectoryName(subtitleStream.Path) ?? ".";
-
-                    job.OutputPath = subtitleStream.Path;
-                    _logger.LogInformation("Replaced external subtitle: {Path} (original kept at {Backup})", subtitleStream.Path, backupPath);
-                }
-            }
-            else
-            {
-                // EMBEDDED track: the subtitle was extracted earlier and synced to
-                // tempOutput. The result is saved as a NEW external sidecar next
-                // to the video. Video files are NEVER modified — no remuxing, no
-                // container rewrite. Jellyfin discovers the sidecar via the
-                // folder rescan below; the original embedded stream stays intact.
-                job.Phase = "Saving synced subtitle";
-                job.Progress = 0.75;
-
-                var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
-                    ? null
-                    : subtitleStream.Language.Trim().ToLowerInvariant();
-                // Dot-separated fields after the exact video filename, or Jellyfin will not
-                // associate the sidecar with the episode and it never shows up.
-                var target = lang is not null
-                    ? Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.{lang}.srt")
-                    : Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.srt");
-
-                RequireWritable(videoDir);
-                File.Copy(tempOutput, target, overwrite: true);
-                job.OutputPath = target;
-                changedDir = videoDir;
-                _logger.LogInformation(
-                    "Embedded subtitle synced as new external file: {Target} (video {Video} untouched)",
-                    target, videoPath);
-            }
-
-            // Step 4: Verify
-            job.Phase = "Verifying";
-            job.Progress = 0.95;
-
-            if (string.IsNullOrEmpty(job.OutputPath) ||
-                !File.Exists(job.OutputPath) ||
-                new FileInfo(job.OutputPath).Length == 0)
-            {
-                // Whatever this job wrote is removed again if it does not hold subtitles: an empty sidecar
-                // left in the library is reported by every later scan ("offline ... streams and format are
-                // both null") and the user has no way to tell where it came from. The user's own file is
-                // never touched here — replace mode has its own backup and rollback.
-                if (!string.IsNullOrEmpty(job.OutputPath)
-                    && !string.Equals(job.OutputPath, subtitleStream.Path, StringComparison.Ordinal))
-                {
-                    SafeDelete(job.OutputPath);
-                }
-
-                throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
-            }
+            // P14-P16: guard the engine's output, write the synced subtitle next to the media, and confirm
+            // what was written. The two values the rest of the job needs come back; everything else (the
+            // target path, the phase, the progress) it records on the job itself.
+            await WriteSyncedSubtitleAsync(
+                job,
+                config,
+                subtitleStream,
+                videoDir,
+                videoNameNoExt,
+                videoPath,
+                tempOutput,
+                write).ConfigureAwait(false);
+            changedDir = write.ChangedDir;
 
             // Step 5: Success — describe what changed (offset ms / framerate). The replace-mode
             // backup is deliberately NOT deleted: a sync that succeeds while being wrong used to
             // leave the user with no way back, and the copy costs a few kilobytes. It is named
             // *.bak.subsync, which is not a subtitle extension, so Jellyfin never shows it as a
             // second track, and the result says where it is.
-            var outcomeInput = backupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
+            var outcomeInput = write.BackupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
             if (job.OutputPath is not null)
             {
                 job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
@@ -6630,14 +6534,14 @@ public class SubSyncService : IDisposable
                     : job.Outcome + " \u00b7 " + cuesNote;
             }
 
-            if (backupPath is not null)
+            if (write.BackupPath is not null)
             {
                 // Worth saying plainly: the original file was overwritten in place.
-                var kept = Path.GetFileName(backupPath);
+                var kept = Path.GetFileName(write.BackupPath);
                 job.Outcome = string.IsNullOrEmpty(job.Outcome)
                     ? "original replaced \u2014 kept at " + kept
                     : job.Outcome + " \u00b7 original replaced, kept at " + kept;
-                _logger.LogInformation("Original subtitle kept at {Backup} (replace mode)", backupPath);
+                _logger.LogInformation("Original subtitle kept at {Backup} (replace mode)", write.BackupPath);
             }
 
             job.Phase = "Complete";
@@ -6737,20 +6641,20 @@ public class SubSyncService : IDisposable
 
             // ROLLBACK: if we created a backup but didn't complete successfully,
             // restore the original file from backup
-            if (backupPath is not null && File.Exists(backupPath))
+            if (write.BackupPath is not null && File.Exists(write.BackupPath))
             {
                 try
                 {
                     // Determine what the original file was
-                    var originalPath = backupPath.Substring(0, backupPath.Length - ".bak.subsync".Length);
-                    _logger.LogWarning("Rolling back: restoring {Original} from backup {Backup}", originalPath, backupPath);
-                    File.Copy(backupPath, originalPath, overwrite: true);
-                    SafeDelete(backupPath);
+                    var originalPath = write.BackupPath.Substring(0, write.BackupPath.Length - ".bak.subsync".Length);
+                    _logger.LogWarning("Rolling back: restoring {Original} from backup {Backup}", originalPath, write.BackupPath);
+                    File.Copy(write.BackupPath, originalPath, overwrite: true);
+                    SafeDelete(write.BackupPath);
                     _logger.LogInformation("Rollback complete: {Original} restored", originalPath);
                 }
                 catch (Exception rollbackEx)
                 {
-                    _logger.LogError(rollbackEx, "ROLLBACK FAILED for job {JobId}! Backup file preserved at {Backup}", job.Id, backupPath);
+                    _logger.LogError(rollbackEx, "ROLLBACK FAILED for job {JobId}! Backup file preserved at {Backup}", job.Id, write.BackupPath);
                     // Do NOT delete the backup — it's the user's last resort
                 }
             }
@@ -7028,6 +6932,162 @@ public class SubSyncService : IDisposable
 
         ReleaseSpeechGate(job, videoPath);
         return serializeSpeech;
+    }
+
+    /// <summary>
+    /// Writes the engine's result next to the media and confirms it landed: a dot-separated sidecar in copy mode,
+    /// an in-place replace with a backup in replace mode, or a new sidecar for an embedded track. The engine's
+    /// output is checked before anything is copied, because copy mode used to leave a 0-byte sidecar in the
+    /// library for a job that then failed.
+    /// </summary>
+    /// <param name="job">The job, whose output path and progress this sets.</param>
+    /// <param name="config">The plugin settings, for the copy/replace choice.</param>
+    /// <param name="subtitleStream">The track being synced, for its path and language.</param>
+    /// <param name="videoDir">The media file's folder, where an embedded track's sidecar goes.</param>
+    /// <param name="videoNameNoExt">The media file's name without extension, for that sidecar's name.</param>
+    /// <param name="videoPath">The media file, named in the log line for an embedded track.</param>
+    /// <param name="tempOutput">The engine's output in the job's temp directory.</param>
+    /// <param name="outcome">Filled in as the write proceeds. It is written into rather than returned because the
+    /// caller's failure path needs the backup path precisely when the write throws - and a throw returns nothing.</param>
+    private async Task WriteSyncedSubtitleAsync(
+        SyncJob job,
+        PluginConfiguration config,
+        MediaBrowser.Model.Entities.MediaStream subtitleStream,
+        string videoDir,
+        string videoNameNoExt,
+        string videoPath,
+        string tempOutput,
+        SyncWriteOutcome outcome)
+    {
+        // Step 2b: the result is checked *before* anything is written next to the media. The engine
+        // writes an output file even when it holds nothing — an embedded track with no text is the
+        // usual case — and copying it first left a 0-byte ".SYNCED.eng.srt" in the library for a job
+        // that then failed: the next library scan logs `FfmpegException: ffprobe failed - streams and
+        // format are both null` for it, and nothing ever removes it. Nothing is copied until the
+        // engine's own output is known to hold subtitles.
+        if (!File.Exists(tempOutput) || new FileInfo(tempOutput).Length == 0)
+        {
+            throw new InvalidOperationException(
+                "Subtitle verification failed — synced output is missing or empty. Nothing was written next to "
+                + "the media: the engine produced no subtitles for this track.");
+        }
+
+        // Step 3: Save the synced subtitle (copy mode by default — original untouched)
+        if (subtitleStream.IsExternal && !string.IsNullOrEmpty(subtitleStream.Path))
+        {
+            if (config.SyncModeCopy)
+            {
+                job.Phase = "Saving synced copy";
+                job.Progress = 0.85;
+
+                var original = subtitleStream.Path;
+                var dir = Path.GetDirectoryName(original) ?? ".";
+                var stem = Path.GetFileNameWithoutExtension(original);
+                // Jellyfin recognises a sidecar only when it starts with the exact media
+                // filename and continues with DOT-separated fields (see the media naming
+                // docs: "Film.mkv" -> "Film.en.sdh.srt"). A hyphenated marker
+                // ("...-SYNCED.srt") leaves Jellyfin unable to associate the file with the
+                // video, so nothing appears in the interface. The marker is therefore a
+                // field, not part of the name.
+                var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
+                    ? null
+                    : subtitleStream.Language.Trim().ToLowerInvariant();
+
+                // A stem the plugin already marked loses that marker first (S12): re-syncing its own output updates
+                // that file, where appending a second marker wrote a name no player associates with the episode.
+                var target = SyncedTargetName(dir, stem, lang);
+
+                RequireWritable(dir);
+                File.Copy(tempOutput, target, overwrite: true);
+                job.OutputPath = target;
+                outcome.ChangedDir = dir;
+                _logger.LogInformation("Synced copy written: {Original} → {Target} (stem={Stem}, lang={Lang}, original untouched)", original, target, stem, lang ?? "(none)");
+            }
+            else
+            {
+                job.Phase = "Replacing subtitle";
+                job.Progress = 0.85;
+
+                RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
+
+                // The backup path is chosen (and therefore known to the rollback below) *before*
+                // the original is touched: the destructive copy is inside ReplaceExternalSubtitle,
+                // and a failure there used to leave `backupPath` null, so the only rollback there is
+                // was skipped for exactly the case that needs it.
+                outcome.BackupPath = NextBackupPath(subtitleStream.Path);
+                await ReplaceExternalSubtitle(subtitleStream.Path, outcome.BackupPath, tempOutput).ConfigureAwait(false);
+                outcome.ChangedDir = Path.GetDirectoryName(subtitleStream.Path) ?? ".";
+
+                job.OutputPath = subtitleStream.Path;
+                _logger.LogInformation("Replaced external subtitle: {Path} (original kept at {Backup})", subtitleStream.Path, outcome.BackupPath);
+            }
+        }
+        else
+        {
+            // EMBEDDED track: the subtitle was extracted earlier and synced to
+            // tempOutput. The result is saved as a NEW external sidecar next
+            // to the video. Video files are NEVER modified — no remuxing, no
+            // container rewrite. Jellyfin discovers the sidecar via the
+            // folder rescan below; the original embedded stream stays intact.
+            job.Phase = "Saving synced subtitle";
+            job.Progress = 0.75;
+
+            var lang = string.IsNullOrWhiteSpace(subtitleStream.Language)
+                ? null
+                : subtitleStream.Language.Trim().ToLowerInvariant();
+            // Dot-separated fields after the exact video filename, or Jellyfin will not
+            // associate the sidecar with the episode and it never shows up.
+            var target = lang is not null
+                ? Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.{lang}.srt")
+                : Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.srt");
+
+            RequireWritable(videoDir);
+            File.Copy(tempOutput, target, overwrite: true);
+            job.OutputPath = target;
+            outcome.ChangedDir = videoDir;
+            _logger.LogInformation(
+                "Embedded subtitle synced as new external file: {Target} (video {Video} untouched)",
+                target, videoPath);
+        }
+
+        // Step 4: Verify
+        job.Phase = "Verifying";
+        job.Progress = 0.95;
+
+        if (string.IsNullOrEmpty(job.OutputPath) ||
+            !File.Exists(job.OutputPath) ||
+            new FileInfo(job.OutputPath).Length == 0)
+        {
+            // Whatever this job wrote is removed again if it does not hold subtitles: an empty sidecar
+            // left in the library is reported by every later scan ("offline ... streams and format are
+            // both null") and the user has no way to tell where it came from. The user's own file is
+            // never touched here — replace mode has its own backup and rollback.
+            if (!string.IsNullOrEmpty(job.OutputPath)
+                && !string.Equals(job.OutputPath, subtitleStream.Path, StringComparison.Ordinal))
+            {
+                SafeDelete(job.OutputPath);
+            }
+
+            throw new InvalidOperationException("Subtitle verification failed — synced output is missing or empty.");
+        }
+    }
+
+    /// <summary>
+    /// What writing a synced subtitle records for the rest of the job: the folder the library monitor should be
+    /// told about, and the backup of a replaced original that the failure path rolls back from.
+    /// </summary>
+    /// <remarks>
+    /// It is filled as the write proceeds rather than returned, because the rollback needs the backup path exactly
+    /// when the write throws. The first attempt at this extraction returned a tuple and lost both values on that
+    /// path - the replace-mode original was then never restored from the kept backup. The P19 check caught it.
+    /// </remarks>
+    private sealed class SyncWriteOutcome
+    {
+        /// <summary>Gets or sets the folder the library monitor should be told about, if the job wrote one.</summary>
+        public string? ChangedDir { get; set; }
+
+        /// <summary>Gets or sets the kept original in replace mode, if there is one.</summary>
+        public string? BackupPath { get; set; }
     }
 
     /// <summary>
