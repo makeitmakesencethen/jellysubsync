@@ -32,7 +32,10 @@ def service_classes():
     behaviour rather than at the layout.
     """
     names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs',
-             'SubSyncProcesses.cs', 'FfSubSyncEngine.cs']
+             'SubSyncProcesses.cs', 'FfSubSyncEngine.cs',
+             # the partial-class parts of the same class (Phase 2 of the map): a pin that names behaviour
+             # reads it wherever it was cut, which is what keeps the pins about the code and not the layout.
+             'SubSyncService.SweepHistory.cs']
     return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
 
 

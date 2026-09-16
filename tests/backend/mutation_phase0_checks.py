@@ -32,6 +32,7 @@ PROCESSES = 'Jellyfin.Plugin.SubSync/Services/SubSyncProcesses.cs'
 ENGINE = 'Jellyfin.Plugin.SubSync/Services/FfSubSyncEngine.cs'
 ITEM_ACCESS = 'Jellyfin.Plugin.SubSync/Services/ItemAccess.cs'
 SWEEP_STATE = 'Jellyfin.Plugin.SubSync/Services/SweepState.cs'
+SWEEP_HISTORY = 'Jellyfin.Plugin.SubSync/Services/SubSyncService.SweepHistory.cs'
 
 # Any Phase 0 characterization check counts: C4, C8 or C9, whatever the individual label.
 LABELS = re.compile(r'FAIL  (C[0-9])')
@@ -161,13 +162,13 @@ MUTATIONS = {
                                 '            var installExit = await _processes.RunProcessAsync(ManagedPythonPath, "install ffsubsync \\"setuptools<81\\"", null, cancellationToken).ConfigureAwait(false);'),
 
     # ---------------- C8: the access-control surface ----------------
-    'C8-allfolders': (SERVICE,
+    'C8-allfolders': (SWEEP_HISTORY,
                       '        var allFolders = user.HasPermission(PermissionKind.EnableAllFolders);',
                       '        var allFolders = false;'),
-    'C8-allows': (SERVICE,
+    'C8-allows': (SWEEP_HISTORY,
                   '        var allowed = ItemAccess.Allows(allFolders, folders, ancestors);',
                   '        var allowed = ItemAccess.Allows(true, folders, ancestors);'),
-    'C8-item-null': (SERVICE,
+    'C8-item-null': (SWEEP_HISTORY,
                      '        var item = _libraryManager.GetItemById(itemId);\n'
                      '        if (item is null)\n'
                      '        {\n'
@@ -178,7 +179,7 @@ MUTATIONS = {
                      '        {\n'
                      '            return true;\n'
                      '        }'),
-    'C8-user-null': (SERVICE,
+    'C8-user-null': (SWEEP_HISTORY,
                      '        var user = _userManager.GetUserById(userId);\n'
                      '        if (user is null)\n'
                      '        {\n'
@@ -189,10 +190,10 @@ MUTATIONS = {
                      '        {\n'
                      '            return true;\n'
                      '        }'),
-    'C8-bulk-unresolved': (SERVICE,
+    'C8-bulk-unresolved': (SWEEP_HISTORY,
                            '            return itemIds.FirstOrDefault();',
                            '            return null;'),
-    'C8-bulk-first': (SERVICE,
+    'C8-bulk-first': (SWEEP_HISTORY,
                       '            if (!CanUserSeeItem(userId, itemId))\n'
                       '            {\n'
                       '                return itemId;\n'
@@ -201,13 +202,13 @@ MUTATIONS = {
                       '            {\n'
                       '                return itemId;\n'
                       '            }'),
-    'C8-ancestors-dashed': (SERVICE,
+    'C8-ancestors-dashed': (SWEEP_HISTORY,
                             '            ids.Add(parent.Id.ToString("N"));',
                             '            ids.Add(parent.Id.ToString());'),
-    'C8-admin-default': (SERVICE,
+    'C8-admin-default': (SWEEP_HISTORY,
                          '            return _userManager?.GetUserById(userId)?.HasPermission(PermissionKind.IsAdministrator) ?? false;',
                          '            return _userManager?.GetUserById(userId)?.HasPermission(PermissionKind.IsAdministrator) ?? true;'),
-    'C8-admin-catch': (SERVICE,
+    'C8-admin-catch': (SWEEP_HISTORY,
                        '            // Fails closed: an account that cannot be resolved is not an administrator.\n'
                        '            _logger.LogDebug(ex, "Could not resolve whether {UserId} is an administrator", userId);\n'
                        '            return false;',
@@ -224,19 +225,19 @@ MUTATIONS = {
                                 '        }'),
     # The condition cannot be broken here: `itemKind is null` is what narrows the type for the sentence below,
     # so a mutant that drops the branch does not compile. The refused sentence is the observable that changes.
-    'C8-classify-missing': (SERVICE,
+    'C8-classify-missing': (SWEEP_HISTORY,
                             'return new SyncTarget { ItemId = itemId, Refusal = "The item was not found or is not available to this account." };',
                             'return new SyncTarget { ItemId = itemId, Refusal = "The item was not found." };'),
-    'C8-classify-notvideo': (SERVICE,
+    'C8-classify-notvideo': (SWEEP_HISTORY,
                              '$"Item {itemId} is a {itemKind.ToLowerInvariant()}, not a video: pick the episodes themselves, "',
                              '$"Item {itemId} is a {itemKind.ToLowerInvariant()}, which cannot be synced: pick the episodes themselves, "'),
-    'C8-listing-plugin-output': (SERVICE,
+    'C8-listing-plugin-output': (SWEEP_HISTORY,
                                  '                    IsPluginOutput = MediaStreamMap.IsOwnSidecar(s)',
                                  '                    IsPluginOutput = false'),
-    'C8-listing-image': (SERVICE,
+    'C8-listing-image': (SWEEP_HISTORY,
                          '                    UnsupportedReason = LanguageSupport.ImageBasedRefusal(s.Codec),',
                          '                    UnsupportedReason = null,'),
-    'C8-listing-nonvideo': (SERVICE,
+    'C8-listing-nonvideo': (SWEEP_HISTORY,
                             '        var item = _libraryManager.GetItemById(itemId);\n'
                             '        if (item is not Video video)\n'
                             '        {\n'
@@ -249,25 +250,25 @@ MUTATIONS = {
                             '        }'),
 
     # ---------------- C8: the sweep ----------------
-    'C8-sweep-scanned': (SERVICE,
+    'C8-sweep-scanned': (SWEEP_HISTORY,
                          '        result.ScannedItems = videos.Count;',
                          '        result.ScannedItems = 0;'),
-    'C8-sweep-cached': (SERVICE,
+    'C8-sweep-cached': (SWEEP_HISTORY,
                         '                    // Same source content, synced output still on disk.\n'
                         '                    result.SkippedCached++;',
                         '                    // Same source content, synced output still on disk.\n'
                         '                    result.SkippedOther++;'),
-    'C8-sweep-failstreak': (SERVICE,
+    'C8-sweep-failstreak': (SWEEP_HISTORY,
                             '                    && entry.FailStreak >= failStreakLimit)',
                             '                    && entry.FailStreak >= failStreakLimit + 5)'),
     'C8-sweep-state-load': (SWEEP_STATE,
                             '            var entries = JsonSerializer.Deserialize<Dictionary<string, SweepEntry>>(File.ReadAllText(filePath))\n'
                             '                ?? new Dictionary<string, SweepEntry>(StringComparer.Ordinal);',
                             '            var entries = new Dictionary<string, SweepEntry>(StringComparer.Ordinal);'),
-    'C8-record-flag': (SERVICE,
+    'C8-record-flag': (SWEEP_HISTORY,
                        '            _sweepState.Value.Record(ctx.Stream.Path, ok, outputPath, error);',
                        '            _sweepState.Value.Record(ctx.Stream.Path, true, outputPath, error);'),
-    'C8-record-external-only': (SERVICE,
+    'C8-record-external-only': (SWEEP_HISTORY,
                                 '            if (!ctx.Stream.IsExternal || string.IsNullOrWhiteSpace(ctx.Stream.Path))\n'
                                 '            {\n'
                                 '                return; // skip/fail cache tracks external subtitle files only\n'
