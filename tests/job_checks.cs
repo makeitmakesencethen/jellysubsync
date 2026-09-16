@@ -30,12 +30,33 @@
         return sb.ToString();
     }
 
-    void SjWriteEngine(string behaviour, string payload, string? payload2 = null, string? payload3 = null, string stderr = "")
+    void SjWriteEngine(string behaviour, string payload, string? payload2 = null, string? payload3 = null, string stderr = "",
+        string? behaviour2 = null, string? stderr2 = null)
     {
         File.WriteAllText(Path.Combine(sjEngineDir, "behaviour"), behaviour);
         File.WriteAllText(Path.Combine(sjEngineDir, "calls"), "0");
         File.WriteAllText(Path.Combine(sjEngineDir, "stderr.txt"), stderr);
         File.WriteAllText(Path.Combine(sjEngineDir, "payload.srt"), payload);
+        foreach (var (name, text) in new[]
+                 {
+                     ("behaviour.2", behaviour2),
+                     ("stderr.2.txt", stderr2),
+                 })
+        {
+            var path = Path.Combine(sjEngineDir, name);
+            if (text is null)
+            {
+                if (File.Exists(path))
+                {
+                    File.Delete(path);
+                }
+            }
+            else
+            {
+                File.WriteAllText(path, text);
+            }
+        }
+
         foreach (var (n, text) in new[] { (2, payload2), (3, payload3) })
         {
             var path = Path.Combine(sjEngineDir, "payload." + n + ".srt");
@@ -78,7 +99,9 @@
         string? payload3 = null,
         string stderr = "",
         int cues = 40,
-        bool replaceMode = false)
+        bool replaceMode = false,
+        string? behaviour2 = null,
+        string? stderr2 = null)
     {
         var caseDir = Path.Combine(sjRoot, "case-" + label);
         Directory.CreateDirectory(caseDir);
@@ -87,7 +110,7 @@
         var sidecar = Path.Combine(caseDir, "Probe Movie (2026).eng.srt");
         var original = SjSubtitle(cues);
         File.WriteAllText(sidecar, original);
-        SjWriteEngine(behaviour, payload, payload2, payload3, stderr);
+        SjWriteEngine(behaviour, payload, payload2, payload3, stderr, behaviour2, stderr2);
 
         var streams = new List<MediaBrowser.Model.Entities.MediaStream>
         {
@@ -239,7 +262,7 @@
             $"{sjEmpty.Job.Status} error='{sjEmpty.Job.Error}' output={sjEmpty.Job.OutputPath ?? "(null)"}");
 
         // ---------------- P5: a non-zero engine exit fails the job and quotes the engine ----------------
-        var sjFail = await SjRunCase("p5-engine-exit", "exit1", SjSubtitle(40, 5),
+        var sjFail = await SjRunCase("p5-engine-exit", "exit3", SjSubtitle(40, 5),
             stderr: "ffsubsync: could not read reference");
         Check("P5: a non-zero engine exit fails the job and quotes the engine's last output",
             sjFail.Job.Status == SyncJobStatus.Failed
@@ -344,6 +367,36 @@
             && File.Exists(sjWideAccept.Job.OutputPath)
             && string.Equals(sjWideAccept.Job.Outcome, "+250000 ms offset", StringComparison.Ordinal),
             $"{sjWideAccept.Job.Status} outcome='{sjWideAccept.Job.Outcome}' runs={SjEngineRuns()}");
+
+        // ---------------- S22: a refusal must not blame the search window for a reference the engine could not read ----------------
+        // The field's shape (2026-09-15): the wider-window retry exits 1 with the engine saying it could not open the
+        // reference it was handed, and the refusal used to answer that with "raise Maximum offset" - a setting that
+        // cannot help a file that could not be read. 7 of that run's 8 refusals were this shape.
+        Check("S22: the engine's own words decide whether a refusal is a search-window problem",
+            SubSyncService.EngineCouldNotReadReference(
+                " · engine said: [00:59:01] ERROR unable to read reference /config/data/subsync/state/speech-cache/5e16e1f2a0c1c78f085afdfdd3275934.mkv; try ensuring file exists and has correct permissions")
+            && SubSyncService.EngineCouldNotReadReference("ffsubsync: No such file or directory")
+            && SubSyncService.EngineCouldNotReadReference("Permission denied")
+            && !SubSyncService.EngineCouldNotReadReference(" · engine said: wrote 0 subtitles")
+            && !SubSyncService.EngineCouldNotReadReference(string.Empty),
+            "the field's tail and the two path errors classify as a read failure; an ordinary empty run does not");
+
+        var sjUnreadable = await SjRunCase(
+            "s22-reference-unreadable",
+            "payload",
+            SjSubtitle(40, 180),
+            behaviour2: "exit1",
+            stderr2: "ffsubsync: unable to read reference /config/data/subsync/state/speech-cache/5e16e1f2a0c1c78f085afdfdd3275934.mkv; try ensuring file exists and has correct permissions");
+        Check("S22: a refusal after the engine could not read its reference names that cause instead of the setting",
+            sjUnreadable.Job.Status == SyncJobStatus.Failed
+            && sjUnreadable.Job.Phase == "Refused"
+            && (sjUnreadable.Job.Error ?? string.Empty).Contains("the engine could not read the reference it was aligned against", StringComparison.Ordinal)
+            && (sjUnreadable.Job.Error ?? string.Empty).Contains("unable to read reference", StringComparison.Ordinal)
+            && (sjUnreadable.Job.Error ?? string.Empty).Contains("will not help this", StringComparison.Ordinal)
+            && !(sjUnreadable.Job.Error ?? string.Empty).Contains("Raise \"Maximum offset\" in the plugin settings", StringComparison.Ordinal)
+            && sjUnreadable.Job.OutputPath is null
+            && SjEngineRuns() == 2,
+            $"{sjUnreadable.Job.Status}/{sjUnreadable.Job.Phase} error='{sjUnreadable.Job.Error}' runs={SjEngineRuns()}");
 
         // ---------------- P8: a wrong-cut subtitle ruler ----------------
         var sjWrongCut = await SjRunCase("p8-ruler-discarded", "payload", SjSubtitle(40, 45), sibling: true, payload2: SjSubtitle(40, 5));

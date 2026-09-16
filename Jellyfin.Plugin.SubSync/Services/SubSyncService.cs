@@ -6070,13 +6070,7 @@ public class SubSyncService : IDisposable
                 // ffsubsync suppresses writing when the detected shift is below
                 // its threshold (default 3 s) — the subtitle is effectively
                 // already in sync, so this is a success, not a failure.
-                job.Outcome = "already in sync (shift under 3 s) \u2014 no change needed"
-                    + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
-                job.Phase = "Complete";
-                job.Status = SyncJobStatus.Completed;
-                job.Progress = 1.0;
-                _logger.LogInformation("Sync job {JobId}: subtitle already in sync \u2014 no output written", job.Id);
-                LogPluginCompletion(job, null);
+                CompleteAlreadyInSync(job, cuesNote);
                 return;
             }
 
@@ -6207,15 +6201,13 @@ public class SubSyncService : IDisposable
                         $"job {job.Id} REFUSED: {detail}, over the {referenceCeilingMs / 1000.0:0.#} s limit for a "
                         + "subtitle reference, and the audio alignment that replaced it produced nothing; nothing "
                         + $"written, source untouched, file={video.Path}");
-                    job.Status = SyncJobStatus.Failed;
-                    job.Phase = "Refused";
-                    job.Error = $"refused: the subtitle was aligned against the file's own subtitle track {referenceSpec}, "
-                        + $"which demanded a {fromReference.ShiftMs} ms shift — that track is not the same cut — and "
-                        + "aligning against the audio instead produced nothing. Nothing was written.";
-                    job.Progress = 1.0;
-                    job.FinishedAtUtc = DateTime.UtcNow;
-                    job.OutputPath = null;
-                    SafeDelete(tempOutput);
+                    RefuseJob(
+                        job,
+                        "Refused",
+                        $"refused: the subtitle was aligned against the file's own subtitle track {referenceSpec}, "
+                            + $"which demanded a {fromReference.ShiftMs} ms shift — that track is not the same cut — and "
+                            + "aligning against the audio instead produced nothing. Nothing was written.",
+                        tempOutput);
                     return;
                 }
             }
@@ -6329,16 +6321,14 @@ public class SubSyncService : IDisposable
                             $"job {job.Id} REFUSED: this subtitle needed {onCeiling.ShiftMs} ms with a "
                             + $"{Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s window and {wider.ShiftMs} ms with {wideSeconds} s, and {why}; "
                             + $"nothing written, source untouched, file={video.Path}");
-                        job.Status = SyncJobStatus.Failed;
-                        job.Phase = "Refused";
-                        job.Error = $"refused: this subtitle is further out than the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search "
-                            + $"window ({onCeiling.ShiftMs} ms reached it), the {wideSeconds} s window measured "
-                            + $"{wider.ShiftMs} ms, and that did not hold up against the film's audio: {why}. Nothing "
-                            + "was written.";
-                        job.Progress = 1.0;
-                        job.FinishedAtUtc = DateTime.UtcNow;
-                        job.OutputPath = null;
-                        SafeDelete(tempOutput);
+                        RefuseJob(
+                            job,
+                            "Refused",
+                            $"refused: this subtitle is further out than the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search "
+                                + $"window ({onCeiling.ShiftMs} ms reached it), the {wideSeconds} s window measured "
+                                + $"{wider.ShiftMs} ms, and that did not hold up against the film's audio: {why}. Nothing "
+                                + "was written.",
+                            tempOutput);
                         return;
                     }
                 }
@@ -6355,6 +6345,32 @@ public class SubSyncService : IDisposable
                     var detail = wideChange is { } stillClamped
                         ? $"the {wideSeconds} s window also reached its limit ({stillClamped.ShiftMs} ms)"
                         : $"the {wideSeconds} s window produced nothing (exit {wideExit}){engineTail}";
+
+                    // S22: the engine's own words decide which refusal this is. A run that could not open the
+                    // reference it was handed is not a search-window problem, and the field's log shows this was
+                    // 7 of 8 refusals - every one of them sending the user to "Maximum offset", a setting that
+                    // cannot help a file that could not be read.
+                    if (EngineCouldNotReadReference(engineTail))
+                    {
+                        _logger.LogWarning(
+                            "Sync job {JobId}: refusing after the wider window - the engine could not read the reference it was handed ({Detail})",
+                            job.Id,
+                            detail);
+                        PluginLog.Info(
+                            $"job {job.Id} REFUSED: the engine could not read the reference it was handed "
+                            + $"({referenceArg}){engineTail}; this is not a search-window problem, so \"Maximum offset\" "
+                            + $"is not the setting to change; nothing written, source untouched, file={video.Path}");
+                        RefuseJob(
+                            job,
+                            "Refused",
+                            "refused: the engine could not read the reference it was aligned against "
+                                + $"({referenceArg}){engineTail}. Nothing was written. Raising \"Maximum offset\" will "
+                                + "not help this - the reference could not be opened, so the alignment had nothing to "
+                                + "measure against.",
+                            tempOutput);
+                        return;
+                    }
+
                     _logger.LogWarning(
                         "Sync job {JobId}: refusing after the wider window ({Detail}) — nothing written",
                         job.Id,
@@ -6363,14 +6379,12 @@ public class SubSyncService : IDisposable
                         $"job {job.Id} REFUSED: this subtitle is further out than the plugin is searching "
                         + $"({detail}); raise \"Maximum offset\" and run it again, or sync it by hand. Nothing "
                         + $"written, source untouched, file={video.Path}");
-                    job.Status = SyncJobStatus.Failed;
-                    job.Phase = "Refused";
-                    job.Error = $"refused: {detail}. Raise \"Maximum offset\" in the plugin settings (it is the search "
-                        + "window the alignment may look in) and run it again. Nothing was written.";
-                    job.Progress = 1.0;
-                    job.FinishedAtUtc = DateTime.UtcNow;
-                    job.OutputPath = null;
-                    SafeDelete(tempOutput);
+                    RefuseJob(
+                        job,
+                        "Refused",
+                        $"refused: {detail}. Raise \"Maximum offset\" in the plugin settings (it is the search "
+                            + "window the alignment may look in) and run it again. Nothing was written.",
+                        tempOutput);
                     return;
                 }
             }
@@ -6416,16 +6430,14 @@ public class SubSyncService : IDisposable
                     $"job {job.Id} REFUSED: measured {detail} \u2014 framerate correction is "
                     + (config.FixFramerate ? "on but this is not a framerate pair" : "off")
                     + $"; nothing written, source untouched, file={video.Path}");
-                job.Status = SyncJobStatus.Failed;
-                job.Phase = "Refused";
-                job.Error = $"refused: the engine rescaled the timings ({detail}) and nothing was written. "
-                    + (config.FixFramerate
-                        ? "This is not a framerate pair a release could really have."
-                        : "Turn on \"Correct framerate mismatch\" only for subtitles from a different framerate.");
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
+                RefuseJob(
+                    job,
+                    "Refused",
+                    $"refused: the engine rescaled the timings ({detail}) and nothing was written. "
+                        + (config.FixFramerate
+                            ? "This is not a framerate pair a release could really have."
+                            : "Turn on \"Correct framerate mismatch\" only for subtitles from a different framerate."),
+                    tempOutput);
                 return;
             }
 
@@ -6575,19 +6587,7 @@ public class SubSyncService : IDisposable
 
             if (changedForUser is { IsNoChange: true } noChange)
             {
-                _logger.LogInformation(
-                    "Sync job {JobId}: the sync changed nothing ({Change}) \u2014 no sidecar written",
-                    job.Id,
-                    noChange.Describe());
-                job.Outcome = $"already in sync ({noChange.Describe()}) \u2014 nothing written"
-                    + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
-                job.Phase = "Complete";
-                job.Status = SyncJobStatus.Completed;
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
-                LogPluginCompletion(job, null);
+                CompleteAsNoChange(job, noChange, cuesNote, tempOutput);
                 return;
             }
 
@@ -6607,17 +6607,15 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"job {job.Id} UNVERIFIED: the audio was the only ruler ({detail}) and this track has no "
                     + $"reference subtitle to check it against; nothing written, source untouched, file={video.Path}");
-                job.Status = SyncJobStatus.Failed;
-                job.Phase = "Unverified \u2014 audio-only alignment";
-                job.Error = $"unverified: this subtitle was aligned against the audio ({detail}) and the file holds "
-                    + "no other text track to check that against, so nothing was written. An audio reference on a "
-                    + "short file can be out by a second or more. Sync it against a subtitle track if the file has "
-                    + "one, or run it from an external .srt, where the audio is the reference the plugin is meant "
-                    + "to use.";
-                job.Progress = 1.0;
-                job.FinishedAtUtc = DateTime.UtcNow;
-                job.OutputPath = null;
-                SafeDelete(tempOutput);
+                RefuseJob(
+                    job,
+                    "Unverified \u2014 audio-only alignment",
+                    $"unverified: this subtitle was aligned against the audio ({detail}) and the file holds "
+                        + "no other text track to check that against, so nothing was written. An audio reference on a "
+                        + "short file can be out by a second or more. Sync it against a subtitle track if the file has "
+                        + "one, or run it from an external .srt, where the audio is the reference the plugin is meant "
+                        + "to use.",
+                    tempOutput);
                 return;
             }
 
@@ -6958,6 +6956,89 @@ public class SubSyncService : IDisposable
         /// </summary>
         public IReadOnlyList<SyncJob> AlreadyQueued { get; init; } = Array.Empty<SyncJob>();
     }
+
+    /// <summary>
+    /// Ends a job as refused: nothing was written, so the output path is cleared and the engine's temporary output
+    /// is removed.
+    /// </summary>
+    /// <remarks>
+    /// Every refusal in a job's run goes through here. Before the extraction each of the five refusal sites wrote
+    /// the same seven fields itself, and they had already drifted: one of them (the wrong-cut reference) left
+    /// <c>FinishedAtUtc</c> set by the same lines as the others while another relied on the caller. The wording
+    /// stays at the site, because it is built from the values that decided the refusal.
+    /// </remarks>
+    /// <param name="job">The job being refused.</param>
+    /// <param name="phase">The phase to leave on the job.</param>
+    /// <param name="error">The sentence the user is shown.</param>
+    /// <param name="tempOutput">The engine's output in the job's temp directory, if any.</param>
+    private void RefuseJob(SyncJob job, string phase, string error, string? tempOutput)
+    {
+        job.Status = SyncJobStatus.Failed;
+        job.Phase = phase;
+        job.Error = error;
+        job.Progress = 1.0;
+        job.FinishedAtUtc = DateTime.UtcNow;
+        job.OutputPath = null;
+        SafeDelete(tempOutput);
+    }
+
+    /// <summary>
+    /// Ends a job whose run wrote no subtitle at all because the engine suppressed its write: the subtitle is
+    /// already in sync, so this is a success with nothing to write (P7's outcome).
+    /// </summary>
+    /// <param name="job">The job that finished.</param>
+    /// <param name="cuesNote">The signs-track note, when there is one.</param>
+    private void CompleteAlreadyInSync(SyncJob job, string? cuesNote)
+    {
+        job.Outcome = "already in sync (shift under 3 s) \u2014 no change needed"
+            + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
+        job.Phase = "Complete";
+        job.Status = SyncJobStatus.Completed;
+        job.Progress = 1.0;
+        _logger.LogInformation("Sync job {JobId}: subtitle already in sync \u2014 no output written", job.Id);
+        LogPluginCompletion(job, null);
+    }
+
+    /// <summary>
+    /// Ends a job whose engine output was measurably the same as its input: nothing changed for the user, so
+    /// nothing is written (P12's outcome).
+    /// </summary>
+    /// <param name="job">The job that finished.</param>
+    /// <param name="noChange">The measurement that says nothing moved.</param>
+    /// <param name="cuesNote">The signs-track note, when there is one.</param>
+    /// <param name="tempOutput">The engine's output, which is removed.</param>
+    private void CompleteAsNoChange(SyncJob job, SyncChange noChange, string? cuesNote, string? tempOutput)
+    {
+        _logger.LogInformation(
+            "Sync job {JobId}: the sync changed nothing ({Change}) \u2014 no sidecar written",
+            job.Id,
+            noChange.Describe());
+        job.Outcome = $"already in sync ({noChange.Describe()}) \u2014 nothing written"
+            + (cuesNote is null ? string.Empty : " \u00b7 " + cuesNote);
+        job.Phase = "Complete";
+        job.Status = SyncJobStatus.Completed;
+        job.Progress = 1.0;
+        job.FinishedAtUtc = DateTime.UtcNow;
+        job.OutputPath = null;
+        SafeDelete(tempOutput);
+        LogPluginCompletion(job, null);
+    }
+
+    /// <summary>
+    /// Whether the engine's own words say it could not read the reference it was handed (S22).
+    /// </summary>
+    /// <remarks>
+    /// A run that failed to open its reference is not a search-window problem, and refusing with "raise Maximum
+    /// offset" sends the user to a setting that cannot help: measured in the field on 2026-09-15, 7 of the 8
+    /// refusals in one run were this shape, every one of them naming a path under <c>state/speech-cache</c> that the
+    /// engine could not open. The markers are the engine's own words, taken from that log.
+    /// </remarks>
+    /// <param name="engineTail">The tail of what the engine printed, as the refusal message already carries it.</param>
+    /// <returns>True when the engine said it could not read the reference.</returns>
+    internal static bool EngineCouldNotReadReference(string engineTail)
+        => engineTail.Contains("unable to read reference", StringComparison.OrdinalIgnoreCase)
+        || engineTail.Contains("No such file or directory", StringComparison.OrdinalIgnoreCase)
+        || engineTail.Contains("Permission denied", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// Finds the queued or running job for the same item and subtitle track, if there is one (D9).

@@ -4573,9 +4573,13 @@ def run_page_checks():
     report('a refusal is reported as a refusal, not as a failure',
            'private static string StatusOf(SyncJob job)' in controller_source
            and 'StatusOf(j),' in controller_source
-           and 'job.Phase = "Refused";' in open(
-               os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SubSyncService.cs'),
-               encoding='utf-8').read())
+           # The refusal phase used to be written out at each of the five refusal sites; the RunSyncJob
+           # extraction funnelled them through one helper (RefuseJob), so this pin follows the single
+           # definition and the calls that name the phase, instead of the copies that used to exist.
+           and 'private void RefuseJob(SyncJob job, string phase, string error, string? tempOutput)' in service_source
+           and 'job.Phase = phase;' in service_source
+           and '"Refused",' in service_source
+           and service_source.count('RefuseJob(') >= 6)
     report('a page that fails to start says so instead of showing a dead surface',
            'function initFailed(ex)' in pages['subsyncMain.html']
            and 'could not start: ' in pages['subsyncMain.html']

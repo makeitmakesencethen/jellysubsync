@@ -23,7 +23,7 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = REPO / '.tests-work'
 SERVICE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
-LABELS = re.compile(r'FAIL  (P5|P7|P8|P9|P10|P12|P13|P14|P15|P17|P18|P19|S43|S45|RunSyncJob)')
+LABELS = re.compile(r'FAIL  (P5|P7|P8|P9|P10|P12|P13|P14|P15|P17|P18|P19|S22|S43|S45|RunSyncJob)')
 
 # name -> (text to break, what it becomes)
 MUTATIONS = {
@@ -31,8 +31,8 @@ MUTATIONS = {
            'job.Outcome = "already in sync (shift under 4 s) \\u2014 no change needed"'),
     'P12': ('job.Outcome = $"already in sync ({noChange.Describe()}) \\u2014 nothing written"',
             'job.Outcome = $"already in sync ({noChange.Describe()}) \\u2014 nothing to write"'),
-    'P13': ('job.Phase = "Unverified \\u2014 audio-only alignment";',
-            'job.Phase = "Unverified - audio-only alignment";'),
+    'P13': ('"Unverified \\u2014 audio-only alignment",',
+            '"Unverified - audio-only alignment",'),
     'P14': ('if (!File.Exists(tempOutput) || new FileInfo(tempOutput).Length == 0)',
             'if (!File.Exists(tempOutput))'),
     'P5': ('throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}");',
@@ -59,12 +59,14 @@ MUTATIONS = {
                     'tempOutput = Path.Combine(tempDir, "synced.srt");\n                        measured = wider;'),
     'P8-discard': ('&& (Math.Abs(fromReference.ShiftMs) > referenceCeilingMs || rulerSpreadTooWide))',
                    '&& (Math.Abs(fromReference.ShiftMs) > referenceCeilingMs * 100.0 || rulerSpreadTooWide))'),
-    'P8-refusal': ('job.Error = $"refused: the subtitle was aligned against the file\'s own subtitle track {referenceSpec}, "',
-                   'job.Error = $"refused: the subtitle was aligned against a subtitle track {referenceSpec}, "'),
+    'P8-refusal': ('$"refused: the subtitle was aligned against the file\'s own subtitle track {referenceSpec}, "',
+                   '$"refused: the subtitle was aligned against a subtitle track {referenceSpec}, "'),
     'S43-vad': ('referencePath = referenceTarget;\n                                    referenceStream = null;\n                                    usedSubtitleReference = true;\n                                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);',
                 'referencePath = videoPath;\n                                    referenceStream = null;\n                                    usedSubtitleReference = true;\n                                    job.Phase = SyncPhaseLabel(fromCache: false, audioReference: false);'),
     'P8-stale': ('if (audioExit == 0 && File.Exists(audioOutput))',
                  'if (audioExit == 0 && File.Exists(tempOutput))'),
+    'S22-cause': ('=> engineTail.Contains("unable to read reference", StringComparison.OrdinalIgnoreCase)',
+                  '=> engineTail.Contains("unable to read referenceX", StringComparison.OrdinalIgnoreCase)'),
     'P18-catch': ('catch (Exception ex)\n                {\n                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);',
                   'catch (InvalidOperationException ex)\n                {\n                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);'),
 }

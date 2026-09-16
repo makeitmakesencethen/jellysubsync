@@ -371,3 +371,48 @@ passes. Shipped in 2.0.55 (beta) and checked as an installer sees it: the catalo
 carries the fix's own path `audio-fallback.srt` as a UTF-16 literal. Phase 1 of the extraction (the terminal blocks
 plus S22) can now proceed as sequenced in §7 — the P8 block is no longer carrying a known silent-wrongness bug into
 the new structure.
+
+## 10. Phase 1 of the extraction, done (2026-09-16)
+
+The first slice of §7's sequencing: **the terminal blocks plus S22**, with the characterization net from §8 as the
+verifier. No wording changed, so the checks from §8 asserted the extraction itself.
+
+**What moved out of `RunSyncJob`.** Two helpers now own the terminal *state*, and every terminal calls one of them:
+
+- `RefuseJob(job, phase, error, tempOutput)` — the seven field writes and the temp-output cleanup that each of the
+  five refusal sites used to perform itself (P8's wrong-cut reference, P9's two wide-window refusals, P10's rescale
+  refusal, P13's unverified refusal). The *wording* stays at the site, because it is built from the values that
+  decided the refusal.
+- `CompleteAlreadyInSync(job, cuesNote)` (P7) and `CompleteAsNoChange(job, noChange, cuesNote, tempOutput)` (P12) —
+  kept separate because they are not the same terminal: P12 sets `FinishedAtUtc` and P7 does not (see the note
+  below). Merging them would have been a behaviour change smuggled into a refactor.
+
+**The shrink, measured:** `RunSyncJob` was 5400–6930 = **1562 lines**; it is now 5400–6940 = **1541**. That is
+−21, not the ~250 §7 guessed: the state writes are one call each, but Phase 1 deliberately left the four refusal
+*sentences* where they are, because those sentences are what the §8 checks pin and moving them would have made the
+diff much harder to verify. Moving the message builders into `Refuse…` methods with the values as arguments is the
+obvious next slice.
+
+**S22, fixed here.** The wide-window refusal already carried the engine's own words (`· engine said: …`), so the
+cause had been in the message all along with nobody reading it. `EngineCouldNotReadReference(engineTail)` classifies
+that tail on the engine's markers (`unable to read reference`, `No such file or directory`, `Permission denied`) and
+the refusal takes its own branch, which names the reference the engine was handed, quotes what the engine said, and
+states that raising "Maximum offset" will not help. Two checks: the classifier's own, and an end-to-end case whose
+wider retry exits 1 saying it could not open the reference — the field's exact shape (see the S22 row for the
+before/after sentence).
+
+**Reading S22's field evidence turned up its root cause, filed as S46 and *not* fixed:** the reference the engine
+could not read is a symlink the plugin deletes *itself* (`SpeechCache.DropLink` after a cached-speech run), so the
+wider-window retry that exists to rescue a window-pinned answer cannot start. That is a "refuses when it could
+retry" defect rather than silent wrongness, and it needs its own before/after.
+
+**Re-verified after the extraction** (the mutation anchors moved with the code, so they were re-pointed at the new
+call shapes and re-run): `P7`, `P12`, `P13`, `P8-refusal` and the new `S22-cause` are all still CAUGHT, and the
+baseline is now **23 characterization checks** (the two S22 checks joined the 21 from §8). Suite green at **965
+checks**; one existing pin had to follow the extraction (`a refusal is reported as a refusal, not as a failure`
+asserted the literal `job.Phase = "Refused";`, which is now `job.Phase = phase;` inside `RefuseJob` — the pin now
+checks the single definition and counts the calls, which is the same intent).
+
+**Observation worth a row of its own (not a Phase 1 change):** P7's terminal does not set `FinishedAtUtc` while P12's
+does, so an "already in sync (shift under 3 s)" job reaches `BatchHistory` with a null finish time. `JobsToEvict`
+falls back to `CreatedAtUtc`, so nothing leaks; it is a display/consistency question, not damage.
