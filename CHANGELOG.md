@@ -1,3 +1,30 @@
+## 2.0.56 (beta)
+
+A refusal now says what actually went wrong — plus the first slice of the `RunSyncJob` refactor work behind it.
+
+**S22 — a refusal is no longer blamed on the search window when the engine could not read the reference it was
+handed.** The wider-window refusal already carried the engine's own last words in its message (`… engine said: …`),
+so the real cause had been sitting there with nobody reading it: in the field, 7 of the 8 refusals in one run said
+`unable to read reference <path>; try ensuring file exists and has correct permissions` while the sentence the user
+saw told them to raise "Maximum offset" — a setting that cannot help a file that could not be opened. The plugin now
+classifies the engine's tail on the engine's own markers (`unable to read reference`, `No such file or directory`,
+`Permission denied`) and a run that failed that way is refused with its own sentence: it names the reference the
+engine was handed, quotes what the engine said, and states plainly that the offset setting will not help. Measured
+in the harness, on the field's exact shape: the job now reads
+`refused: the engine could not read the reference it was aligned against (…/speech-cache/<key>.mkv) · engine said:
+ffsubsync: unable to read reference …; try ensuring file exists and has correct permissions. Nothing was written.
+Raising "Maximum offset" will not help this - the reference could not be opened, so the alignment had nothing to
+measure against.` A genuine search-window refusal keeps the sentence it always had.
+
+**Under the hood — the first step of the `RunSyncJob` refactor.** The five places a job can refuse and the two
+places it can complete with nothing written were each writing the same seven job fields by hand; they now go through
+`RefuseJob`/`CompleteAlreadyInSync`/`CompleteAsNoChange`, so a terminal outcome cannot drift between the branches
+any more. No wording changed, which is what made the change checkable: the 23 characterization checks written for
+that method before the refactor started (they drive the seven terminals and both resends through the real code, with
+a stand-in engine) stayed green throughout, and each of them still fails when the phase it covers is deliberately
+broken. The method is 21 lines shorter; the refusal sentences deliberately stay at their sites, because they are
+what the checks pin.
+
 ## 2.0.55 (beta)
 
 A silent-wrongness fix in the wrong-cut reference path, found by the characterization tests written for the
