@@ -1,3 +1,23 @@
+## 2.0.55 (beta)
+
+A silent-wrongness fix in the wrong-cut reference path, found by the characterization tests written for the
+`RunSyncJob` refactor and fixed before that refactor started.
+
+**S45 — after a wrong-cut reference is discarded, the audio retry could write the discarded reference's answer and
+report it as the audio's.** When the reference ceiling discards a subtitle track that is not the same cut, the job
+re-aligns against the film's audio — but the audio retry was handed the *same output path the discarded run had just
+written*, and the test afterwards was "did the file exist". The engine suppresses its write when the shift is small,
+which is exactly what "this subtitle already matches the film" looks like, so in that case the file left behind by
+the discarded run was still there: the job took it as the audio's answer, wrote **the wrong-cut track's timing** to
+the library, and reported it as verified against the audio. The audio retry now writes to a path of its own
+(`audio-fallback.srt`, deleted first), so the file can only be one that retry wrote — the pattern the wide-window
+retry and the audio cross-check have always used. Measured with the harness that now drives the job's terminals:
+before, the fixture wrote the discarded track's `+45 s` answer (`written cue 00:10:45,000`) under the outcome
+"aligned against the audio"; after, the same case refuses with the sentence it should produce and writes nothing.
+The regression tests are `S45: the audio retry writes to its own path, so a stale reference output is not taken for
+its answer` and the strengthened `P8: a subtitle ruler demanding a shift past the ceiling is discarded and the
+audio's answer written`, which now asserts *which* answer reached the library.
+
 ## 2.0.54 (beta)
 
 Queue lock efficiency: what the plugin does while the queue is waiting, and what queueing under load costs.
