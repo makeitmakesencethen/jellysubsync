@@ -1,3 +1,15 @@
+## 2.0.58 (beta)
+
+Under the hood — the third step of the `RunSyncJob` refactor, with nothing user-visible changed. Writing the synced
+subtitle, verifying it landed, describing what changed and announcing it to the library are now four methods of their
+own (`WriteSyncedSubtitleAsync`, `DescribeCompletedSync`, `AnnounceCompletedAsync`, on top of the engine-run cluster
+from 2.0.57), so `RunSyncJob` is 1202 lines instead of 1562. Two of the three moved blocks are byte-identical to what
+they replaced (only their indentation differs); the third differs in six lines, because the replace-mode backup path
+now has to be published where the job's failure path can still reach it — a throwing method returns nothing, and that
+rollback only matters when the write throws. The 966-check suite and the 24 characterization checks that drive those
+terminals through the real code stayed green throughout, and the six mutations covering this phase still fail the
+checks they are supposed to.
+
 ## 2.0.57 (beta)
 
 A job that needed a wider search window is now rescued instead of refused, because the audio analysis the plugin was
