@@ -5625,7 +5625,6 @@ public class SubSyncService : IDisposable
             // "fast" mode: the speech analysis depends only on the media file, the VAD
             // method and the ffsubsync build — not on which subtitle is being synced —
             // so it is computed once and reused for the other subtitles of that file.
-            var mode = NormalizeMode(job.Mode);
             var referencePath = videoPath;
             var usingCachedSpeech = false;
 
