@@ -1,3 +1,27 @@
+## 2.0.57 (beta)
+
+A job that needed a wider search window is now rescued instead of refused, because the audio analysis the plugin was
+deleting out from under its own retry now lives as long as the job does.
+
+**S46 — the wider-window retry can read its reference again.** When a job analyses the film's audio itself, the
+plugin hands ffsubsync a symlink to the media file under `state/speech-cache/`. The harvest that follows the first
+run dropped that link immediately — and the wider-window retry and the verification run *of the same job* still held
+it as their reference, so the retry that exists to rescue a window-pinned answer could not even start: the engine
+reported `unable to read reference …/speech-cache/<key>.mkv`, and the job refused. The link's lifetime is now the
+job's: it is dropped once, in the job's `finally`, so every run inside that job can read it. The collected `.npz`
+(the artefact worth keeping) is untouched, and the cache's own pruning only ever matches `.npz`/`.ref.srt`, so a link
+that outlives its job is still cleared later. Measured in the harness, on the field's shape: before, `Failed`/`Refused`
+with nothing written; after, the same job completes with the retry's answer — `+3000 ms offset`, three engine runs —
+instead of the window-pinned value the first run returned. This is what 7 of the 8 refusals in one field run were.
+
+**Under the hood — second step of the `RunSyncJob` refactor.** The engine-run cluster (the run, its stderr pump, the
+score/offset parsing, the stale-cache retry, the walk measurement and the exit-code throw) now lives in one method,
+`RunEngineAttemptAsync`, whose callbacks and buffers are locals there rather than captured state of a 1400-line
+method. Pure movement, checked as such: the extracted body is the original with nothing but its indentation changed,
+and `RunSyncJob` is 147 lines shorter. No wording, logging or logic changed — the 24 characterization checks that
+drive those terminals through the real code stayed green throughout, and each still fails when its phase is
+deliberately broken.
+
 ## 2.0.56 (beta)
 
 A refusal now says what actually went wrong — plus the first slice of the `RunSyncJob` refactor work behind it.
