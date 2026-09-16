@@ -205,7 +205,12 @@
     using (var svcCts = new CancellationTokenSource())
     {
         var svcSleepTask = SvcCall(svcProcesses, "RunProcessArgumentListAsync", "/bin/sleep", new[] { "30" }, svcBin, svcCts.Token);
-        for (var svcWait = 0; svcWait < 50 && svcChildPid < 0; svcWait++)
+
+        // Wait for the child to be tracked before cancelling: not just for the pid the assertion needs, but
+        // because cancelling a run whose process has not registered yet tests the token, not the kill. The
+        // budget is generous on purpose - this check runs under a full suite and a build on the same machine,
+        // and a registration that took longer than a second once made it look like the kill had failed.
+        for (var svcWait = 0; svcWait < 500 && svcChildPid < 0; svcWait++)
         {
             await Task.Delay(20);
             var svcTracked = (System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>?)
@@ -228,7 +233,7 @@
     }
 
     var svcChildAlive = svcChildPid > 0 && SvcAlive(svcChildPid);
-    for (var svcWait = 0; svcWait < 20 && svcChildAlive; svcWait++)
+    for (var svcWait = 0; svcWait < 50 && svcChildAlive; svcWait++)
     {
         await Task.Delay(100);
         svcChildAlive = SvcAlive(svcChildPid);

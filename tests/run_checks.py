@@ -32,11 +32,16 @@ def service_classes():
     behaviour rather than at the layout.
     """
     names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs',
-             'SubSyncProcesses.cs', 'FfSubSyncEngine.cs',
-             # the partial-class parts of the same class (Phase 2 of the map): a pin that names behaviour
-             # reads it wherever it was cut, which is what keeps the pins about the code and not the layout.
-             'SubSyncService.SweepHistory.cs']
-    return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
+             'SubSyncProcesses.cs', 'FfSubSyncEngine.cs']
+    # The partial-class parts of the service itself (Phase 2 of the map) are found rather than listed: the
+    # move that cuts one is the move that would otherwise forget to add it here, and a pin that reads a file
+    # the code has left fails open - it searches a string that no longer contains the code and reports a
+    # regression in the code instead of a gap in the check. `SubSyncService.cs` first, then the parts.
+    parts = sorted(name for name in os.listdir(SERVICE_DIR)
+                   if name.startswith('SubSyncService.') and name.endswith('.cs')
+                   and name != 'SubSyncService.cs')   # its own name matches the prefix: not a part of itself
+    return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read()
+                      for name in names + parts)
 
 
 # dotnet: explicit override, then PATH, then the usual install locations.
@@ -4273,8 +4278,10 @@ def prepare_b8_fixtures(fixtures):
 
 def run_gate_source_checks():
     """Source-level checks: the shape score is diagnostic context, and the audio cross-check always runs."""
-    service_path = pathlib.Path(REPO) / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
-    service = service_path.read_text(encoding='utf-8', errors='replace')
+    # The aggregate, not the one file: the ruler score and the cross-check it must not gate live in the job
+    # pipeline, which Phase 2 of the map moved out of `SubSyncService.cs`. Reading the path directly would make
+    # this check fail on a file that no longer holds the code rather than on the code.
+    service = service_classes()
     score_at = service.find('var rulerShape = SubtitleRulerShape.Score(')
     context_at = service.find('context only; the audio cross-check runs either way')
     cross_at = service.find('var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");')
