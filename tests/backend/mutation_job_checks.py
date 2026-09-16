@@ -23,6 +23,12 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = REPO / '.tests-work'
 SERVICE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
+# The Phase 1 split moved the alignment maths out of the service; a mutation whose line lives there names the
+# file it is in, so re-pointing one after a move is a one-line change here rather than a rename elsewhere.
+METRICS = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'AlignmentMetrics.cs'
+FILES = {
+    'P10-accepted': METRICS,
+}
 # Any characterization check counts, whatever the phase number: a rule on the prefix, not a list of families.
 # The previous explicit list (P5|P7|...|S46) silently ignored a new check - S22's, S46's and P3's failures were
 # all reported as "MISSED" until each label was added by hand, which reads exactly like an uncovered mutation.
@@ -42,15 +48,15 @@ MUTATIONS = {
             'if (!File.Exists(tempOutput))'),
     'P5': ('throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}");',
            'throw new InvalidOperationException($"ffsubsync exited with status {exitCode}.{why}");'),
-    'P15-copy': ('var target = SyncedTargetName(dir, stem, lang);',
+    'P15-copy': ('var target = SyncedTargetNaming.SyncedTargetName(dir, stem, lang);',
                  'var target = Path.Combine(dir, "mutant-target.srt");'),
-    'P17': ('if (LooksLikeSignsTrack(inputCues, videoDuration))',
-            'if (false && LooksLikeSignsTrack(inputCues, videoDuration))'),
+    'P17': ('if (AlignmentMetrics.LooksLikeSignsTrack(inputCues, videoDuration))',
+            'if (false && AlignmentMetrics.LooksLikeSignsTrack(inputCues, videoDuration))'),
     'P15-replace': ('outcome.BackupPath = NextBackupPath(subtitleStream.Path);',
                     'outcome.BackupPath = subtitleStream.Path + ".bak-mutant";'),
     'P19': ('if (backupPath is not null && File.Exists(backupPath))',
             'if (false && File.Exists(backupPath))'),
-    'P10-refused': ('&& !IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, Configuration.SettingsValidation.MaxOffsetSecondsOf(config), config.FixFramerate))',
+    'P10-refused': ('&& !AlignmentMetrics.IsRescaleAcceptable(scaled.Ratio, scaled.ShiftMs, Configuration.SettingsValidation.MaxOffsetSecondsOf(config), config.FixFramerate))',
                     '&& false)'),
     'P10-accepted': ('return Math.Abs(shiftMs) <= Math.Max(maxOffsetSeconds, 60) * 1000L * 20;',
                      'return Math.Abs(shiftMs) <= Math.Max(maxOffsetSeconds, 60) * 1000L / 100;'),
@@ -58,7 +64,7 @@ MUTATIONS = {
                    '$"refused: {detail}. Change the search window in the plugin settings (it is the search "'),
     'P9-clamped': ('? $"the {wideSeconds} s window also reached its limit ({stillClamped.ShiftMs} ms)"',
                    '? $"the wider window reached its limit too ({stillClamped.ShiftMs} ms)"'),
-    'P9-verify': ('&& AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds))',
+    'P9-verify': ('&& AlignmentMetrics.AlignmentHoldsAgainstAudio(residualRatio, residualShift, videoDuration.TotalSeconds))',
                   '&& true)'),
     'P9-accepted': ('tempOutput = wideOutput;\n                        measured = wider;',
                     'tempOutput = Path.Combine(tempDir, "synced.srt");\n                        measured = wider;'),
@@ -132,8 +138,9 @@ def main():
         return 2
 
     env = environment()
-    original = SERVICE.read_text(encoding='utf-8')
     wanted = sys.argv[1:] or list(MUTATIONS)
+    opened = {SERVICE, *FILES.values()}
+    originals = {path: path.read_text(encoding='utf-8') for path in opened}
 
     baseline, error = run_harness(env)
     if baseline is None:
@@ -153,6 +160,8 @@ def main():
             if name not in MUTATIONS:
                 print(f'{name}: unknown mutation')
                 continue
+            path = FILES.get(name, SERVICE)
+            original = originals[path]
             old, new = MUTATIONS[name]
             if old not in original:
                 results[name] = 'ANCHOR NOT FOUND'
@@ -162,7 +171,7 @@ def main():
             # deliberately broken in more than one place. Replacing only the first occurrence made a real
             # mutation (the speech cache's three lookups) look harmless, because the surviving two lookups
             # rescued the branch the third one had lost.
-            SERVICE.write_text(original.replace(old, new), encoding='utf-8')
+            path.write_text(original.replace(old, new), encoding='utf-8')
             out, error = run_harness(env)
             if out is None:
                 results[name] = 'BUILD FAILED'
@@ -173,9 +182,10 @@ def main():
                 state = 'CAUGHT' if caught else 'MISSED'
                 print(f'{name}: {state} -> ' + '; '.join(f[:70] for f in caught))
     finally:
-        SERVICE.write_text(original, encoding='utf-8')
+        for path, text in originals.items():
+            path.write_text(text, encoding='utf-8')
 
-    restored = SERVICE.read_text(encoding='utf-8') == original
+    restored = all(path.read_text(encoding='utf-8') == text for path, text in originals.items())
     print(f'\nsource put back: {restored}')
     print(json.dumps(results, indent=1))
     missed = [name for name, value in results.items() if value == [] or value == 'ANCHOR NOT FOUND' or value == 'BUILD FAILED']

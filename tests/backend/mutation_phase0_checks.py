@@ -28,6 +28,8 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = REPO / '.tests-work'
 SERVICE = 'Jellyfin.Plugin.SubSync/Services/SubSyncService.cs'
+PROCESSES = 'Jellyfin.Plugin.SubSync/Services/SubSyncProcesses.cs'
+ENGINE = 'Jellyfin.Plugin.SubSync/Services/FfSubSyncEngine.cs'
 ITEM_ACCESS = 'Jellyfin.Plugin.SubSync/Services/ItemAccess.cs'
 SWEEP_STATE = 'Jellyfin.Plugin.SubSync/Services/SweepState.cs'
 
@@ -37,32 +39,32 @@ LABELS = re.compile(r'FAIL  (C[0-9])')
 # name -> (file, text to break, what it becomes)
 MUTATIONS = {
     # ---------------- C4: the process runners ----------------
-    'C4-argument-quoting': (SERVICE,
+    'C4-argument-quoting': (PROCESSES,
                             'process.StartInfo.ArgumentList.Add(argument);',
                             'process.StartInfo.ArgumentList.Add("\\"" + argument + "\\"");'),
-    'C4-string-quotes': (SERVICE,
+    'C4-string-quotes': (PROCESSES,
                          '            Arguments = arguments,',
                          '            Arguments = arguments.Replace("\\"", string.Empty),'),
-    'C4-callback-exit': (SERVICE,
+    'C4-callback-exit': (PROCESSES,
                          '        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);\n\n        return process.ExitCode;',
                          '        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);\n\n        return 0;'),
-    'C4-callback-lines': (SERVICE,
+    'C4-callback-lines': (PROCESSES,
                           '                onStderrLine?.Invoke(line);',
                           '                onStderrLine?.Invoke(line + "!");'),
-    'C4-capture-concat': (SERVICE,
+    'C4-capture-concat': (PROCESSES,
                           '            var output = string.Concat(stdout, stderr).Trim();',
                           '            var output = stdout.Trim();'),
-    'C4-untracked': (SERVICE,
+    'C4-untracked': (PROCESSES,
                      '            _liveProcesses.TryRemove(process.Id, out _);',
                      '            if (process.Id == int.MinValue) { _liveProcesses.TryRemove(process.Id, out _); }'),
-    'C4-kill-on-cancel': (SERVICE,
+    'C4-kill-on-cancel': (PROCESSES,
                           '        using var registration = cancellationToken.Register(() =>\n'
                           '        {\n'
                           '            try { process.Kill(entireProcessTree: true); }\n'
                           '            catch { /* process may have already exited */ }\n'
                           '        });',
                           '        using var registration = cancellationToken.Register(() => { /* mutant: the child is left running */ });'),
-    'C4-precancel': (SERVICE,
+    'C4-precancel': (PROCESSES,
                      '        if (cancellationToken.IsCancellationRequested)\n'
                      '        {\n'
                      '            throw new OperationCanceledException(cancellationToken);\n'
@@ -71,7 +73,7 @@ MUTATIONS = {
                      '        {\n'
                      '            throw new OperationCanceledException(cancellationToken);\n'
                      '        }'),
-    'C4-missing-binary': (SERVICE,
+    'C4-missing-binary': (PROCESSES,
                           '            process.StartInfo.WorkingDirectory = workingDir;\n'
                           '        }\n'
                           '\n'
@@ -92,10 +94,10 @@ MUTATIONS = {
                           '        TrackChildProcess(process);'),
 
     # ---------------- C9: engine status and install ----------------
-    'C9-identity': (SERVICE,
+    'C9-identity': (ENGINE,
                     ': "plugin instance unavailable",',
                     ': "no plugin instance",'),
-    'C9-d2': (SERVICE,
+    'C9-d2': (ENGINE,
               '    public bool EngineIsInstalled()\n'
               '        => EngineIsUsable(\n'
               '            ResolveFfSubSyncPath(),\n'
@@ -103,24 +105,24 @@ MUTATIONS = {
               '            Environment.GetEnvironmentVariable("PATH"));',
               '    public bool EngineIsInstalled()\n'
               '        => File.Exists(ManagedFfSubSyncPath);'),
-    'C9-note': (SERVICE,
+    'C9-note': (ENGINE,
                 '            EngineNote = enginePresent\n'
                 '                ? null\n'
                 '                : EngineMissingNote(enginePath),',
                 '            EngineNote = null,'),
-    'C9-version': (SERVICE,
+    'C9-version': (ENGINE,
                    '                    status.FfSubSyncVersion = stdout.Trim();',
                    '                    status.FfSubSyncVersion = string.Empty;'),
-    'C9-no-plugin': (SERVICE,
+    'C9-no-plugin': (ENGINE,
                      '?? throw new InvalidOperationException("Plugin not initialized.");',
                      '?? throw new InvalidOperationException("The plugin is not initialized.");'),
-    'C9-gate-release': (SERVICE,
+    'C9-gate-release': (ENGINE,
                         '            Interlocked.Exchange(ref _installing, 0);',
                         '            if (Environment.TickCount == int.MinValue) { Interlocked.Exchange(ref _installing, 0); }'),
-    'C9-busy-guard': (SERVICE,
+    'C9-busy-guard': (ENGINE,
                       '        if (Interlocked.CompareExchange(ref _installing, 1, 0) == 1)',
                       '        if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)'),
-    'C9-pip-failure': (SERVICE,
+    'C9-pip-failure': (ENGINE,
                        '            if (installExit != 0)\n'
                        '            {\n'
                        '                throw new InvalidOperationException($"pip install ffsubsync failed with exit code {installExit}.");\n'
@@ -129,7 +131,7 @@ MUTATIONS = {
                        '            {\n'
                        '                throw new InvalidOperationException($"pip install ffsubsync failed with exit code {installExit}.");\n'
                        '            }'),
-    'C9-no-binary': (SERVICE,
+    'C9-no-binary': (ENGINE,
                      '            if (!File.Exists(ManagedFfSubSyncPath))\n'
                      '            {\n'
                      '                throw new InvalidOperationException("ffsubsync was installed but the binary was not found at the expected path.");\n'
@@ -138,10 +140,10 @@ MUTATIONS = {
                      '            {\n'
                      '                throw new InvalidOperationException("ffsubsync was installed but the binary was not found at the expected path.");\n'
                      '            }'),
-    'C9-non-root': (SERVICE,
+    'C9-non-root': (ENGINE,
                     '"python3 with venv support is missing and the Jellyfin process is not running as root, " +',
                     '"python3 with venv support is missing and this process has no root, " +'),
-    'C9-python-catch': (SERVICE,
+    'C9-python-catch': (ENGINE,
                         '        catch (System.ComponentModel.Win32Exception)\n'
                         '        {\n'
                         '            // python3 itself is not installed.\n'
@@ -151,12 +153,12 @@ MUTATIONS = {
                         '        {\n'
                         '            throw;\n'
                         '        }'),
-    'C9-version-source': (SERVICE,
-                          '                var (exitCode, stdout) = await RunProcessCaptureAsync(ManagedFfSubSyncPath, "--version", null).ConfigureAwait(false);',
-                          '                var (exitCode, stdout) = await RunProcessCaptureAsync(enginePath, "--version", null).ConfigureAwait(false);'),
-    'C9-install-wrong-binary': (SERVICE,
-                                '            var installExit = await RunProcessAsync(ManagedPipPath, "install ffsubsync \\"setuptools<81\\"", null, cancellationToken).ConfigureAwait(false);',
-                                '            var installExit = await RunProcessAsync(ManagedPythonPath, "install ffsubsync \\"setuptools<81\\"", null, cancellationToken).ConfigureAwait(false);'),
+    'C9-version-source': (ENGINE,
+                          '                var (exitCode, stdout) = await _processes.RunProcessCaptureAsync(ManagedFfSubSyncPath, "--version", null).ConfigureAwait(false);',
+                          '                var (exitCode, stdout) = await _processes.RunProcessCaptureAsync(enginePath, "--version", null).ConfigureAwait(false);'),
+    'C9-install-wrong-binary': (ENGINE,
+                                '            var installExit = await _processes.RunProcessAsync(ManagedPipPath, "install ffsubsync \\"setuptools<81\\"", null, cancellationToken).ConfigureAwait(false);',
+                                '            var installExit = await _processes.RunProcessAsync(ManagedPythonPath, "install ffsubsync \\"setuptools<81\\"", null, cancellationToken).ConfigureAwait(false);'),
 
     # ---------------- C8: the access-control surface ----------------
     'C8-allfolders': (SERVICE,
@@ -229,7 +231,7 @@ MUTATIONS = {
                              '$"Item {itemId} is a {itemKind.ToLowerInvariant()}, not a video: pick the episodes themselves, "',
                              '$"Item {itemId} is a {itemKind.ToLowerInvariant()}, which cannot be synced: pick the episodes themselves, "'),
     'C8-listing-plugin-output': (SERVICE,
-                                 '                    IsPluginOutput = IsOwnSidecar(s)',
+                                 '                    IsPluginOutput = MediaStreamMap.IsOwnSidecar(s)',
                                  '                    IsPluginOutput = false'),
     'C8-listing-image': (SERVICE,
                          '                    UnsupportedReason = LanguageSupport.ImageBasedRefusal(s.Codec),',

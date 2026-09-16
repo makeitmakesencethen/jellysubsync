@@ -13,6 +13,33 @@ document is the only file written.
 > C4 is therefore **four** runners, and the four are now covered by checks: `tests/service_checks.cs`, with
 > its mutations in `tests/backend/mutation_phase0_checks.py`.
 
+> **Phase 1 done (2026-09-16): the four separable clusters left the class.** The §6 recommendation was
+> executed in the order §7 proposed, one commit each, and the §1-§2 line numbers are now **historical** -
+> the code they point at lives in its own file:
+>
+> | cluster | became | commit | lines | what the move cost |
+> |---|---|---|---|---|
+> | C7 (224) | `MediaStreamMap` + `SyncedTargetNaming` (two classes: streams vs. the files written beside them) | `304d14b` | 203 + 133 | 10 of 12 blocks byte-identical, 2 one keyword (`private` -> `internal`) |
+> | C6 (326) | `AlignmentMetrics` (14 methods, the two `record struct`s, 4 consts) | `55c066f` | 604 | 19 of 20 byte-identical; `RescaleOntoReferenceSpan` changed 4 lines (it reported through the service's logger, now a parameter) |
+> | C4 (299) | `SubSyncProcesses` (4 runners + the tracked-process table) | `86e745e` | 386 | 4 byte-identical, 4 one keyword each, 1 one doc line (a `<see cref>` cannot cross classes), the C7 probe 6 lines |
+> | C9 (410) | `FfSubSyncEngine` (resolver, bundled-version cache, status, installer) | `b4f525e` | 577 | 18 of 21 byte-identical incl. the constructor block; 2 one keyword, `GetInstallationStatusAsync` 2 lines (the worker summary is the service's own setting) |
+>
+> **What did not leave, and why:** `SyncPhaseLabel` (a phase label the job pipeline reads, not a stream or path
+> question - it goes with C5), `SuspiciousReferenceShiftFraction` (the cross-check's threshold) and the
+> walk/read-policy constants (C2's), `WaitForLanes`/`WaitForTasks` (they wait on the service's *lane tasks*,
+> not on processes), and the seven one-line members the service keeps as a facade over `FfSubSyncEngine`
+> because the controller, the settings page and the suite call them by name. The clusters that share the
+> run-state (C1, C2, C3, C5, C8, C10) are untouched: they are §7's Phase 2-4 work, and it is why this file is
+> 7 811 lines rather than 3 000.
+>
+> **Re-verified after the split, not assumed:** the suite is green at **1008 checks**, and both mutation
+> drivers were re-pointed at the files the code moved to and re-run - **43 of 43** Phase 0 mutations still
+> caught (9 re-pointed to `SubSyncProcesses.cs`, 13 to `FfSubSyncEngine.cs`, 3 anchors re-quoted), and
+> **25 of 25** RunSyncJob mutations still caught (4 anchors followed `SyncedTargetNaming`,
+> `AlignmentMetrics.LooksLikeSignsTrack`/`IsRescaleAcceptable`/`AlignmentHoldsAgainstAudio`, and the driver
+> gained per-mutation file support so a mutation names the file its line lives in).
+
+
 ## 0. Shape facts
 
 - **9 647 lines.** `SubSyncService` is 353–9646 = **9 293 lines (96 % of the file)**; six DTOs (20–351) and eight

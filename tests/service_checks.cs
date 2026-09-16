@@ -178,28 +178,9 @@
         svcCaptured.Text == "out" + Environment.NewLine + "boom",
         $"captured='{svcCaptured.Text.Replace(Environment.NewLine, "\\n")}'");
 
-    // A cancelled token stops the run and kills the child, not just the wait - and the check has to be able to
-    // tell those apart under load, so the child does not race a stopwatch: it waits for a file this check only
-    // creates once the cancellation has been observed. A child that was killed cannot write its marker; one
-    // that survived does so within a moment of the file appearing.
-    var svcSleptMarker = Path.Combine(svcRoot, "sleep-finished.txt");
-    var svcChildPidFile = Path.Combine(svcRoot, "sleep-child.pid");
-    var svcGoFile = Path.Combine(svcRoot, "sleep-go.txt");
-    foreach (var svcStale in new[] { svcSleptMarker, svcChildPidFile, svcGoFile })
-    {
-        if (File.Exists(svcStale))
-        {
-            File.Delete(svcStale);
-        }
-    }
-
-    var svcSleepRunner = SvcScript(
-        "sleep-until-go.sh",
-        "echo $$ > " + SvcQuote(svcChildPidFile) + "\nwhile [ ! -f " + SvcQuote(svcGoFile) + " ]; do sleep 0.05; done\n"
-        + "printf done > " + SvcQuote(svcSleptMarker));
-
-    // A pid that has exited but not been reaped is a zombie, and it is not a running child: /proc's state
-    // character is what tells them apart, and the process API does not.
+    // A cancelled token stops the run and kills the child, not just the wait. The child is a single process
+    // (`/bin/sleep`) taken from the runner's own tracked table, so neither a shell wrapper nor a stopwatch can
+    // hide a survivor: if the kill does not happen, the process is still there when the poll ends.
     bool SvcAlive(int pid)
     {
         try
@@ -220,12 +201,25 @@
 
     var svcBeforeKill = SvcLiveProcesses();
     var svcCancelled = false;
+    var svcChildPid = -1;
     using (var svcCts = new CancellationTokenSource())
     {
-        svcCts.CancelAfter(500);
+        var svcSleepTask = SvcCall(svcProcesses, "RunProcessArgumentListAsync", "/bin/sleep", new[] { "30" }, svcBin, svcCts.Token);
+        for (var svcWait = 0; svcWait < 50 && svcChildPid < 0; svcWait++)
+        {
+            await Task.Delay(20);
+            var svcTracked = (System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>?)
+                SvcField(svcProcesses, "_liveProcesses");
+            if (svcTracked is { Count: > 0 })
+            {
+                svcChildPid = svcTracked.Keys.First();
+            }
+        }
+
+        svcCts.Cancel();
         try
         {
-            await SvcCall(svcProcesses, "RunProcessArgumentListAsync", svcSleepRunner, new[] { "x" }, svcBin, svcCts.Token);
+            await svcSleepTask;
         }
         catch (OperationCanceledException)
         {
@@ -233,21 +227,16 @@
         }
     }
 
-    var svcChildPid = File.Exists(svcChildPidFile) && int.TryParse(File.ReadAllText(svcChildPidFile).Trim(), out var svcParsedPid)
-        ? svcParsedPid
-        : -1;
     var svcChildAlive = svcChildPid > 0 && SvcAlive(svcChildPid);
-    for (var svcWait = 0; svcWait < 30 && svcChildAlive; svcWait++)
+    for (var svcWait = 0; svcWait < 20 && svcChildAlive; svcWait++)
     {
         await Task.Delay(100);
         svcChildAlive = SvcAlive(svcChildPid);
     }
 
-    File.WriteAllText(svcGoFile, "go");
-    await Task.Delay(1000);
     Check("C4: cancelling a run ends it with a cancellation and kills the child, not just the wait",
-        svcCancelled && svcChildPid > 0 && !File.Exists(svcSleptMarker),
-        $"cancelled={svcCancelled} childPid={svcChildPid} alive={svcChildAlive} finished={File.Exists(svcSleptMarker)}");
+        svcCancelled && svcChildPid > 0 && !svcChildAlive,
+        $"cancelled={svcCancelled} childPid={svcChildPid} alive={svcChildAlive}");
     Check("C4: no runner leaves its process in the tracked table (the teardown counts on that)",
         svcBeforeKill == 0 && SvcLiveProcesses() == 0,
         $"before={svcBeforeKill} after={SvcLiveProcesses()}");
