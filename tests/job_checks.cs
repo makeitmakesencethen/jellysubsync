@@ -101,15 +101,32 @@
         int cues = 40,
         bool replaceMode = false,
         string? behaviour2 = null,
-        string? stderr2 = null)
+        string? stderr2 = null,
+        string? reuseCaseDir = null)
     {
-        var caseDir = Path.Combine(sjRoot, "case-" + label);
+        // reuseCaseDir is how the second job of the *same file* is expressed: the same case directory, the same
+        // media file (so the speech-cache key - path, size, mtime, VAD, engine build - is unchanged), and a fresh
+        // engine set-up, so the run count afterwards belongs to that job alone.
+        var fresh = reuseCaseDir is null;
+        var caseDir = reuseCaseDir ?? Path.Combine(sjRoot, "case-" + label);
         Directory.CreateDirectory(caseDir);
         var media = Path.Combine(caseDir, "Probe Movie (2026).mkv");
-        File.WriteAllText(media, "not a real video");
+        if (fresh)
+        {
+            File.WriteAllText(media, "not a real video");
+        }
+
         var sidecar = Path.Combine(caseDir, "Probe Movie (2026).eng.srt");
         var original = SjSubtitle(cues);
-        File.WriteAllText(sidecar, original);
+        if (fresh)
+        {
+            File.WriteAllText(sidecar, original);
+        }
+        else if (File.Exists(sidecar))
+        {
+            original = File.ReadAllText(sidecar);
+        }
+
         SjWriteEngine(behaviour, payload, payload2, payload3, stderr, behaviour2, stderr2);
 
         var streams = new List<MediaBrowser.Model.Entities.MediaStream>
@@ -417,6 +434,33 @@
             && File.Exists(sjDroppedLink.Job.OutputPath)
             && SjEngineRuns() == 3,
             $"{sjDroppedLink.Job.Status}/{sjDroppedLink.Job.Phase} runs={SjEngineRuns()} outcome='{sjDroppedLink.Job.Outcome}' error='{sjDroppedLink.Job.Error}'");
+
+        // ---------------- P3: the audio reference, and the file's second job reusing its analysis ----------------
+        // P3 had two branches with no behavioural coverage: the speech-cache *hit* (nothing in this harness ever
+        // ran a second job of one file) and the guarantee that the engine is never handed the container itself
+        // (S11, pinned only by a source-shape check until now). Both are read off the engine's own argv.
+        var sjS11 = await SjRunCase("p3-audio-reference", "payload", SjSubtitle(40, 5));
+        var s11FirstArg = SjArgv(0).Split(' ')[0];
+        Check("P3 (S11): the engine's reference argument is a file in the plugin's own reference tree, never the media path",
+            sjS11.Job.Status == SyncJobStatus.Completed
+            && !string.Equals(Path.GetFullPath(s11FirstArg), Path.GetFullPath(sjS11.Media), StringComparison.Ordinal)
+            && (s11FirstArg.Contains("speech-cache", StringComparison.Ordinal)
+                || s11FirstArg.Contains("subsync" + Path.DirectorySeparatorChar + "ref", StringComparison.Ordinal)),
+            $"reference argument '{s11FirstArg}' against media '{sjS11.Media}'");
+
+        // The stand-in engine writes the .npz the real one writes when it is asked to serialize speech, so the
+        // first job's analysis is harvested into the cache; the second job of the same file must find it and be
+        // handed the stored analysis (the .npz itself) instead of analysing the audio again.
+        var sjCacheFirst = await SjRunCase("p3-speech-cache-1", "payload", SjSubtitle(40, 5));
+        var sjCacheSecond = await SjRunCase("p3-speech-cache-2", "payload", SjSubtitle(40, 5), reuseCaseDir: sjCacheFirst.CaseDir);
+        var cacheSecondArg = SjArgv(0).Split(' ')[0];
+        Check("P3: the file's second job is handed the stored analysis instead of analysing the audio again",
+            sjCacheFirst.Job.Status == SyncJobStatus.Completed
+            && sjCacheSecond.Job.Status == SyncJobStatus.Completed
+            && SjEngineRuns() == 1
+            && cacheSecondArg.EndsWith(".npz", StringComparison.Ordinal)
+            && cacheSecondArg.Contains("speech-cache", StringComparison.Ordinal),
+            $"second job {sjCacheSecond.Job.Status}, runs={SjEngineRuns()}, reference='{cacheSecondArg}'");
 
         // ---------------- P8: a wrong-cut subtitle ruler ----------------
         var sjWrongCut = await SjRunCase("p8-ruler-discarded", "payload", SjSubtitle(40, 45), sibling: true, payload2: SjSubtitle(40, 5));

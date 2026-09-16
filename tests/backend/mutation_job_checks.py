@@ -23,7 +23,12 @@ import sys
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = REPO / '.tests-work'
 SERVICE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
-LABELS = re.compile(r'FAIL  (P5|P7|P8|P9|P10|P12|P13|P14|P15|P17|P18|P19|S22|S43|S45|S46|RunSyncJob)')
+# Any characterization check counts, whatever the phase number: a rule on the prefix, not a list of families.
+# The previous explicit list (P5|P7|...|S46) silently ignored a new check - S22's, S46's and P3's failures were
+# all reported as "MISSED" until each label was added by hand, which reads exactly like an uncovered mutation.
+# It stays a rule rather than "any FAIL line" because the harness also runs fixture checks whose labels belong
+# to the suite's own setup, and those do not run in this driver's environment.
+LABELS = re.compile(r'FAIL  (P\d|S\d|RunSyncJob)')
 
 # name -> (text to break, what it becomes)
 MUTATIONS = {
@@ -70,6 +75,8 @@ MUTATIONS = {
         "            // dropped once, in this job's finally.\n            SpeechCache.Harvest(referencePath, speechKey);\n            SpeechCache.DropLink(speechKey);\n            SpeechCache.Prune();"),
     'S22-cause': ('=> engineTail.Contains("unable to read reference", StringComparison.OrdinalIgnoreCase)',
                   '=> engineTail.Contains("unable to read referenceX", StringComparison.OrdinalIgnoreCase)'),
+    'P3-cache-hit': ('SpeechCache.TryGet(speechKey)', 'SpeechCache.TryGet(speechKey + "-mutant")'),
+    'P3-container': ('return SpeechCache.CreateReferenceLink(videoPath, speechKey);', 'return videoPath;'),
     'P18-catch': ('catch (Exception ex)\n            {\n                _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);',
                   'catch (InvalidOperationException ex)\n            {\n                _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);'),
 }
@@ -149,7 +156,11 @@ def main():
                 results[name] = 'ANCHOR NOT FOUND'
                 print(f'{name}: ANCHOR NOT FOUND (the source moved)')
                 continue
-            SERVICE.write_text(original.replace(old, new, 1), encoding='utf-8')
+            # Replace every occurrence: a mutation is "the deliberately broken version", and some of them are
+            # deliberately broken in more than one place. Replacing only the first occurrence made a real
+            # mutation (the speech cache's three lookups) look harmless, because the surviving two lookups
+            # rescued the branch the third one had lost.
+            SERVICE.write_text(original.replace(old, new), encoding='utf-8')
             out, error = run_harness(env)
             if out is None:
                 results[name] = 'BUILD FAILED'

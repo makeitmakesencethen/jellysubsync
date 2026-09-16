@@ -76,4 +76,15 @@ if [ -f "$payload" ] && [ -n "$out" ]; then
   esac
 fi
 
+# Asked to serialize the speech it just analysed, the real ffsubsync writes <reference>.npz next to the
+# reference it was given, and the plugin harvests that into its speech cache. The P3 cache-hit case needs the
+# same behaviour, or the file's second job can never find a stored analysis to reuse.
+case " $* " in
+  *" --serialize-speech "*)
+    if [ -n "$1" ]; then
+      printf 'npz' > "${1%.*}.npz"
+    fi
+    ;;
+esac
+
 exit 0
