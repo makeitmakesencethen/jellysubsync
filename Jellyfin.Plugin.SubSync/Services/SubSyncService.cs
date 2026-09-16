@@ -5440,13 +5440,14 @@ public class SubSyncService : IDisposable
         // returns nothing, so the backup it created has to be published where the catch can still see it.
         var write = new SyncWriteOutcome();
         string? tempOutput = null;   // ffsubsync output in temp dir
+        // Declared outside the try: the audio reference is prepared from four places, two of them outside
+        // reference resolution, and the finally below drops the analysis link this object describes.
+        var reference = new ReferenceResolution { Path = videoPath };
         string? changedDir = null;   // folder touched by this job (for the targeted library rescan)
         string? cuesNote = null;     // set when the subtitle looks like a signs/forced track
 
         // The job's own audio analysis, if it makes one. Declared here because the link's lifetime is the
         // job's lifetime: see the comment on the drop in the finally below (S46).
-        var serializeSpeech = false;
-        string? speechKey = null;
 
         try
         {
@@ -5626,7 +5627,6 @@ public class SubSyncService : IDisposable
             // method and the ffsubsync build — not on which subtitle is being synced —
             // so it is computed once and reused for the other subtitles of that file.
             var referencePath = videoPath;
-            var usingCachedSpeech = false;
 
             // The reference this job is aligned against is one of exactly two things: the file's own
             // audio (analysed once, reused through the speech cache) or a sibling subtitle track that
@@ -5644,64 +5644,9 @@ public class SubSyncService : IDisposable
             // any later run then skip the audio pass entirely. This is also the fallback whenever a
             // subtitle reference cannot be built — the plugin never refuses a job, it changes the
             // ruler it measures against.
-            async Task<string> PrepareAudioReferenceAsync(string why)
-            {
-                // Identity of everything that shapes the speech signal: the binary in use,
-                // the bundled engine version and this plugin's own version. A path alone is
-                // not enough — an upgraded bundled binary keeps its path.
-                var engineIdentity = string.Join(
-                    "|",
-                    ResolveFfSubSyncPath(),
-                    BundledFfSubSyncVersion,
-                    typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
-                // The analysis this key names is the one the engine will produce, so the key names the VAD the
-                // engine is actually given for the audio path - not the configured one, which it is not given.
-                speechKey = SpeechCache.KeyFor(
-                    videoPath,
-                    AudioReferenceVad + "|audio",
-                    engineIdentity);
-                var cached = SpeechCache.TryGet(speechKey);
-                if (cached is not null)
-                {
-                    usingCachedSpeech = true;
-                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
-                    _logger.LogInformation("Reusing the stored audio analysis for {Video} ({Why})", videoPath, why);
-                    PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why}");
-                    return cached;
-                }
-
-                // The analysis is per *file*, not per subtitle: hold the file's gate so the first job does
-                // it and the rest reuse the harvest. They wait here rather than starting a second analysis.
-                var speechGate = _speechGates.GetOrAdd(videoPath, _ => new SemaphoreSlim(1, 1));
-
-                // Cancellable, and that is the point: this wait can last as long as the file's audio analysis
-                // (a feature film's is over an hour), so a job parked here has to be reachable by the user's
-                // Kill and by the stall watchdog. Without the token neither could end it, and the job held its
-                // worker slot until the server was restarted (B6).
-                await speechGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-                job.HoldsSpeechGate = true;
-
-                var harvestedWhileWaiting = SpeechCache.TryGet(speechKey);
-                if (harvestedWhileWaiting is not null)
-                {
-                    speechGate.Release();
-                    job.HoldsSpeechGate = false;
-                    usingCachedSpeech = true;
-                    job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
-                    _logger.LogInformation("Reusing the audio analysis another job stored for {Video} ({Why})", videoPath, why);
-                    PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why} (harvested by another job of this file while this one waited)");
-                    return harvestedWhileWaiting;
-                }
-
-                serializeSpeech = true;
-                job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
-                PluginLog.Info($"[{job.Id}] reference: method=audio why={why} (this job does the file's analysis; the others wait for it)");
-                return SpeechCache.CreateReferenceLink(videoPath, speechKey);
-            }
-
             if (usesAudioReference)
             {
-                referencePath = await PrepareAudioReferenceAsync("the audio is this job's own reference")
+                referencePath = await PrepareAudioReferenceAsync(reference, job, videoPath, "the audio is this job's own reference", cancellationToken)
                     .ConfigureAwait(false);
             }
             else
@@ -5845,7 +5790,8 @@ public class SubSyncService : IDisposable
                     referenceSpec = null;
                     referenceStream = null;
                     referencePath = await PrepareAudioReferenceAsync(
-                        "no reference subtitle could be built for this job").ConfigureAwait(false);
+                        reference, job, videoPath,
+                        "no reference subtitle could be built for this job", cancellationToken).ConfigureAwait(false);
                 }
             }
 
@@ -5861,8 +5807,8 @@ public class SubSyncService : IDisposable
 
             // P5: the engine run - the first attempt and, when a cached speech analysis turned out to be
             // unusable, a second one from the audio. Everything it produces is consumed inside it except
-            // serializeSpeech, which its retry can flip.
-            serializeSpeech = await RunEngineAttemptAsync(
+            // reference.SerializeSpeech, which its retry can flip.
+            reference.SerializeSpeech = await RunEngineAttemptAsync(
                 job,
                 config,
                 ffsubsyncExe,
@@ -5873,10 +5819,10 @@ public class SubSyncService : IDisposable
                 engineInput,
                 tempOutput,
                 tempDir,
-                serializeSpeech,
+                reference.SerializeSpeech,
                 referenceStream,
-                usingCachedSpeech,
-                speechKey,
+                reference.UsingCachedSpeech,
+                reference.SpeechKey,
                 referencePath,
                 cancellationToken).ConfigureAwait(false);
 
@@ -5993,7 +5939,8 @@ public class SubSyncService : IDisposable
                 }
 
                 var audioReference = await PrepareAudioReferenceAsync(
-                    "the reference subtitle is not the same cut as the video").ConfigureAwait(false);
+                    reference, job, videoPath,
+                    "the reference subtitle is not the same cut as the video", cancellationToken).ConfigureAwait(false);
 
                 // S45: the audio retry writes to a path of its own. It used to be handed `tempOutput` - the file
                 // the *discarded* ruler's run had just written - and the test afterwards was
@@ -6006,7 +5953,7 @@ public class SubSyncService : IDisposable
                 var audioOutput = Path.Combine(tempDir, "audio-fallback.srt");
                 SafeDelete(audioOutput);
                 var audioArgs = BuildFfSubSyncArgs(
-                    config, audioReference, subtitleInputPath, audioOutput, tempDir, serializeSpeech, null,
+                    config, audioReference, subtitleInputPath, audioOutput, tempDir, reference.SerializeSpeech, null,
                     vadOverride: AudioReferenceVad);
 
                 double? audioScore = null;
@@ -6031,9 +5978,9 @@ public class SubSyncService : IDisposable
 
                 if (audioExit == 0 && File.Exists(audioOutput))
                 {
-                    if (speechKey is not null && serializeSpeech)
+                    if (reference.SpeechKey is not null && reference.SerializeSpeech)
                     {
-                        SpeechCache.Harvest(audioReference, speechKey);
+                        SpeechCache.Harvest(audioReference, reference.SpeechKey);
                         SpeechCache.Prune();
                     }
 
@@ -6084,7 +6031,7 @@ public class SubSyncService : IDisposable
                 var wideOutput = Path.Combine(tempDir, "wide-window.srt");
                 SafeDelete(wideOutput);
                 var wideArgs = BuildFfSubSyncArgs(
-                    config, referenceArg, engineInput, wideOutput, tempDir, serializeSpeech, referenceStream,
+                    config, referenceArg, engineInput, wideOutput, tempDir, reference.SerializeSpeech, referenceStream,
                     VadForReference(referenceSpec));
                 wideArgs[wideArgs.IndexOf("--max-offset-seconds") + 1] =
                     wideSeconds.ToString(CultureInfo.InvariantCulture);
@@ -6128,7 +6075,7 @@ public class SubSyncService : IDisposable
                     var verifyOutput = Path.Combine(tempDir, "wide-check.srt");
                     SafeDelete(verifyOutput);
                     var verifyArgs = BuildFfSubSyncArgs(
-                        config, referenceArg, wideOutput, verifyOutput, tempDir, serializeSpeech, referenceStream,
+                        config, referenceArg, wideOutput, verifyOutput, tempDir, reference.SerializeSpeech, referenceStream,
                         VadForReference(referenceSpec));
                     // A check, not a search: the configured window and no rescaling.
                     verifyArgs[verifyArgs.IndexOf("--max-offset-seconds") + 1] =
@@ -6340,13 +6287,14 @@ public class SubSyncService : IDisposable
                 var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");
                 SafeDelete(crossCheckOutput);
                 var crossReference = await PrepareAudioReferenceAsync(
-                    "the reference subtitle asked for a shift worth checking").ConfigureAwait(false);
+                    reference, job, videoPath,
+                    "the reference subtitle asked for a shift worth checking", cancellationToken).ConfigureAwait(false);
                 // `webrtc`, not the configured VAD: with the default `subs_then_webrtc` the engine takes the
                 // video's *embedded subtitles* as the speech signal, and the ruler being cross-checked is one of
                 // them - measured 2026-09-15, the "audio" run then returned the ruler's own answer (24 170 ms
                 // against the film's real -0,08 s), i.e. it confirmed the very track it was meant to check.
                 var crossArgs = BuildFfSubSyncArgs(
-                    config, crossReference, subtitleInputPath, crossCheckOutput, tempDir, serializeSpeech, null,
+                    config, crossReference, subtitleInputPath, crossCheckOutput, tempDir, reference.SerializeSpeech, null,
                     vadOverride: AudioReferenceVad);
                 double? crossScore = null;
                 double? crossOffset = null;
@@ -6379,9 +6327,9 @@ public class SubSyncService : IDisposable
                     : null;
                 if (fromAudio is { } audioChange)
                 {
-                    if (speechKey is not null && serializeSpeech)
+                    if (reference.SpeechKey is not null && reference.SerializeSpeech)
                     {
-                        SpeechCache.Harvest(crossReference, speechKey);
+                        SpeechCache.Harvest(crossReference, reference.SpeechKey);
                         SpeechCache.Prune();
                     }
 
@@ -6578,9 +6526,9 @@ public class SubSyncService : IDisposable
             // that outlives its job is still cleared by the next prune or by the next job's own link.
             try
             {
-                if (speechKey is not null && serializeSpeech)
+                if (reference.SpeechKey is not null && reference.SerializeSpeech)
                 {
-                    SpeechCache.DropLink(speechKey);
+                    SpeechCache.DropLink(reference.SpeechKey);
                 }
             }
             catch
@@ -7137,6 +7085,118 @@ public class SubSyncService : IDisposable
         else
         {
             _logger.LogDebug("Skipped the item refresh for {ItemId}: another subtitle of the same item was synced moments ago", video.Id);
+        }
+    }
+
+    /// <summary>
+    /// What resolving a job's reference decides, for everything downstream of it: the path the engine is handed,
+    /// what that path is, and the speech-cache facts of the audio analysis this job either found or made.
+    /// </summary>
+    /// <remarks>
+    /// It exists because the audio-reference builder is called from four places - two inside reference resolution
+    /// and two outside it (the wrong-cut fallback and the suspicious-reference cross-check) - and because the job's
+    /// <c>finally</c> reads <see cref="SpeechKey"/> and <see cref="SerializeSpeech"/> to drop the analysis link.
+    /// A closure could reach those locals; a method cannot, so they travel in an object the caller owns and
+    /// declares before the job's <c>try</c>.
+    /// </remarks>
+    private sealed class ReferenceResolution
+    {
+        /// <summary>Gets or sets the path handed to the engine as its reference. Never the media file itself
+        /// (S11): the container is never handed over, because the engine would demux the whole thing itself.</summary>
+        public string Path { get; set; } = string.Empty;
+
+        /// <summary>Gets or sets what that reference is: a stream spec such as <c>s:0</c>, or null when the
+        /// reference is the file's own audio.</summary>
+        public string? Spec { get; set; }
+
+        /// <summary>Gets or sets the engine's reference-stream argument, when the reference is a stream.</summary>
+        public string? Stream { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the reference is a sibling subtitle this run built or
+        /// reused, rather than the audio.</summary>
+        public bool UsedSubtitleReference { get; set; }
+
+        /// <summary>Gets or sets the speech-cache key of the analysis this job found or produced, if any.</summary>
+        public string? SpeechKey { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether this job's run writes the analysis for others to
+        /// reuse.</summary>
+        public bool SerializeSpeech { get; set; }
+
+        /// <summary>Gets or sets a value indicating whether the engine is given a stored analysis rather than the
+        /// media file.</summary>
+        public bool UsingCachedSpeech { get; set; }
+    }
+
+    /// <summary>
+    /// Prepares the file's own audio as the job's reference: reuses the stored analysis when one exists, otherwise
+    /// waits for the file's gate and does the analysis this job's run will produce.
+    /// </summary>
+    /// <param name="reference">The resolution being built; the speech-cache facts are set here.</param>
+    /// <param name="job">The job, for its phase label and the speech gate marker.</param>
+    /// <param name="videoPath">The media file the analysis belongs to.</param>
+    /// <param name="why">Why the audio is being used, for the log line.</param>
+    /// <param name="cancellationToken">Cancels the wait for the file's gate.</param>
+    /// <returns>The path the engine should be given.</returns>
+    private async Task<string> PrepareAudioReferenceAsync(
+        ReferenceResolution reference,
+        SyncJob job,
+        string videoPath,
+        string why,
+        CancellationToken cancellationToken)
+    {
+        {
+            // Identity of everything that shapes the speech signal: the binary in use,
+            // the bundled engine version and this plugin's own version. A path alone is
+            // not enough — an upgraded bundled binary keeps its path.
+            var engineIdentity = string.Join(
+                "|",
+                ResolveFfSubSyncPath(),
+                BundledFfSubSyncVersion,
+                typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
+            // The analysis this key names is the one the engine will produce, so the key names the VAD the
+            // engine is actually given for the audio path - not the configured one, which it is not given.
+            reference.SpeechKey = SpeechCache.KeyFor(
+                videoPath,
+                AudioReferenceVad + "|audio",
+                engineIdentity);
+            var cached = SpeechCache.TryGet(reference.SpeechKey);
+            if (cached is not null)
+            {
+                reference.UsingCachedSpeech = true;
+                job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
+                _logger.LogInformation("Reusing the stored audio analysis for {Video} ({Why})", videoPath, why);
+                PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why}");
+                return cached;
+            }
+
+            // The analysis is per *file*, not per subtitle: hold the file's gate so the first job does
+            // it and the rest reuse the harvest. They wait here rather than starting a second analysis.
+            var speechGate = _speechGates.GetOrAdd(videoPath, _ => new SemaphoreSlim(1, 1));
+
+            // Cancellable, and that is the point: this wait can last as long as the file's audio analysis
+            // (a feature film's is over an hour), so a job parked here has to be reachable by the user's
+            // Kill and by the stall watchdog. Without the token neither could end it, and the job held its
+            // worker slot until the server was restarted (B6).
+            await speechGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+            job.HoldsSpeechGate = true;
+
+            var harvestedWhileWaiting = SpeechCache.TryGet(reference.SpeechKey);
+            if (harvestedWhileWaiting is not null)
+            {
+                speechGate.Release();
+                job.HoldsSpeechGate = false;
+                reference.UsingCachedSpeech = true;
+                job.Phase = SyncPhaseLabel(fromCache: true, audioReference: true);
+                _logger.LogInformation("Reusing the audio analysis another job stored for {Video} ({Why})", videoPath, why);
+                PluginLog.Info($"[{job.Id}] reference: method=speech-cache why={why} (harvested by another job of this file while this one waited)");
+                return harvestedWhileWaiting;
+            }
+
+            reference.SerializeSpeech = true;
+            job.Phase = SyncPhaseLabel(fromCache: false, audioReference: true);
+            PluginLog.Info($"[{job.Id}] reference: method=audio why={why} (this job does the file's analysis; the others wait for it)");
+            return SpeechCache.CreateReferenceLink(videoPath, reference.SpeechKey);
         }
     }
 
