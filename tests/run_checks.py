@@ -20,6 +20,20 @@ import subprocess
 # Repository root, discovered from this file's location so the tree can be moved or cloned
 # anywhere.
 REPO = str(pathlib.Path(__file__).resolve().parents[1])
+SERVICE_DIR = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services')
+
+
+def service_classes():
+    """The service and the classes the split has moved out of it, as one text.
+
+    Source-shape checks are about the shipped code, not about which file it happens to sit in: when a
+    cluster leaves SubSyncService (see knowledge/SUBSYNCSERVICE_MAP.md), the pins that named it read the
+    new file instead of being rewritten to match a file boundary - which keeps the pin pointed at the
+    behaviour rather than at the layout.
+    """
+    names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs']
+    return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
+
 
 # dotnet: explicit override, then PATH, then the usual install locations.
 def _find_dotnet():
@@ -181,39 +195,39 @@ var imageOnly = new List<string> { "hdmv_pgs_subtitle", "dvd_subtitle" };
 // track when the file has one, because that alignment can be checked, and against the audio when it
 // does not — which is the one case where an unverifiable result is still written.
 Check("external sidecar uses a sibling text track when the file has one",
-    SubSyncService.SelectReferenceStream(false, twoText, -1) == "s:0",
-    SubSyncService.SelectReferenceStream(false, twoText, -1) ?? "null");
+    MediaStreamMap.SelectReferenceStream(false, twoText, -1) == "s:0",
+    MediaStreamMap.SelectReferenceStream(false, twoText, -1) ?? "null");
 Check("external sidecar falls back to the audio when the file has no text track",
-    SubSyncService.SelectReferenceStream(false, imageOnly, -1) == "a:0",
-    SubSyncService.SelectReferenceStream(false, imageOnly, -1) ?? "null");
+    MediaStreamMap.SelectReferenceStream(false, imageOnly, -1) == "a:0",
+    MediaStreamMap.SelectReferenceStream(false, imageOnly, -1) ?? "null");
 Check("single text track forces audio (never itself)",
-    SubSyncService.SelectReferenceStream(true, textOnly, 0) == "a:0",
-    SubSyncService.SelectReferenceStream(true, textOnly, 0) ?? "null");
+    MediaStreamMap.SelectReferenceStream(true, textOnly, 0) == "a:0",
+    MediaStreamMap.SelectReferenceStream(true, textOnly, 0) ?? "null");
 Check("two text tracks -> uses the other one",
-    SubSyncService.SelectReferenceStream(true, twoText, 0) == "s:1",
-    SubSyncService.SelectReferenceStream(true, twoText, 0) ?? "null");
+    MediaStreamMap.SelectReferenceStream(true, twoText, 0) == "s:1",
+    MediaStreamMap.SelectReferenceStream(true, twoText, 0) ?? "null");
 Check("target second track -> uses the first",
-    SubSyncService.SelectReferenceStream(true, twoText, 1) == "s:0");
+    MediaStreamMap.SelectReferenceStream(true, twoText, 1) == "s:0");
 Check("skips the image track when choosing",
-    SubSyncService.SelectReferenceStream(true, textAndImage, 0) == "s:0" ||
-    SubSyncService.SelectReferenceStream(true, new List<string> { "hdmv_pgs_subtitle", "subrip" }, 0) == "s:1",
-    SubSyncService.SelectReferenceStream(true, new List<string> { "hdmv_pgs_subtitle", "subrip" }, 0) ?? "null");
+    MediaStreamMap.SelectReferenceStream(true, textAndImage, 0) == "s:0" ||
+    MediaStreamMap.SelectReferenceStream(true, new List<string> { "hdmv_pgs_subtitle", "subrip" }, 0) == "s:1",
+    MediaStreamMap.SelectReferenceStream(true, new List<string> { "hdmv_pgs_subtitle", "subrip" }, 0) ?? "null");
 Check("image-only file forces audio",
-    SubSyncService.SelectReferenceStream(true, imageOnly, 0) == "a:0");
+    MediaStreamMap.SelectReferenceStream(true, imageOnly, 0) == "a:0");
 Check("no probe data at all forces audio",
-    SubSyncService.SelectReferenceStream(true, new List<string>(), 0) == "a:0");
+    MediaStreamMap.SelectReferenceStream(true, new List<string>(), 0) == "a:0");
 
 // ffmpeg probe parsing
 var probe = "  Stream #0:0: Video: h264\n  Stream #0:1(eng): Audio: aac\n"
     + "  Stream #0:2(eng): Subtitle: subrip (srt)\n  Stream #0:3(swe): Subtitle: hdmv_pgs_subtitle";
 Check("probe indexes pick subtitle streams only",
-    SubSyncService.ParseProbeSubtitleIndexes(probe).SequenceEqual(new[] { 2, 3 }),
-    string.Join(",", SubSyncService.ParseProbeSubtitleIndexes(probe)));
-var codecs = SubSyncService.ParseProbeSubtitleCodecs(probe);
+    MediaStreamMap.ParseProbeSubtitleIndexes(probe).SequenceEqual(new[] { 2, 3 }),
+    string.Join(",", MediaStreamMap.ParseProbeSubtitleIndexes(probe)));
+var codecs = MediaStreamMap.ParseProbeSubtitleCodecs(probe);
 Check("probe codecs are captured in order", codecs.Count == 2 && codecs[0].StartsWith("subrip") && codecs[1].StartsWith("hdmv_pgs"),
     string.Join("|", codecs));
 Check("image track detected as image, text track not",
-    !SubSyncService.SelectReferenceStream(true, codecs, 0)!.StartsWith("s:1"));
+    !MediaStreamMap.SelectReferenceStream(true, codecs, 0)!.StartsWith("s:1"));
 
 // ---------------- ResolveAuto ----------------
 Check("auto: single subtitle stays sequential", SyncJobMode.ResolveAuto(1, 1) == "normal");
@@ -1631,7 +1645,7 @@ if (!string.IsNullOrEmpty(ordinalPath) && File.Exists(ordinalPath))
     var selected = streams.First(s => s.Index == 11 && s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle);
     // The text the fixture writes for ordinal 9 (track number 12), so the lane's result can be identified.
     const string SelectedText = "Track 9 line";
-    var queueOrdinal = SubSyncService.EmbeddedSubtitleOrdinal(streams, selected); // what the enqueue path stores
+    var queueOrdinal = MediaStreamMap.EmbeddedSubtitleOrdinal(streams, selected); // what the enqueue path stores
     Check("the enqueue path names the subtitle it queued as an ordinal, not a stream index",
         queueOrdinal == 9, $"stream index {selected.Index} -> ordinal {queueOrdinal}");
 
@@ -1665,7 +1679,7 @@ if (!string.IsNullOrEmpty(ordinalPath) && File.Exists(ordinalPath))
         new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 3 }
     };
     Check("a file whose subtitles are its first streams keeps its ordinal",
-        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, subsFirst[2]) == 2);
+        MediaStreamMap.EmbeddedSubtitleOrdinal(subsFirst, subsFirst[2]) == 2);
 
     // Thunder in My Heart: four streams in front of ten subtitle tracks, so the track at stream 13 is
     // the tenth subtitle - the queued stream=13 that was refused as "out of range (10 tracks)".
@@ -1682,11 +1696,11 @@ if (!string.IsNullOrEmpty(ordinalPath) && File.Exists(ordinalPath))
     }
 
     Check("ten subtitle tracks behind four other streams: stream 13 is ordinal 9",
-        SubSyncService.EmbeddedSubtitleOrdinal(thunder, thunder[13]) == 9,
-        $"ordinal {SubSyncService.EmbeddedSubtitleOrdinal(thunder, thunder[13])}");
+        MediaStreamMap.EmbeddedSubtitleOrdinal(thunder, thunder[13]) == 9,
+        $"ordinal {MediaStreamMap.EmbeddedSubtitleOrdinal(thunder, thunder[13])}");
 
     Check("a sidecar subtitle has no ordinal among the file's embedded tracks",
-        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, new()
+        MediaStreamMap.EmbeddedSubtitleOrdinal(subsFirst, new()
         {
             Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle,
             Index = 7,
@@ -1694,14 +1708,14 @@ if (!string.IsNullOrEmpty(ordinalPath) && File.Exists(ordinalPath))
         }) == -1);
 
     Check("an embedded subtitle the container's set does not hold gets no ordinal, not a wrong one",
-        SubSyncService.EmbeddedSubtitleOrdinal(subsFirst, new()
+        MediaStreamMap.EmbeddedSubtitleOrdinal(subsFirst, new()
         {
             Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle,
             Index = 99
         }) == -1);
 
     Check("a lone embedded track is ordinal 0 even when Jellyfin numbers it otherwise",
-        SubSyncService.EmbeddedSubtitleOrdinal(
+        MediaStreamMap.EmbeddedSubtitleOrdinal(
             new List<MediaBrowser.Model.Entities.MediaStream>
             {
                 new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Video, Index = 0 },
@@ -2092,12 +2106,12 @@ Check("no label claims speech analysis when none happens",
 // (measured: 12.5 s, 8218 MB for an 8.2 GB episode, per subtitle). The reference is therefore
 // extracted once by our own reader and passed as a small file; the position has to be read out of
 // the stream specifier to do that.
-Check("a subtitle specifier yields its position", SubSyncService.SubtitleStreamOrdinal("s:3") == 3);
-Check("position zero is valid", SubSyncService.SubtitleStreamOrdinal("s:0") == 0);
-Check("audio is not a subtitle specifier", SubSyncService.SubtitleStreamOrdinal("a:0") == -1);
-Check("a missing specifier is rejected", SubSyncService.SubtitleStreamOrdinal(null) == -1);
-Check("junk is rejected", SubSyncService.SubtitleStreamOrdinal("s:") == -1 && SubSyncService.SubtitleStreamOrdinal("nonsense") == -1);
-Check("a negative position is rejected", SubSyncService.SubtitleStreamOrdinal("s:-2") == -1);
+Check("a subtitle specifier yields its position", MediaStreamMap.SubtitleStreamOrdinal("s:3") == 3);
+Check("position zero is valid", MediaStreamMap.SubtitleStreamOrdinal("s:0") == 0);
+Check("audio is not a subtitle specifier", MediaStreamMap.SubtitleStreamOrdinal("a:0") == -1);
+Check("a missing specifier is rejected", MediaStreamMap.SubtitleStreamOrdinal(null) == -1);
+Check("junk is rejected", MediaStreamMap.SubtitleStreamOrdinal("s:") == -1 && MediaStreamMap.SubtitleStreamOrdinal("nonsense") == -1);
+Check("a negative position is rejected", MediaStreamMap.SubtitleStreamOrdinal("s:-2") == -1);
 
 // ---------------- A ten-track episode must not cap the batch width ----------------
 // The candidate scan stopped after limit*4 jobs. With ten subtitles per episode those candidates
@@ -2195,12 +2209,12 @@ File.Delete(settingsPath);
 // Reported as "Access to the path ... is denied" once per subtitle. The folder is the problem, so
 // it is detected in advance and stated once, naming the folder and confirming nothing changed.
 Check("a writable folder is recognised",
-    SubSyncService.CanWriteTo(Path.GetTempPath(), out var writableReason) && writableReason.Length == 0,
+    SyncedTargetNaming.CanWriteTo(Path.GetTempPath(), out var writableReason) && writableReason.Length == 0,
     writableReason);
 Check("a folder that does not exist yet is created and then writable",
-    SubSyncService.CanWriteTo(Path.Combine(Path.GetTempPath(), "subsync-probe-" + Guid.NewGuid().ToString("N")), out _));
+    SyncedTargetNaming.CanWriteTo(Path.Combine(Path.GetTempPath(), "subsync-probe-" + Guid.NewGuid().ToString("N")), out _));
 Check("a folder the process cannot write to is refused, with a reason",
-    !SubSyncService.CanWriteTo("/proc/subsync-cannot-write-here", out var deniedReason)
+    !SyncedTargetNaming.CanWriteTo("/proc/subsync-cannot-write-here", out var deniedReason)
     && deniedReason.Length > 0, deniedReason);
 Check("the refusal keeps a probe file from being left behind",
     !File.Exists(Path.Combine("/proc", ".subsync-write-probe-x")));
@@ -3415,19 +3429,19 @@ Check("B19: a line that is not a progress line is still -1, and the human form s
 
 // B23: only a directory named exactly after a job may be deleted recursively, and only inside the scratch root.
 Check("B23: a job id is recognised as scratch and nothing else is",
-    SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc2")
-    && !SubSyncService.IsJobScratchDirectory("ref")
-    && !SubSyncService.IsJobScratchDirectory("shared")
-    && !SubSyncService.IsJobScratchDirectory("logs")
-    && !SubSyncService.IsJobScratchDirectory("E6F5A69A4CCA4AD0A00065BDA510CCC2")   // job ids are lowercase
-    && !SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc")    // 31 characters
-    && !SubSyncService.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510cccz")   // not hex
-    && !SubSyncService.IsJobScratchDirectory(".."));
+    SyncedTargetNaming.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc2")
+    && !SyncedTargetNaming.IsJobScratchDirectory("ref")
+    && !SyncedTargetNaming.IsJobScratchDirectory("shared")
+    && !SyncedTargetNaming.IsJobScratchDirectory("logs")
+    && !SyncedTargetNaming.IsJobScratchDirectory("E6F5A69A4CCA4AD0A00065BDA510CCC2")   // job ids are lowercase
+    && !SyncedTargetNaming.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510ccc")    // 31 characters
+    && !SyncedTargetNaming.IsJobScratchDirectory("e6f5a69a4cca4ad0a00065bda510cccz")   // not hex
+    && !SyncedTargetNaming.IsJobScratchDirectory(".."));
 Check("B23: a path outside the root is refused, one inside is allowed",
-    SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync/e6f5a69a4cca4ad0a00065bda510ccc2")
-    && !SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync-evil/x")
-    && !SubSyncService.IsInsideRoot("/cache/subsync", "/cache/subsync/../media")
-    && !SubSyncService.IsInsideRoot("/cache/subsync", "/media/films"));
+    SyncedTargetNaming.IsInsideRoot("/cache/subsync", "/cache/subsync/e6f5a69a4cca4ad0a00065bda510ccc2")
+    && !SyncedTargetNaming.IsInsideRoot("/cache/subsync", "/cache/subsync-evil/x")
+    && !SyncedTargetNaming.IsInsideRoot("/cache/subsync", "/cache/subsync/../media")
+    && !SyncedTargetNaming.IsInsideRoot("/cache/subsync", "/media/films"));
 
 // B16: the kill report counts processes that really exited, not tokens that were cancelled.
 var b16StoppedProcess = System.Diagnostics.Process.Start(
@@ -3971,8 +3985,8 @@ else
     Check("S12: the legacy hyphen form is recognised as a marker too",
         SrtWriter.StripSyncedMarker("Film-SYNCED.swe") == "Film",
         SrtWriter.StripSyncedMarker("Film-SYNCED.swe"));
-    var s12Nested = SubSyncService.SyncedTargetName("/media", "Film.S01E01.SYNCED.ukr", "ukr");
-    var s12Plain = SubSyncService.SyncedTargetName("/media", "Film.S01E01", "ukr");
+    var s12Nested = SyncedTargetNaming.SyncedTargetName("/media", "Film.S01E01.SYNCED.ukr", "ukr");
+    var s12Plain = SyncedTargetNaming.SyncedTargetName("/media", "Film.S01E01", "ukr");
     Check("S12: re-syncing our own output cannot produce a second marker",
         !s12Nested.Contains("SYNCED.SYNCED") && s12Nested == "/media/Film.S01E01.SYNCED.srt",
         s12Nested);
@@ -3980,8 +3994,8 @@ else
         s12Plain == "/media/Film.S01E01.SYNCED.srt",
         s12Plain);
     Check("S12: a language-named sidecar keeps the field form Jellyfin needs",
-        SubSyncService.SyncedTargetName("/media", "ukr", "ukr") == "/media/ukr.SYNCED.srt",
-        SubSyncService.SyncedTargetName("/media", "ukr", "ukr"));
+        SyncedTargetNaming.SyncedTargetName("/media", "ukr", "ukr") == "/media/ukr.SYNCED.srt",
+        SyncedTargetNaming.SyncedTargetName("/media", "ukr", "ukr"));
 }
 
 // ---------------- Hygiene: bounded caches, bounded state, culture-independent numbers (F16, F30, B26) ------------
@@ -4418,8 +4432,8 @@ def run_page_checks():
     report('our own sidecars are recognised by name',
            "IsSyncedSidecarName" in '\n'.join(plugin_sources) and 'IsOwnSidecar' in '\n'.join(plugin_sources))
     report('the track list shows our own sidecars, flagged, rather than hiding them',
-           'IsPluginOutput = IsOwnSidecar(s)' in '\n'.join(plugin_sources)
-           and '.Where(s => !IsOwnSidecar(s))' not in '\n'.join(plugin_sources))
+           'IsPluginOutput = MediaStreamMap.IsOwnSidecar(s)' in '\n'.join(plugin_sources)
+           and '.Where(s => !MediaStreamMap.IsOwnSidecar(s))' not in '\n'.join(plugin_sources))
     report('re-syncing our own sidecar updates it instead of nesting a second marker',
            'SyncedTargetName' in '\n'.join(plugin_sources)
            and 'StripSyncedMarker' in '\n'.join(plugin_sources))
@@ -4519,8 +4533,7 @@ def run_page_checks():
                                           'SubSyncController.cs'), encoding='utf-8').read()
     shared_store = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
                                      'SharedExtractionStore.cs'), encoding='utf-8').read()
-    service_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services',
-                                       'SubSyncService.cs'), encoding='utf-8').read()
+    service_source = service_classes()
     # Shipped 2.0.10 carried a rename that made `currentUserId()` call itself: with window.ApiClient present
     # (every real web client) the stack blew and the page stopped at "Loading libraries…", while every browser
     # test here ran where ApiClient is undefined and therefore never took that branch. The self-call is what
@@ -5016,8 +5029,7 @@ def run_page_checks():
     # track of the file then inherits it in turn: one mis-synced reference on a real server moved
     # five language tracks by the same +57.5 s and all five were written as successes. It is
     # therefore kept for the run that made it and never cached across runs.
-    service = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'SubSyncService.cs'),
-                   encoding='utf-8').read()
+    service = service_classes()
     store = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'ReferenceStore.cs'),
                  encoding='utf-8').read()
     plugin_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Plugin.cs'),
@@ -5369,11 +5381,12 @@ def run_page_checks():
            and 'public static string? ImageBasedRefusal(string? codec)' in languagesupport_source
            and 'throw new InvalidOperationException(imageRefusal);' in service_source)
     report('S12: a sidecar the plugin wrote is listed and flagged, and re-syncing it cannot nest a marker',
-           'IsPluginOutput = IsOwnSidecar(s)' in service_source
-           and '!IsOwnSidecar(s)' not in service_source
+           'IsPluginOutput = MediaStreamMap.IsOwnSidecar(s)' in service_source
+           and '!MediaStreamMap.IsOwnSidecar' not in service_source
+           and '!IsOwnSidecar' not in service_source
            and 'public static string StripSyncedMarker(string? stem)' in srtwriter_source
            and 'internal static string SyncedTargetName(string directory, string stem, string? language)' in service_source
-           and 'var target = SyncedTargetName(dir, stem, lang);' in service_source)
+           and 'var target = SyncedTargetNaming.SyncedTargetName(dir, stem, lang);' in service_source)
 
     report('D8: a series is refused by name, with what to do instead, and the answer is the same shape as every refusal',
            'not a video: pick the episodes themselves' in service_source
@@ -5527,7 +5540,8 @@ def run_page_checks():
            'EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream)' in service
            and 'var subtitleOrdinal = subtitleStream.Index' not in service)
     report('the enqueue path and the run-time resolver share one definition of the ordinal',
-           service.count('EmbeddedSubtitleOrdinal(') >= 3)
+           service.count('EmbeddedSubtitleOrdinal(') >= 2
+           and service.count('public static int EmbeddedSubtitleOrdinal(') == 1)
     report('a failed ffsubsync says why, not just the exit code',
            'throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}")' in service)
 

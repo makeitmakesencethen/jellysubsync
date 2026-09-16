@@ -1022,21 +1022,6 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// True when an external subtitle is one of this plugin's own outputs.
-    /// </summary>
-    /// <remarks>
-    /// They are written as <c>&lt;video&gt;.SYNCED.&lt;lang&gt;.srt</c>, and Jellyfin reads the marker
-    /// as the language name - so they used to appear in every track list as a language called
-    /// "SYNCED" and were queued alongside the very tracks they were produced from. A season sync then
-    /// did the same work twice, and the second pass wrote over the file the first had just written.
-    /// The originals are still listed; syncing one produces the sidecar again.
-    /// </remarks>
-    /// <param name="stream">Subtitle stream from Jellyfin's media source.</param>
-    /// <returns>True when the file is one of ours.</returns>
-    private static bool IsOwnSidecar(MediaBrowser.Model.Entities.MediaStream stream) =>
-        stream.IsExternal && SrtWriter.IsSyncedSidecarName(stream.Path);
-
-    /// <summary>
     /// Lists the subtitle tracks of one item, as the UI offers them.
     /// </summary>
     /// <param name="itemId">Media item.</param>
@@ -1082,7 +1067,7 @@ public class SubSyncService : IDisposable
                     // file with three subtitles looked like a file with two and the third could be queued by index
                     // without ever having been shown.
                     UnsupportedReason = LanguageSupport.ImageBasedRefusal(s.Codec),
-                    IsPluginOutput = IsOwnSidecar(s)
+                    IsPluginOutput = MediaStreamMap.IsOwnSidecar(s)
                 };
             })
             .ToList();
@@ -1312,7 +1297,7 @@ public class SubSyncService : IDisposable
         // Handing the index to code that wanted an ordinal refused five jobs on a real run
         // ("subtitle ordinal 11 out of range (11 tracks)"), and on files where the index happened
         // to land inside the range it made the lane read a neighbouring track instead.
-        var subtitleOrdinal = EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream);
+        var subtitleOrdinal = MediaStreamMap.EmbeddedSubtitleOrdinal(source.MediaStreams, subtitleStream);
 
         sourcesMs = phase.ElapsedMilliseconds;
         phase.Restart();
@@ -2130,7 +2115,7 @@ public class SubSyncService : IDisposable
             // shared extraction directories, a log or state directory, or a directory somebody else put
             // there) is not this method's to remove, and a recursive delete of a misconfigured root used to
             // take files outside the plugin's own scratch with it.
-            if (!IsJobScratchDirectory(name))
+            if (!SyncedTargetNaming.IsJobScratchDirectory(name))
             {
                 continue;
             }
@@ -2147,7 +2132,7 @@ public class SubSyncService : IDisposable
             }
 
             // Belt and braces: the recursive delete only ever runs on a path that resolved inside the root.
-            if (!IsInsideRoot(rootFull, directory))
+            if (!SyncedTargetNaming.IsInsideRoot(rootFull, directory))
             {
                 PluginLog.Warn($"clear scratch: refused to delete {directory} (outside {rootFull})");
                 continue;
@@ -2721,12 +2706,12 @@ public class SubSyncService : IDisposable
 
             if (streams.Count > 0)
             {
-                var spec = SelectReferenceStream(
+                var spec = MediaStreamMap.SelectReferenceStream(
                     true,
                     streams.Select(stream => stream.Codec).ToList(),
                     targetOrdinal,
                     streams.Select(stream => stream.IsForced).ToList());
-                var ordinal = SubtitleStreamOrdinal(spec);
+                var ordinal = MediaStreamMap.SubtitleStreamOrdinal(spec);
                 if (ordinal >= 0)
                 {
                     ordinals.Add(ordinal);
@@ -2915,64 +2900,6 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Position of a subtitle stream among the file's embedded subtitle tracks.
-    ///
-    /// This is the number everything downstream means by "the subtitle's ordinal": the extraction lane,
-    /// the subtitle cache, and ffmpeg's own <c>0:s:N</c>. Jellyfin's <c>MediaStream.Index</c> is not that
-    /// number - it counts every stream in the file, video and audio included - so a file whose subtitles
-    /// sit behind them has both, differing by the number of streams in front. Passing the index where an
-    /// ordinal is expected refused five jobs on a real run ("subtitle ordinal 11 out of range (11
-    /// tracks)"), and read a neighbouring track on the files where the index landed inside the range.
-    /// </summary>
-    /// <param name="streams">The media source's streams.</param>
-    /// <param name="target">The subtitle stream that was chosen.</param>
-    /// <returns>The 0-based ordinal among embedded subtitle streams, or -1 when there is none.</returns>
-    public static int EmbeddedSubtitleOrdinal(
-        IEnumerable<MediaBrowser.Model.Entities.MediaStream> streams,
-        MediaBrowser.Model.Entities.MediaStream target)
-    {
-        if (target.IsExternal)
-        {
-            return -1; // a sidecar file is not one of the file's embedded tracks
-        }
-
-        var embedded = streams
-            .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
-            .OrderBy(s => s.Index)
-            .ToList();
-
-        var pos = embedded.FindIndex(s => s.Index == target.Index);
-        if (pos < 0 && embedded.Count == 1)
-        {
-            pos = 0; // single embedded track — safe positional fallback
-        }
-
-        return pos;
-    }
-
-    /// <summary>
-    /// Reads the subtitle position out of an ffmpeg stream specifier such as <c>s:1</c>.
-    /// </summary>
-    /// <param name="streamSpec">Stream specifier from <see cref="SelectReferenceStream"/>.</param>
-    /// <returns>The 0-based position, or -1 when it names something else (audio, or nothing).</returns>
-    public static int SubtitleStreamOrdinal(string? streamSpec)
-    {
-        if (string.IsNullOrWhiteSpace(streamSpec)
-            || !streamSpec.StartsWith("s:", StringComparison.Ordinal))
-        {
-            return -1;
-        }
-
-        return int.TryParse(
-            streamSpec.AsSpan(2),
-            NumberStyles.Integer,
-            CultureInfo.InvariantCulture,
-            out var ordinal) && ordinal >= 0
-            ? ordinal
-            : -1;
-    }
-
-    /// <summary>
     /// Describes what ffsubsync is about to do, in the words of what it actually does.
     ///
     /// Three distinct situations, and conflating them is what made a 0.6 s subtitle comparison
@@ -2993,64 +2920,6 @@ public class SubSyncService : IDisposable
         return audioReference
             ? "Syncing (analysing the audio)"
             : "Syncing (using another subtitle track)";
-    }
-
-    /// <summary>
-    /// Checks whether a folder can be written to, so a library the Jellyfin user cannot write to
-    /// fails once with a clear reason instead of reporting an access error for every subtitle in
-    /// it.
-    ///
-    /// This happens on read-only mounts, on shares that map a different owner, and on folders the
-    /// container user cannot write. Detecting it in advance turns "Access to the path is denied"
-    /// repeated a hundred times into one sentence naming the folder.
-    /// </summary>
-    /// <param name="directory">Folder the synced subtitle would be written to.</param>
-    /// <param name="reason">Why it cannot be written, when it cannot.</param>
-    /// <returns>True when a file could be created there.</returns>
-    public static bool CanWriteTo(string directory, out string reason)
-    {
-        try
-        {
-            Directory.CreateDirectory(directory);
-            var probe = Path.Combine(directory, ".subsync-write-probe-" + Guid.NewGuid().ToString("N")[..8]);
-            File.WriteAllText(probe, "probe");
-            File.Delete(probe);
-            reason = string.Empty;
-            return true;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            reason = "the Jellyfin user has no write permission there (the folder may also be mounted read-only)";
-            return false;
-        }
-        catch (IOException ex)
-        {
-            // The exception message is the useful part here: "Read-only file system" and
-            // "Permission denied" mean different fixes.
-            reason = "the folder could not be written to: " + ex.Message;
-            return false;
-        }
-        catch (NotSupportedException)
-        {
-            reason = "the path is not a writable folder";
-            return false;
-        }
-    }
-
-    /// <summary>
-    /// Throws a message that explains a folder the plugin cannot write to, and states plainly that
-    /// nothing was changed.
-    /// </summary>
-    /// <param name="directory">Folder to check.</param>
-    private static void RequireWritable(string directory)
-    {
-        if (!CanWriteTo(directory, out var reason))
-        {
-            throw new InvalidOperationException(
-                $"Cannot write the synced subtitle to '{directory}': {reason}. "
-                + "Nothing was changed and the original subtitle is untouched. "
-                + "Fix the folder's permissions for the Jellyfin user (or how the library is mounted) and run again.");
-        }
     }
 
     /// <summary>
@@ -4588,8 +4457,8 @@ public class SubSyncService : IDisposable
     {
         var ffmpegPath = ResolveFfmpegPath();
         var (_, stderr) = await RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
-        var containerSubs = ParseProbeSubtitleIndexes(stderr);
-        var subtitleCodecs = ParseProbeSubtitleCodecs(stderr);
+        var containerSubs = MediaStreamMap.ParseProbeSubtitleIndexes(stderr);
+        var subtitleCodecs = MediaStreamMap.ParseProbeSubtitleCodecs(stderr);
 
         var mediaSources = video.GetMediaSources(true);
         var jellyfinStreams = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
@@ -4600,7 +4469,7 @@ public class SubSyncService : IDisposable
 
         // The ordinal comes from the same definition the enqueue path uses, so the track a job was
         // queued for and the track this resolver finds cannot drift apart.
-        var pos = EmbeddedSubtitleOrdinal(jellyfinStreams, target);
+        var pos = MediaStreamMap.EmbeddedSubtitleOrdinal(jellyfinStreams, target);
 
         if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
         {
@@ -4611,119 +4480,6 @@ public class SubSyncService : IDisposable
             $"Could not map the embedded subtitle to a real container stream: ffmpeg reports {containerSubs.Count} subtitle stream(s) " +
             $"(container indexes [{string.Join(", ", containerSubs)}]) but Jellyfin reports {jellyfinEmbedded.Count} embedded subtitle stream(s) " +
             $"for {video.Path}.");
-    }
-
-    /// <summary>
-    /// Parses ffmpeg's "-i" output for subtitle stream codecs, in stream order, so text
-    /// tracks can be told apart from image tracks ("Stream #0:4(eng): Subtitle: subrip").
-    /// </summary>
-    /// <param name="ffmpegOutput">ffmpeg "-i" output.</param>
-    /// <returns>Codecs in subtitle-stream order (index 0 = first subtitle stream).</returns>
-    public static List<string> ParseProbeSubtitleCodecs(string ffmpegOutput)
-    {
-        var result = new List<string>();
-        foreach (var line in ffmpegOutput.Split('\n'))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(line, @"Stream\s+#0:\d+[^:]*:\s*Subtitle:\s*(\S+)");
-            if (match.Success)
-            {
-                result.Add(match.Groups[1].Value.Trim());
-            }
-        }
-
-        return result;
-    }
-
-    /// <summary>
-    /// Chooses which stream of the media file ffsubsync should derive its speech signal
-    /// from, for an embedded subtitle being synced.
-    ///
-    /// ffsubsync's default detector (<c>subs_then_*</c>) prefers an embedded text subtitle
-    /// stream as the speech signal — cheap and accurate — but if the track being synced is
-    /// itself an embedded text stream of the same file, "the file's subs" and "the subtitle
-    /// we are fixing" are the same track, so the alignment can only return zero and the
-    /// subtitle is reported as already in sync. Measured: a track 6 s out of sync came back
-    /// unchanged (offset 0.000), while the same run with the reference pointed at the file's
-    /// other text track applied exactly -6.000 s.
-    ///
-    /// So: pick another *text* subtitle stream when the file has one, otherwise fall back to
-    /// the audio stream.
-    /// </summary>
-    /// <param name="isEmbedded">Whether the subtitle being synced came from this file.</param>
-    /// <param name="subtitleCodecs">Codecs in subtitle-stream order.</param>
-    /// <param name="targetOrdinal">0-based position of the subtitle being synced.</param>
-    /// <param name="forcedTracks">Forced flag per subtitle stream, when known.</param>
-    /// <returns>An ffmpeg stream specifier ("s:1", "a:0") or null to leave the default.</returns>
-    public static string? SelectReferenceStream(
-        bool isEmbedded,
-        IReadOnlyList<string> subtitleCodecs,
-        int targetOrdinal,
-        IReadOnlyList<bool>? forcedTracks = null)
-    {
-        // An external sidecar passes -1: it has no track of its own inside the file, so every embedded
-        // text track is a candidate. This used to return null for an external target, which sent every
-        // external subtitle to the audio even when the file carried a track that would have made the
-        // alignment exact.
-        for (var position = 0; position < subtitleCodecs.Count; position++)
-        {
-            if (position == targetOrdinal)
-            {
-                continue;
-            }
-
-            // A forced/signs track holds a handful of lines over a whole episode. Using one as the
-            // reference drags every other track onto it: measured on a real server, a 8-cue signs track
-            // moved five full language tracks by the same +57.5 s. Never pick one.
-            if (forcedTracks is not null && position < forcedTracks.Count && forcedTracks[position])
-            {
-                continue;
-            }
-
-            if (IsTextSubtitleCodec(subtitleCodecs[position]))
-            {
-                return "s:" + position.ToString(CultureInfo.InvariantCulture);
-            }
-        }
-
-        // Only itself (or image tracks): force the audio, otherwise the sync is a no-op.
-        return "a:0";
-    }
-
-    private static bool IsTextSubtitleCodec(string codec)
-    {
-        var value = (codec ?? string.Empty).ToLowerInvariant();
-        if (LanguageSupport.IsImageBased(value))
-        {
-            return false;
-        }
-
-        return value.Contains("subrip")
-            || value.Contains("srt")
-            || value.Contains("ass")
-            || value.Contains("ssa")
-            || value.Contains("webvtt")
-            || value.Contains("mov_text")
-            || value.Contains("ttml")
-            || value.Contains("text");
-    }
-
-    /// <summary>
-    /// Parses ffmpeg's "-i" output for the container indexes of its subtitle
-    /// streams ("Stream #0:4(eng): Subtitle: ...").
-    /// </summary>
-    public static List<int> ParseProbeSubtitleIndexes(string ffmpegOutput)
-    {
-        var result = new List<int>();
-        foreach (var line in ffmpegOutput.Split('\n'))
-        {
-            var match = System.Text.RegularExpressions.Regex.Match(line, @"Stream\s+#0:(\d+)[^:]*:\s*Subtitle:");
-            if (match.Success && int.TryParse(match.Groups[1].Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var idx))
-            {
-                result.Add(idx);
-            }
-        }
-
-        return result;
     }
 
     /// <summary>
@@ -5513,7 +5269,7 @@ public class SubSyncService : IDisposable
                     .ToList();
                 if (siblings.Count > 0)
                 {
-                    reference.Stream = SelectReferenceStream(
+                    reference.Stream = MediaStreamMap.SelectReferenceStream(
                         false,
                         siblings.Select(stream => stream.Codec ?? string.Empty).ToList(),
                         -1,
@@ -5555,7 +5311,7 @@ public class SubSyncService : IDisposable
                     .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !stream.IsExternal)
                     .ToList();
 
-                reference.Stream = SelectReferenceStream(
+                reference.Stream = MediaStreamMap.SelectReferenceStream(
                     true,
                     subtitleCodecs,
                     subtitleStreamOrdinal,
@@ -6578,9 +6334,9 @@ public class SubSyncService : IDisposable
 
                 // A stem the plugin already marked loses that marker first (S12): re-syncing its own output updates
                 // that file, where appending a second marker wrote a name no player associates with the episode.
-                var target = SyncedTargetName(dir, stem, lang);
+                var target = SyncedTargetNaming.SyncedTargetName(dir, stem, lang);
 
-                RequireWritable(dir);
+                SyncedTargetNaming.RequireWritable(dir);
                 File.Copy(tempOutput, target, overwrite: true);
                 job.OutputPath = target;
                 outcome.ChangedDir = dir;
@@ -6591,7 +6347,7 @@ public class SubSyncService : IDisposable
                 job.Phase = "Replacing subtitle";
                 job.Progress = 0.85;
 
-                RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
+                SyncedTargetNaming.RequireWritable(Path.GetDirectoryName(subtitleStream.Path) ?? ".");
 
                 // The backup path is chosen (and therefore known to the rollback below) *before*
                 // the original is touched: the destructive copy is inside ReplaceExternalSubtitle,
@@ -6624,7 +6380,7 @@ public class SubSyncService : IDisposable
                 ? Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.{lang}.srt")
                 : Path.Combine(videoDir, $"{videoNameNoExt}.SYNCED.srt");
 
-            RequireWritable(videoDir);
+            SyncedTargetNaming.RequireWritable(videoDir);
             File.Copy(tempOutput, target, overwrite: true);
             job.OutputPath = target;
             outcome.ChangedDir = videoDir;
@@ -7004,7 +6760,7 @@ public class SubSyncService : IDisposable
                 ResolveFfSubSyncPath(),
                 BundledFfSubSyncVersion,
                 typeof(Plugin).Assembly.GetName().Version?.ToString() ?? "0.0.0.0");
-            var referenceOrdinal = SubtitleStreamOrdinal(reference.Stream);
+            var referenceOrdinal = MediaStreamMap.SubtitleStreamOrdinal(reference.Stream);
             reference.Spec = reference.Stream;
 
             // The reference lives in this run's own directory and is shared with the other
@@ -7586,28 +7342,6 @@ public class SubSyncService : IDisposable
         => (_jobs.Values.Count(job => job.Status == SyncJobStatus.Running),
             _jobs.Values.Count(job => job.Status == SyncJobStatus.Queued));
 
-    /// <summary>
-    /// Names the sidecar the plugin writes for a subtitle (S12).
-    /// </summary>
-    /// <remarks>
-    /// Jellyfin associates a sidecar with its video only when the name starts with the media file's name and continues
-    /// with dot-separated fields, so the marker is a field and never part of the name. A stem the plugin already marked
-    /// loses that marker first: re-syncing the plugin's own output updates that file instead of writing
-    /// <c>Film.SYNCED.ukr.SYNCED.srt</c>, which no player shows and no sweep removes.
-    /// </remarks>
-    /// <param name="directory">The directory to write into.</param>
-    /// <param name="stem">The input file's name without its extension.</param>
-    /// <param name="language">The track's language, when it has one.</param>
-    /// <returns>The full path to write.</returns>
-    internal static string SyncedTargetName(string directory, string stem, string? language)
-    {
-        var lang = string.IsNullOrWhiteSpace(language) ? null : language.Trim().ToLowerInvariant();
-        var baseStem = SrtWriter.StripSyncedMarker(stem);
-        return lang is not null && string.Equals(baseStem, lang, StringComparison.OrdinalIgnoreCase)
-            ? Path.Combine(directory, $"{lang}.SYNCED.srt")
-            : Path.Combine(directory, baseStem + ".SYNCED.srt");
-    }
-
     /// <summary>How long a teardown waits for the lanes and the pump to leave (B14).</summary>
     internal const int ShutdownWaitMs = 5000;
 
@@ -7832,43 +7566,6 @@ public class SubSyncService : IDisposable
         }
 
         return exited;
-    }
-
-    /// <summary>
-    /// Asks whether a directory name is one this plugin creates for a job's scratch space (B23).
-    /// </summary>
-    /// <remarks>
-    /// Job ids are <c>Guid.NewGuid().ToString("N")</c> - 32 lowercase hex characters and nothing else - so the
-    /// test is exact rather than a prefix or a "looks like an id" match. That is what keeps a recursive delete
-    /// away from every other directory that can live beside them.
-    /// </remarks>
-    /// <param name="name">Directory name.</param>
-    /// <returns>True when the name is a job id.</returns>
-    internal static bool IsJobScratchDirectory(string? name)
-        => !string.IsNullOrEmpty(name)
-           && name.Length == 32
-           && name.All(character => (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f'));
-
-    /// <summary>
-    /// Asks whether a path is inside a root directory, resolved (B23).
-    /// </summary>
-    /// <param name="rootFull">Fully resolved root.</param>
-    /// <param name="path">Path to test.</param>
-    /// <returns>True when the path is the root itself or below it.</returns>
-    internal static bool IsInsideRoot(string rootFull, string path)
-    {
-        try
-        {
-            var candidate = Path.GetFullPath(path);
-            var prefix = rootFull.EndsWith(Path.DirectorySeparatorChar)
-                ? rootFull
-                : rootFull + Path.DirectorySeparatorChar;
-            return candidate.StartsWith(prefix, StringComparison.Ordinal);
-        }
-        catch (Exception)
-        {
-            return false;
-        }
     }
 
     /// <summary>
