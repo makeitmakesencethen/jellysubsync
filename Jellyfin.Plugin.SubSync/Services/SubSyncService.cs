@@ -5858,174 +5858,27 @@ public class SubSyncService : IDisposable
                 engineInput = RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job) ?? engineInput;
             }
 
-            var args = BuildFfSubSyncArgs(
-                config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
-                VadForReference(referenceSpec));
+            // P5: the engine run - the first attempt and, when a cached speech analysis turned out to be
+            // unusable, a second one from the audio. Everything it produces is consumed inside it except
+            // serializeSpeech, which its retry can flip.
+            serializeSpeech = await RunEngineAttemptAsync(
+                job,
+                config,
+                ffsubsyncExe,
+                videoPath,
+                referenceArg,
+                referenceSpec,
+                usedSubtitleReference,
+                engineInput,
+                tempOutput,
+                tempDir,
+                serializeSpeech,
+                referenceStream,
+                usingCachedSpeech,
+                speechKey,
+                referencePath,
+                cancellationToken).ConfigureAwait(false);
 
-            _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
-            PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={string.Join(' ', args)}");
-            LogVadOverride(
-                job.Id,
-                referenceSpec is null ? "the audio" : $"the subtitle {referenceSpec}",
-                config.VadMethod);
-
-            // Parse ffsubsync stderr in real-time for progress updates.
-            // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
-            // Phase messages: "extracting speech...", "computing alignments...", "writing output..."
-            var engineWatch = System.Diagnostics.Stopwatch.StartNew();
-            // Keep the tail of stderr: "ffsubsync exited with code 1" on its own tells nobody anything,
-            // and the reason (an unreadable reference, a subtitle with no text, a demux error) is
-            // always in the last few lines ffsubsync printed.
-            var engineErrors = new List<string>();
-            double? engineScore = null;
-            double? engineOffsetSeconds = null;
-            var exitCode = await RunProcessWithStderrCallbackAsync(
-                ffsubsyncExe, args, tempDir,
-                line =>
-                {
-                    ParseFfSubSyncStderr(line, job);
-                        if (TryParseEngineScore(line, out var parsedScore))
-                        {
-                            engineScore = parsedScore;
-                        }
-
-                        if (TryParseEngineOffset(line, out var parsedOffset))
-                        {
-                            engineOffsetSeconds = parsedOffset;
-                        }
-
-                        lock (engineErrors)
-                        {
-                            if (!string.IsNullOrWhiteSpace(line))
-                            {
-                                engineErrors.Add(line.Trim());
-                                if (engineErrors.Count > 6)
-                                {
-                                    engineErrors.RemoveAt(0);
-                                }
-                            }
-                        }
-                    },
-                cancellationToken,
-                new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
-            engineWatch.Stop();
-            PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
-            LogEngineAlignment(
-                job.Id,
-                usedSubtitleReference ? $"reference subtitle {referenceSpec}" : "the audio",
-                engineScore,
-                engineOffsetSeconds);
-
-            // A walk of the media measures its volume without taking any read to measure it, which is the only
-            // signal that exists on a run whose extractions were all served from the subtitle cache. It only
-            // counts when it is the volume being measured: a walk taken while another volume was being read
-            // measures the moment as much as the storage, and believing it held a fast volume to two walks for
-            // the rest of a mixed batch on 2026-09-14.
-            if (!usedSubtitleReference)
-            {
-                var walked = MediaLengthOf(videoPath);
-                if (walked > 0)
-                {
-                    var walkedVolume = Services.VolumeProfiles.For(videoPath);
-                    var elsewhere = VolumesOtherThan(
-                        MediaVolume.Of(videoPath),
-                        _jobs.Values
-                            .Where(j => j.Status == SyncJobStatus.Running)
-                            .Select(j => MediaVolume.Of(
-                                _jobContexts.TryGetValue(j.Id, out var other) ? other.Video.Path : null)));
-                    var walkedMbPerSec = walked / (engineWatch.ElapsedMilliseconds <= 0 ? 1.0 : engineWatch.ElapsedMilliseconds) / 1000.0;
-
-                    if (elsewhere > 0)
-                    {
-                        PluginLog.Info(
-                            $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
-                            + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = {walkedMbPerSec:0.0} MB/s, but it is "
-                            + $"not being used to judge that volume: {elsewhere} job(s) on another volume were being "
-                            + "read at the same time, so this number belongs to the moment rather than to the storage");
-                    }
-                    else
-                    {
-                        walkedVolume.ObserveWalk(walked, engineWatch.ElapsedMilliseconds);
-                        var walkedCap = WalkCapForProfile(walkedVolume.MsPerCall(), walkedVolume.WalkBytesPerMs());
-                        PluginLog.Info(
-                            $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
-                            + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = "
-                            + $"{(walkedVolume.WalkBytesPerMs() ?? 0) / 1000.0:0.0} MB/s - "
-                            + $"the ceiling for that volume is "
-                            + $"{(walkedCap.Cap >= int.MaxValue ? "none" : walkedCap.Cap.ToString())} ({walkedCap.Why})");
-                    }
-                }
-            }
-
-            if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
-            {
-                // The cached speech file is unusable (deleted mid-run, truncated, or from
-                // a different ffsubsync build). Drop it and redo the run from the audio.
-                _logger.LogWarning(
-                    "Cached speech analysis failed for {Video} (exit code {Code}); falling back to a full audio run",
-                    videoPath, exitCode);
-                var stale = SpeechCache.TryGet(speechKey);
-                if (stale is not null)
-                {
-                    try { File.Delete(stale); } catch (IOException) { /* retry below still works */ }
-                }
-
-                referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
-                serializeSpeech = true;
-                args = BuildFfSubSyncArgs(
-                    config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
-                    VadForReference(referenceSpec));
-                PluginLog.Info($"[{job.Id}] retrying ffsubsync from the audio: {string.Join(' ', args)}");
-                lock (engineErrors)
-                {
-                    engineErrors.Clear();
-                }
-
-                exitCode = await RunProcessWithStderrCallbackAsync(
-                    ffsubsyncExe, args, tempDir,
-                    line =>
-                    {
-                        ParseFfSubSyncStderr(line, job);
-                        lock (engineErrors)
-                        {
-                            if (!string.IsNullOrWhiteSpace(line))
-                            {
-                                engineErrors.Add(line.Trim());
-                                if (engineErrors.Count > 6)
-                                {
-                                    engineErrors.RemoveAt(0);
-                                }
-                            }
-                        }
-                    },
-                    cancellationToken,
-                    new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
-                PluginLog.Info($"[{job.Id}] ffsubsync retry exit={exitCode}");
-            }
-
-            if (exitCode != 0)
-            {
-                string why;
-                lock (engineErrors)
-                {
-                    why = engineErrors.Count == 0 ? string.Empty : " Last output: " + string.Join(" | ", engineErrors);
-                }
-
-                throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}");
-            }
-
-            if (speechKey is not null && serializeSpeech)
-            {
-                // Harvest covers the fallback where ffsubsync wrote the .npz next to the media file. The link
-                // itself is not dropped here: the wider-window retry and the verification run later in this
-                // same job are handed the same reference, and a retry pointed at a file the plugin deleted
-                // under it cannot start (S46 - measured in the field, 7 of one run's 8 refusals). It is
-                // dropped once, in this job's finally.
-                SpeechCache.Harvest(referencePath, speechKey);
-                SpeechCache.Prune();
-            }
-
-            ReleaseSpeechGate(job, videoPath);
 
             // A stretch is a claim about the whole timeline, and only the film's audio can test it: another
             // subtitle shows the same few percent whether the subtitle is from a different framerate or from a
@@ -6978,6 +6831,203 @@ public class SubSyncService : IDisposable
         /// queued a second time.
         /// </summary>
         public IReadOnlyList<SyncJob> AlreadyQueued { get; init; } = Array.Empty<SyncJob>();
+    }
+
+    /// <summary>
+    /// Runs ffsubsync for this job's first attempt and, when a cached speech analysis turned out to be unusable,
+    /// a second one from the audio. The stderr callbacks live inside this method on purpose: they mutate only
+    /// locals here (the tail of what the engine printed, the score and offset it reported), which is what keeps
+    /// the retry safe to read on its own.
+    /// </summary>
+    /// <returns>Whether the attempt that mattered analysed the speech itself - the caller needs that to know
+    /// which speech-cache entry the run belongs to.</returns>
+    private async Task<bool> RunEngineAttemptAsync(
+        SyncJob job,
+        PluginConfiguration config,
+        string ffsubsyncExe,
+        string videoPath,
+        string referenceArg,
+        string? referenceSpec,
+        bool usedSubtitleReference,
+        string engineInput,
+        string tempOutput,
+        string tempDir,
+        bool serializeSpeech,
+        string? referenceStream,
+        bool usingCachedSpeech,
+        string? speechKey,
+        string referencePath,
+        CancellationToken cancellationToken)
+    {
+        var args = BuildFfSubSyncArgs(
+            config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
+            VadForReference(referenceSpec));
+
+        _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
+        PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={string.Join(' ', args)}");
+        LogVadOverride(
+            job.Id,
+            referenceSpec is null ? "the audio" : $"the subtitle {referenceSpec}",
+            config.VadMethod);
+
+        // Parse ffsubsync stderr in real-time for progress updates.
+        // tqdm format: " 42%|████▎     | 3000.0/6997.696 [00:27<00:34, 115.36it/s]"
+        // Phase messages: "extracting speech...", "computing alignments...", "writing output..."
+        var engineWatch = System.Diagnostics.Stopwatch.StartNew();
+        // Keep the tail of stderr: "ffsubsync exited with code 1" on its own tells nobody anything,
+        // and the reason (an unreadable reference, a subtitle with no text, a demux error) is
+        // always in the last few lines ffsubsync printed.
+        var engineErrors = new List<string>();
+        double? engineScore = null;
+        double? engineOffsetSeconds = null;
+        var exitCode = await RunProcessWithStderrCallbackAsync(
+            ffsubsyncExe, args, tempDir,
+            line =>
+            {
+                ParseFfSubSyncStderr(line, job);
+                    if (TryParseEngineScore(line, out var parsedScore))
+                    {
+                        engineScore = parsedScore;
+                    }
+
+                    if (TryParseEngineOffset(line, out var parsedOffset))
+                    {
+                        engineOffsetSeconds = parsedOffset;
+                    }
+
+                    lock (engineErrors)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            engineErrors.Add(line.Trim());
+                            if (engineErrors.Count > 6)
+                            {
+                                engineErrors.RemoveAt(0);
+                            }
+                        }
+                    }
+                },
+            cancellationToken,
+            new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
+        engineWatch.Stop();
+        PluginLog.Info($"[{job.Id}] ffsubsync exit={exitCode} after {engineWatch.ElapsedMilliseconds} ms");
+        LogEngineAlignment(
+            job.Id,
+            usedSubtitleReference ? $"reference subtitle {referenceSpec}" : "the audio",
+            engineScore,
+            engineOffsetSeconds);
+
+        // A walk of the media measures its volume without taking any read to measure it, which is the only
+        // signal that exists on a run whose extractions were all served from the subtitle cache. It only
+        // counts when it is the volume being measured: a walk taken while another volume was being read
+        // measures the moment as much as the storage, and believing it held a fast volume to two walks for
+        // the rest of a mixed batch on 2026-09-14.
+        if (!usedSubtitleReference)
+        {
+            var walked = MediaLengthOf(videoPath);
+            if (walked > 0)
+            {
+                var walkedVolume = Services.VolumeProfiles.For(videoPath);
+                var elsewhere = VolumesOtherThan(
+                    MediaVolume.Of(videoPath),
+                    _jobs.Values
+                        .Where(j => j.Status == SyncJobStatus.Running)
+                        .Select(j => MediaVolume.Of(
+                            _jobContexts.TryGetValue(j.Id, out var other) ? other.Video.Path : null)));
+                var walkedMbPerSec = walked / (engineWatch.ElapsedMilliseconds <= 0 ? 1.0 : engineWatch.ElapsedMilliseconds) / 1000.0;
+
+                if (elsewhere > 0)
+                {
+                    PluginLog.Info(
+                        $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
+                        + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = {walkedMbPerSec:0.0} MB/s, but it is "
+                        + $"not being used to judge that volume: {elsewhere} job(s) on another volume were being "
+                        + "read at the same time, so this number belongs to the moment rather than to the storage");
+                }
+                else
+                {
+                    walkedVolume.ObserveWalk(walked, engineWatch.ElapsedMilliseconds);
+                    var walkedCap = WalkCapForProfile(walkedVolume.MsPerCall(), walkedVolume.WalkBytesPerMs());
+                    PluginLog.Info(
+                        $"[{job.Id}] this walk moved {walked / 1048576.0:0.0} MB of {videoPath} in "
+                        + $"{engineWatch.ElapsedMilliseconds / 1000.0:0.0} s = "
+                        + $"{(walkedVolume.WalkBytesPerMs() ?? 0) / 1000.0:0.0} MB/s - "
+                        + $"the ceiling for that volume is "
+                        + $"{(walkedCap.Cap >= int.MaxValue ? "none" : walkedCap.Cap.ToString())} ({walkedCap.Why})");
+                }
+            }
+        }
+
+        if (exitCode != 0 && usingCachedSpeech && speechKey is not null)
+        {
+            // The cached speech file is unusable (deleted mid-run, truncated, or from
+            // a different ffsubsync build). Drop it and redo the run from the audio.
+            _logger.LogWarning(
+                "Cached speech analysis failed for {Video} (exit code {Code}); falling back to a full audio run",
+                videoPath, exitCode);
+            var stale = SpeechCache.TryGet(speechKey);
+            if (stale is not null)
+            {
+                try { File.Delete(stale); } catch (IOException) { /* retry below still works */ }
+            }
+
+            referencePath = SpeechCache.CreateReferenceLink(videoPath, speechKey);
+            serializeSpeech = true;
+            args = BuildFfSubSyncArgs(
+                config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
+                VadForReference(referenceSpec));
+            PluginLog.Info($"[{job.Id}] retrying ffsubsync from the audio: {string.Join(' ', args)}");
+            lock (engineErrors)
+            {
+                engineErrors.Clear();
+            }
+
+            exitCode = await RunProcessWithStderrCallbackAsync(
+                ffsubsyncExe, args, tempDir,
+                line =>
+                {
+                    ParseFfSubSyncStderr(line, job);
+                    lock (engineErrors)
+                    {
+                        if (!string.IsNullOrWhiteSpace(line))
+                        {
+                            engineErrors.Add(line.Trim());
+                            if (engineErrors.Count > 6)
+                            {
+                                engineErrors.RemoveAt(0);
+                            }
+                        }
+                    }
+                },
+                cancellationToken,
+                new EngineWatch(job.Id, Path.GetFileName(videoPath), referenceStream ?? "(default)")).ConfigureAwait(false);
+            PluginLog.Info($"[{job.Id}] ffsubsync retry exit={exitCode}");
+        }
+
+        if (exitCode != 0)
+        {
+            string why;
+            lock (engineErrors)
+            {
+                why = engineErrors.Count == 0 ? string.Empty : " Last output: " + string.Join(" | ", engineErrors);
+            }
+
+            throw new InvalidOperationException($"ffsubsync exited with code {exitCode}.{why}");
+        }
+
+        if (speechKey is not null && serializeSpeech)
+        {
+            // Harvest covers the fallback where ffsubsync wrote the .npz next to the media file. The link
+            // itself is not dropped here: the wider-window retry and the verification run later in this
+            // same job are handed the same reference, and a retry pointed at a file the plugin deleted
+            // under it cannot start (S46 - measured in the field, 7 of one run's 8 refusals). It is
+            // dropped once, in this job's finally.
+            SpeechCache.Harvest(referencePath, speechKey);
+            SpeechCache.Prune();
+        }
+
+        ReleaseSpeechGate(job, videoPath);
+        return serializeSpeech;
     }
 
     /// <summary>

@@ -66,8 +66,8 @@ MUTATIONS = {
     'P8-stale': ('if (audioExit == 0 && File.Exists(audioOutput))',
                  'if (audioExit == 0 && File.Exists(tempOutput))'),
     'S46-inline-drop': (
-        "                // dropped once, in this job's finally.\n                SpeechCache.Harvest(referencePath, speechKey);\n                SpeechCache.Prune();",
-        "                // dropped once, in this job's finally.\n                SpeechCache.Harvest(referencePath, speechKey);\n                SpeechCache.DropLink(speechKey);\n                SpeechCache.Prune();"),
+        "            // dropped once, in this job's finally.\n            SpeechCache.Harvest(referencePath, speechKey);\n            SpeechCache.Prune();",
+        "            // dropped once, in this job's finally.\n            SpeechCache.Harvest(referencePath, speechKey);\n            SpeechCache.DropLink(speechKey);\n            SpeechCache.Prune();"),
     'S22-cause': ('=> engineTail.Contains("unable to read reference", StringComparison.OrdinalIgnoreCase)',
                   '=> engineTail.Contains("unable to read referenceX", StringComparison.OrdinalIgnoreCase)'),
     'P18-catch': ('catch (Exception ex)\n                {\n                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);',

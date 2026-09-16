@@ -423,3 +423,39 @@ checks the single definition and counts the calls, which is the same intent).
 **Observation worth a row of its own (not a Phase 1 change):** P7's terminal does not set `FinishedAtUtc` while P12's
 does, so an "already in sync (shift under 3 s)" job reaches `BatchHistory` with a null finish time. `JobsToEvict`
 falls back to `CreatedAtUtc`, so nothing leaks; it is a display/consistency question, not damage.
+
+## 11. Phase 2 of the extraction, done (2026-09-16)
+
+The engine-run cluster (§7's second step): P5, its cached-speech retry, and the stderr closures that go with them now
+live in `RunEngineAttemptAsync`.
+
+**What moved.** From `var args = BuildFfSubSyncArgs(...)` to `ReleaseSpeechGate(job, videoPath)` — **147 lines**: the
+args build, the run with its stderr pump (progress updates, score and offset parsing, the six-line tail under a
+lock), the walk/volume observation, the retry a stale cached analysis triggers, the exit-code throw, the
+speech-cache harvest and prune, and the gate release. It was checked as a *pure move* rather than eyeballed: the
+extracted body is the original block with nothing but its four-space de-indent (8 396 characters identical) and its
+token stream is unchanged.
+
+**The tuple §7 guessed was wrong in a useful way.** The map predicted `(exitCode, errors, score, offset)`. What
+actually crosses the boundary: `exitCode`, `engineErrors`, `engineScore` and `engineOffsetSeconds` are consumed
+*inside* the cluster (the exit-code throw, the two log lines) and are referenced nowhere after it in `RunSyncJob`;
+`referencePath` is reassigned by the retry but only the in-cluster harvester reads it. The one value that genuinely
+has to come back is **`serializeSpeech`**, which the retry flips to true and which the later audio fallback, the
+window ladder and the cross-check all read — and the map's tuple did not list it. So the method returns that single
+bool. Keeping a four-element tuple whose members nothing reads would have been ceremony, not structure.
+
+**The shrink: `RunSyncJob` 1564 → 1417 lines (−147)**, with a 188-line method in its place (147 moved + doc comment,
+signature, parameters and return). Unlike Phase 1, nothing was left behind — the cluster's log wording is not what
+any check pins.
+
+**Call-site cost, stated rather than hidden.** The method takes 16 parameters, which is the honest size of this
+cluster's boundary: job, config, engine path, media path, the reference (path, spec, and whether it was a subtitle),
+input and output paths, temp dir, the four speech-cache facts (`serializeSpeech`, `usingCachedSpeech`, `speechKey`,
+`referencePath`), the reference stream and the cancellation token. That matches the house style —
+`BuildFfSubSyncArgs` takes nine, `VerifyStretchAgainstAudioAsync` nine — rather than introducing a context object,
+which is the option §7 held back for P3.
+
+**Re-verified after the move:** suite **966 checks green**; the mutation anchors that lived inside the moved block
+were re-pointed (`S46-inline-drop`) and re-run — `P5` (the cached-speech retry) and `S46-inline-drop` are CAUGHT, as
+are `P8-stale` and `S43-vad`, which consume the cluster's results rather than living in it. The characterization
+baseline is unchanged at 24 checks, which is the point of a pure move: it should not move the net at all.
