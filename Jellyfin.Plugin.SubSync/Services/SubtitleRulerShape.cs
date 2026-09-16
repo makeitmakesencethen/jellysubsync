@@ -72,8 +72,8 @@ internal static class SubtitleRulerShape
         double maxShiftSeconds,
         double threshold = QualityOfFit.DefaultThreshold)
     {
-        var target = SubSyncService.ParseSrtCueStarts(targetPath);
-        var ruler = SubSyncService.ParseSrtCueStarts(rulerPath);
+        var target = AlignmentMetrics.ParseSrtCueStarts(targetPath);
+        var ruler = AlignmentMetrics.ParseSrtCueStarts(rulerPath);
         if (target is null || ruler is null || target.Count < 3 || ruler.Count < 3)
         {
             return null;

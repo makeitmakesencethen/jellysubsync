@@ -31,7 +31,7 @@ def service_classes():
     new file instead of being rewritten to match a file boundary - which keeps the pin pointed at the
     behaviour rather than at the layout.
     """
-    names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs']
+    names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs']
     return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
 
 
@@ -634,8 +634,8 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         var s31Together = Write("together.srt", _ => 5);                  // every cue moved the same 5 s
         var s31Drifting = Write("drifting.srt", i => 5 + (i * 6));        // cues moved by different amounts
 
-        var s31Tight = SubSyncService.MeasureSyncChange(s31Input, s31Together);
-        var s31Loose = SubSyncService.MeasureSyncChange(s31Input, s31Drifting);
+        var s31Tight = AlignmentMetrics.MeasureSyncChange(s31Input, s31Together);
+        var s31Loose = AlignmentMetrics.MeasureSyncChange(s31Input, s31Drifting);
         Check("a sync whose cues all moved together measures no spread",
             s31Tight is { SpreadMs: 0 } tight && Math.Abs(tight.ShiftMs - 5000) < 1,
             $"{s31Tight}");
@@ -646,11 +646,11 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
         var s31LooseValue = s31Loose.GetValueOrDefault();
         Check("the spread decides, at a quarter of the configured reference ceiling",
             s31Tight.HasValue && s31Loose.HasValue
-            && !SubSyncService.RulerSpreadTooWide(s31TightValue, 30_000)
-            && SubSyncService.RulerSpreadTooWide(s31LooseValue, 30_000)
-            && SubSyncService.SubtitleReferenceSpreadFraction == 0.25,
+            && !AlignmentMetrics.RulerSpreadTooWide(s31TightValue, 30_000)
+            && AlignmentMetrics.RulerSpreadTooWide(s31LooseValue, 30_000)
+            && AlignmentMetrics.SubtitleReferenceSpreadFraction == 0.25,
             $"tight={s31TightValue.SpreadMs} ms, loose={s31LooseValue.SpreadMs} ms, "
-            + $"fraction={SubSyncService.SubtitleReferenceSpreadFraction}");
+            + $"fraction={AlignmentMetrics.SubtitleReferenceSpreadFraction}");
     }
     finally
     {
@@ -663,17 +663,17 @@ Check("the ceiling bounds media reads only", lightWave.Count == 4, "got " + ligh
 // was -5 000 ms (the fixture's true shift), where two alignments against the *same* ruler agree to hundredths.
 {
     Check("a ruler and the audio that disagree decide against the ruler",
-        SubSyncService.RulersDisagree(24170, -5000, 30_000),
+        AlignmentMetrics.RulersDisagree(24170, -5000, 30_000),
         "24 170 ms against -5 000 ms at a 30 s ceiling");
     Check("a ruler the audio confirms is kept",
-        !SubSyncService.RulersDisagree(5000, 5050, 30_000),
+        !AlignmentMetrics.RulersDisagree(5000, 5050, 30_000),
         "5 000 ms against 5 050 ms at a 30 s ceiling");
     Check("the band that triggers the cross-check is a third of the configured ceiling, so 10 s by default",
         Math.Abs(SubSyncService.SuspiciousReferenceShiftFraction - (1.0 / 3.0)) < 1e-9
         && Math.Abs(30_000 * SubSyncService.SuspiciousReferenceShiftFraction - 10_000) < 0.5
-        && Math.Abs(SubSyncService.SubtitleReferenceAudioAgreementFraction - 0.1) < 1e-9,
+        && Math.Abs(AlignmentMetrics.SubtitleReferenceAudioAgreementFraction - 0.1) < 1e-9,
         $"fractions: {SubSyncService.SuspiciousReferenceShiftFraction}, "
-        + $"{SubSyncService.SubtitleReferenceAudioAgreementFraction}");
+        + $"{AlignmentMetrics.SubtitleReferenceAudioAgreementFraction}");
 }
 
 // D3 + F10: the audit's hostile saves, driven through the one validation path instead of the page. Before this,
@@ -1949,18 +1949,18 @@ Check("opt-in framerate: golden section is only passed with correction on",
 // PAL on a 23.976 fps file spans ~0.959 of the film; a reference taken from such a release does too. Rescaling the
 // subtitle onto a mis-timed reference would move a correct subtitle off the video, and in a bulk run every
 // subtitle of that file uses the same reference.
-Check("a PAL-timed subtitle is the side to rescale", SubSyncService.IsTargetOffTheVideo(0.959 * 3000, 3000, 3000));
-Check("a correct subtitle against a PAL-timed reference is left alone", !SubSyncService.IsTargetOffTheVideo(3000, 0.959 * 3000, 3000));
-Check("two subtitles that both match the file are not rescaled", !SubSyncService.IsTargetOffTheVideo(3000, 2990, 3000));
-Check("an unusable duration leaves the decision to the pair rule", SubSyncService.IsTargetOffTheVideo(3000, 0.959 * 3000, 30));
+Check("a PAL-timed subtitle is the side to rescale", AlignmentMetrics.IsTargetOffTheVideo(0.959 * 3000, 3000, 3000));
+Check("a correct subtitle against a PAL-timed reference is left alone", !AlignmentMetrics.IsTargetOffTheVideo(3000, 0.959 * 3000, 3000));
+Check("two subtitles that both match the file are not rescaled", !AlignmentMetrics.IsTargetOffTheVideo(3000, 2990, 3000));
+Check("an unusable duration leaves the decision to the pair rule", AlignmentMetrics.IsTargetOffTheVideo(3000, 0.959 * 3000, 30));
 
 // A stretch is a claim about the whole timeline, and only the film's audio can test it: a differently cut subtitle
 // produces the same span ratio as one from another framerate. A correct stretch leaves the audio alignment almost
 // nothing to do; one applied to the wrong kind of difference still wants a large shift.
-Check("a result the audio agrees with holds", SubSyncService.AlignmentHoldsAgainstAudio(1.0, 1200, 3000));
-Check("a result the audio still wants 40 s of does not hold", !SubSyncService.AlignmentHoldsAgainstAudio(1.0, 40000, 3000));
-Check("a result the audio wants rescaled again does not hold", !SubSyncService.AlignmentHoldsAgainstAudio(1.02, 500, 3000));
-Check("the room grows with the runtime, up to a point", SubSyncService.AlignmentHoldsAgainstAudio(1.0, 12000, 4200));
+Check("a result the audio agrees with holds", AlignmentMetrics.AlignmentHoldsAgainstAudio(1.0, 1200, 3000));
+Check("a result the audio still wants 40 s of does not hold", !AlignmentMetrics.AlignmentHoldsAgainstAudio(1.0, 40000, 3000));
+Check("a result the audio wants rescaled again does not hold", !AlignmentMetrics.AlignmentHoldsAgainstAudio(1.02, 500, 3000));
+Check("the room grows with the runtime, up to a point", AlignmentMetrics.AlignmentHoldsAgainstAudio(1.0, 12000, 4200));
 
 // The guard that decides whether a measured result may be written. Without correction asked for, any
 // rescale is the failure this exists for: a 4% scale ruins a whole file rather than a few seconds.
@@ -1976,7 +1976,7 @@ foreach (var (ratio, shiftMs, fix, expected, why) in new (double, long, bool, bo
     (1.0004, 400, true, true, "a sub-1% fit is tolerated when correction is on"),
 })
 {
-    var got = SubSyncService.IsRescaleAcceptable(ratio, shiftMs, 60, fix);
+    var got = AlignmentMetrics.IsRescaleAcceptable(ratio, shiftMs, 60, fix);
     Check($"rescale guard: {why}", got == expected, $"ratio={ratio} shift={shiftMs} fix={fix} -> {got}");
 }
 
@@ -2294,12 +2294,12 @@ File.WriteAllText(shiftedSrt, Srt(1500, 2500, 3500, 4500, 5500));
 File.WriteAllText(framerateSrt, Srt(990, 1995, 3000, 4005, 5010));
 File.WriteAllText(tinySrt, Srt(1000, 2000));
 
-var identical = SubSyncService.MeasureSyncChange(sourceSrt, identicalSrt);
+var identical = AlignmentMetrics.MeasureSyncChange(sourceSrt, identicalSrt);
 Check("an identical output is recognised as no change", identical is { IsNoChange: true });
 Check("the no-change case is described as a 0 ms offset",
     identical?.Describe() == "+0 ms offset", identical?.Describe() ?? "(none)");
 
-var shifted = SubSyncService.MeasureSyncChange(sourceSrt, shiftedSrt);
+var shifted = AlignmentMetrics.MeasureSyncChange(sourceSrt, shiftedSrt);
 Check("a 500 ms shift is a change", shifted is { IsNoChange: false });
 Check("the shift is reported in milliseconds", shifted?.ShiftMs == 500, "got " + shifted?.ShiftMs);
 
@@ -2307,18 +2307,18 @@ Check("the shift is reported in milliseconds", shifted?.ShiftMs == 500, "got " +
 // shift as "0 ms offset", and the "nothing changed" check would then throw the correction away.
 var subSecondSrt = Path.Combine(noChangeDir, "subsecond.srt");
 File.WriteAllText(subSecondSrt, Srt(1400, 2400, 3400, 4400, 5400));
-var subSecond = SubSyncService.MeasureSyncChange(sourceSrt, subSecondSrt);
+var subSecond = AlignmentMetrics.MeasureSyncChange(sourceSrt, subSecondSrt);
 Check("a 400 ms shift is measured, not rounded to zero",
     subSecond?.ShiftMs == 400, "got " + subSecond?.ShiftMs);
 Check("a sub-second shift is not treated as no change", subSecond is { IsNoChange: false });
 
 Check("a framerate correction is a change even with a zero median offset",
-    SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt) is { IsNoChange: false });
+    AlignmentMetrics.MeasureSyncChange(sourceSrt, framerateSrt) is { IsNoChange: false });
 Check("too few cues cannot be judged, so the output is kept",
-    SubSyncService.MeasureSyncChange(sourceSrt, tinySrt) is null);
+    AlignmentMetrics.MeasureSyncChange(sourceSrt, tinySrt) is null);
 Check("the description keeps the framerate detail",
-    (SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? string.Empty).Contains("framerate ratio"),
-    SubSyncService.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? "(none)");
+    (AlignmentMetrics.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? string.Empty).Contains("framerate ratio"),
+    AlignmentMetrics.MeasureSyncChange(sourceSrt, framerateSrt)?.Describe() ?? "(none)");
 Directory.Delete(noChangeDir, recursive: true);
 
 // ---------------- A forced/signs track must not be mistaken for the full subtitle ----------------
@@ -2326,18 +2326,18 @@ Directory.Delete(noChangeDir, recursive: true);
 // carried a two-cue forced track beside a full WebVTT track in the same language, and the automatic
 // pick took the first one it met.
 Check("two cues in a 45-minute episode look like a signs track",
-    SubSyncService.LooksLikeSignsTrack(2, TimeSpan.FromMinutes(45)));
+    AlignmentMetrics.LooksLikeSignsTrack(2, TimeSpan.FromMinutes(45)));
 Check("a full episode subtitle does not",
-    !SubSyncService.LooksLikeSignsTrack(640, TimeSpan.FromMinutes(45)));
+    !AlignmentMetrics.LooksLikeSignsTrack(640, TimeSpan.FromMinutes(45)));
 Check("few cues in a short clip are normal",
-    !SubSyncService.LooksLikeSignsTrack(5, TimeSpan.FromMinutes(5)));
+    !AlignmentMetrics.LooksLikeSignsTrack(5, TimeSpan.FromMinutes(5)));
 Check("an empty subtitle is not reported as a signs track",
-    !SubSyncService.LooksLikeSignsTrack(0, TimeSpan.FromMinutes(45)));
+    !AlignmentMetrics.LooksLikeSignsTrack(0, TimeSpan.FromMinutes(45)));
 Check("an unreadable subtitle is unknown, not signs",
-    !SubSyncService.LooksLikeSignsTrack(-1, TimeSpan.FromMinutes(45)));
+    !AlignmentMetrics.LooksLikeSignsTrack(-1, TimeSpan.FromMinutes(45)));
 Check("the boundary is twelve cues over a long video",
-    SubSyncService.LooksLikeSignsTrack(11, TimeSpan.FromMinutes(45))
-    && !SubSyncService.LooksLikeSignsTrack(12, TimeSpan.FromMinutes(45)));
+    AlignmentMetrics.LooksLikeSignsTrack(11, TimeSpan.FromMinutes(45))
+    && !AlignmentMetrics.LooksLikeSignsTrack(12, TimeSpan.FromMinutes(45)));
 
 // ---------------- WebVTT tracks are readable without ffmpeg ----------------
 // A WebVTT track was rejected by the index reader because its codec ID was missing from the text
@@ -2679,10 +2679,10 @@ File.WriteAllText(rampOut, BuildSrt(1000, 900, i => i * 10.82));
 var farOut = Path.Combine(pieceDir, "far-out.srt");
 File.WriteAllText(farOut, BuildSrt(1000, 900, i => i < 500 ? 200000 : 220000));
 
-var stepChange = SubSyncService.MeasureSyncChange(flatIn, stepOut);
-var stepStructure = SubSyncService.MeasureSegmentStructure(flatIn, stepOut, SubSyncService.EngineSampleMs);
-var rampStructure = SubSyncService.MeasureSegmentStructure(flatIn, rampOut, SubSyncService.EngineSampleMs);
-var farStructure = SubSyncService.MeasureSegmentStructure(flatIn, farOut, SubSyncService.EngineSampleMs);
+var stepChange = AlignmentMetrics.MeasureSyncChange(flatIn, stepOut);
+var stepStructure = AlignmentMetrics.MeasureSegmentStructure(flatIn, stepOut, AlignmentMetrics.EngineSampleMs);
+var rampStructure = AlignmentMetrics.MeasureSegmentStructure(flatIn, rampOut, AlignmentMetrics.EngineSampleMs);
+var farStructure = AlignmentMetrics.MeasureSegmentStructure(flatIn, farOut, AlignmentMetrics.EngineSampleMs);
 const double SpreadCeiling = 7500;   // a quarter of the 30 s subtitle-reference ceiling, as the plugin uses it
 const double Window = 180000;        // the default search window
 
@@ -2695,18 +2695,18 @@ Check("a 20 s step at the midpoint reads as two pieces, each flat (C2)",
 // reading exists for.
 Check("the linear reading of that same step is a ratio the plugin's own guard refuses (C2)",
     stepChange is { } sc && sc.Ratio > 1.02
-    && !SubSyncService.IsRescaleAcceptable(sc.Ratio, sc.ShiftMs, 180, true)
-    && !SubSyncService.IsRescaleAcceptable(1.01082, 7540, 180, true),
+    && !AlignmentMetrics.IsRescaleAcceptable(sc.Ratio, sc.ShiftMs, 180, true)
+    && !AlignmentMetrics.IsRescaleAcceptable(1.01082, 7540, 180, true),
     stepChange is { } s2 ? $"ratio={s2.Ratio:0.00000} median={s2.ShiftMs} ms" : "null");
 Check("the piecewise reading of that step holds (C2)",
-    stepStructure is { } s3 && SubSyncService.PiecewiseHolds(s3, SpreadCeiling, Window));
+    stepStructure is { } s3 && AlignmentMetrics.PiecewiseHolds(s3, SpreadCeiling, Window));
 Check("a rescale of the same size is not accepted as a staircase (C2)",
-    rampStructure is { } rs && !SubSyncService.PiecewiseHolds(rs, SpreadCeiling, Window),
+    rampStructure is { } rs && !AlignmentMetrics.PiecewiseHolds(rs, SpreadCeiling, Window),
     rampStructure is { } rs2 ? $"segments={rs2.Segments} within={rs2.MaxWithinSpreadMs} step={rs2.SmallestStepMs}" : "null");
 Check("a piecewise answer that leaves the search window is refused (C2)",
-    farStructure is { } fs && fs.Segments == 2 && !SubSyncService.PiecewiseHolds(fs, SpreadCeiling, Window));
+    farStructure is { } fs && fs.Segments == 2 && !AlignmentMetrics.PiecewiseHolds(fs, SpreadCeiling, Window));
 Check("a single global offset is not mistaken for a piecewise answer (C2)",
-    !SubSyncService.PiecewiseHolds(new SubSyncService.SegmentStructure(1, 0, 7540, 0), SpreadCeiling, Window));
+    !AlignmentMetrics.PiecewiseHolds(new AlignmentMetrics.SegmentStructure(1, 0, 7540, 0), SpreadCeiling, Window));
 Directory.Delete(pieceDir, recursive: true);
 
 // ---------------- C: the sweep state is written in batches ----------------
@@ -4631,9 +4631,9 @@ def run_page_checks():
            and "On by default" in pages['subsyncMain.html']
            and 'id="ss-fixfps"' in pages['subsyncMain.html'])
     report('a subtitle reference rescales a framerate-mismatched subtitle before aligning',
-           'private string? RescaleOntoReferenceSpan(' in service_source
+           'internal static string? RescaleOntoReferenceSpan(' in service_source
            and 'TimeSpan videoDuration,' in service_source
-           and 'RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job)' in service_source
+           and 'AlignmentMetrics.RescaleOntoReferenceSpan(subtitleInputPath, referenceArg, videoDuration, tempDir, job, _logger)' in service_source
            and 'IsTargetOffTheVideo(targetSpan, referenceSpan, videoSeconds)' in service_source
            and 'so the reference is the odd one' in service_source
            and 'stretched to {factor:0.#####}x onto the reference' in service_source
