@@ -9178,58 +9178,6 @@ public class SubSyncService : IDisposable
         return (process.ExitCode, stderr);
     }
 
-    private async Task<(int ExitCode, string Stdout, string Stderr)> RunCapturedAsync(
-        string executable, string arguments, string? workingDir, CancellationToken cancellationToken)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        if (workingDir is not null)
-        {
-            process.StartInfo.WorkingDirectory = workingDir;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(cancellationToken);
-        }
-
-        process.Start();
-        TrackChildProcess(process);
-
-        // Kill the process if cancellation is requested
-        using var registration = cancellationToken.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* process may have already exited */ }
-        });
-
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _liveProcesses.TryRemove(process.Id, out _);
-        }
-
-        var stderr = await stderrTask.ConfigureAwait(false);
-        var stdout = await stdoutTask.ConfigureAwait(false);
-
-        return (process.ExitCode, stdout, stderr);
-    }
-
     private async Task<int> RunProcessAsync(string executable, string arguments, string? workingDir, CancellationToken cancellationToken)
     {
         using var process = new Process();
