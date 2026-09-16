@@ -6491,140 +6491,21 @@ public class SubSyncService : IDisposable
                 write).ConfigureAwait(false);
             changedDir = write.ChangedDir;
 
-            // Step 5: Success — describe what changed (offset ms / framerate). The replace-mode
-            // backup is deliberately NOT deleted: a sync that succeeds while being wrong used to
-            // leave the user with no way back, and the copy costs a few kilobytes. It is named
-            // *.bak.subsync, which is not a subtitle extension, so Jellyfin never shows it as a
-            // second track, and the result says where it is.
-            var outcomeInput = write.BackupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
-            if (job.OutputPath is not null)
-            {
-                job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
-                if (audioFallback)
-                {
-                    job.Outcome = "the file's own subtitle track is not the same cut, so this was aligned against the "
-                        + "audio" + (string.IsNullOrEmpty(job.Outcome) ? string.Empty : " \u00b7 " + job.Outcome);
-                }
-                else if (stretchDropped)
-                {
-                    job.Outcome = "the stretch did not hold against the film's audio, so the subtitle was aligned with "
-                        + "offsets only" + (string.IsNullOrEmpty(job.Outcome) ? string.Empty : " \u00b7 " + job.Outcome);
-                }
-                else if (engineInput != subtitleInputPath)
-                {
-                    // The subtitle the user had and the corrected file are on differently scaled timelines, so
-                    // describing the difference between them reports about half the film's drift ("change=+55388 ms")
-                    // for a correction that did what it was asked to. Say what was done instead: the factor, and the
-                    // alignment's own change measured on the timeline the engine worked in.
-                    var before = ParseSrtCueStarts(subtitleInputPath);
-                    var after = ParseSrtCueStarts(engineInput);
-                    var factor = before is { Count: > 2 } && after is { Count: > 2 }
-                        ? (after[^1] - after[0]) / (before[^1] - before[0])
-                        : 1.0;
-                    var aligned = DescribeSyncChange(engineInput, job.OutputPath);
-                    job.Outcome = $"stretched to {factor:0.#####}x onto the reference's timeline"
-                        + (string.IsNullOrEmpty(aligned) ? string.Empty : ", " + aligned);
-                }
-            }
+            // P17: describe what changed - the offset or rescale factor, the signs note, where the replaced
+            // original was kept - and mark the job complete.
+            DescribeCompletedSync(
+                job,
+                subtitleStream,
+                subtitleInputPath,
+                engineInput,
+                write.BackupPath,
+                cuesNote,
+                audioFallback,
+                stretchDropped);
 
-            if (cuesNote is not null)
-            {
-                job.Outcome = string.IsNullOrEmpty(job.Outcome)
-                    ? cuesNote
-                    : job.Outcome + " \u00b7 " + cuesNote;
-            }
-
-            if (write.BackupPath is not null)
-            {
-                // Worth saying plainly: the original file was overwritten in place.
-                var kept = Path.GetFileName(write.BackupPath);
-                job.Outcome = string.IsNullOrEmpty(job.Outcome)
-                    ? "original replaced \u2014 kept at " + kept
-                    : job.Outcome + " \u00b7 original replaced, kept at " + kept;
-                _logger.LogInformation("Original subtitle kept at {Backup} (replace mode)", write.BackupPath);
-            }
-
-            job.Phase = "Complete";
-            job.Status = SyncJobStatus.Completed;
-            job.Progress = 1.0;
-
-            // Check what is about to be announced. On a flaky share a write can disappear between
-            // the copy and this line, and "completed" would then point at a file that is not there.
-            long? outputSize = null;
-            if (!string.IsNullOrEmpty(job.OutputPath))
-            {
-                try
-                {
-                    var written = new FileInfo(job.OutputPath);
-                    if (written.Exists)
-                    {
-                        outputSize = written.Length;
-                    }
-                }
-                catch (IOException)
-                {
-                    // Unreadable size is not a failure; the existence check below decides.
-                }
-            }
-
-            _logger.LogInformation(
-                "Sync job {JobId} completed \u2014 wrote: {Output} ({Size}, {Outcome})",
-                job.Id,
-                job.OutputPath ?? "(no output path set)",
-                outputSize is null ? "size unreadable" : $"{outputSize} bytes",
-                job.Outcome ?? "unknown");
-
-            LogPluginCompletion(job, outputSize);
-
-            if (changedDir is not null && outputSize is null)
-            {
-                _logger.LogWarning(
-                    "The synced subtitle {Output} is not on disk, so the library was not told anything changed. Check the share and its permissions.",
-                    job.OutputPath ?? "(none)");
-                changedDir = null;
-            }
-
-            // Tell Jellyfin about the new file, then refresh the item so its stream list is re-read.
-            // Both are best-effort: the subtitle is already on disk, so a library hiccup must never
-            // turn a finished job into a failure (this block used to sit in the job's own try, where
-            // an exception marked the job FAILED and rolled the result back).
-            //
-            // The folder report is never skipped - it is what makes Jellyfin discover the file, and
-            // Jellyfin coalesces repeats itself. The item refresh re-probes the media file, so it runs
-            // once per item instead of once per subtitle track (see LibraryRefreshGate).
-            if (changedDir is not null)
-            {
-                try
-                {
-                    _libraryMonitor.ReportFileSystemChanged(changedDir);
-                    _logger.LogInformation("Reported the change to the Jellyfin library monitor: {Dir}", changedDir);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "The library monitor rejected the change report for {Dir}; the subtitle is written and will appear after the next library scan", changedDir);
-                }
-            }
-
-            if (_refreshGate.ShouldRefresh(video.Id))
-            {
-                try
-                {
-                    await _libraryManager.UpdateItemAsync(
-                        video,
-                        video.GetParent(),
-                        ItemUpdateType.MetadataImport,
-                        CancellationToken.None).ConfigureAwait(false);
-                    _logger.LogInformation("Refreshed item {ItemId} so its subtitle list is re-read", video.Id);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);
-                }
-            }
-            else
-            {
-                _logger.LogDebug("Skipped the item refresh for {ItemId}: another subtitle of the same item was synced moments ago", video.Id);
-            }
+            // P18: announce it (size probe, completion log, folder report, item refresh). Best-effort by
+            // design: the subtitle is already on disk, so a library hiccup must not fail a finished job.
+            await AnnounceCompletedAsync(job, video, changedDir).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -7088,6 +6969,176 @@ public class SubSyncService : IDisposable
 
         /// <summary>Gets or sets the kept original in replace mode, if there is one.</summary>
         public string? BackupPath { get; set; }
+    }
+
+    /// <summary>
+    /// Builds the sentence a completed job carries: what changed (offset or rescale factor), a note when the
+    /// subtitle looks like a signs track, and where a replaced original was kept. Also marks the job complete.
+    /// </summary>
+    /// <param name="job">The job, whose outcome, phase, status and progress this sets.</param>
+    /// <param name="subtitleStream">The track being synced, for its path and whether it is external.</param>
+    /// <param name="subtitleInputPath">The subtitle the user had, before any rescale.</param>
+    /// <param name="engineInput">What the engine was actually given, when the input was rescaled.</param>
+    /// <param name="backupPath">The kept original in replace mode, if there is one.</param>
+    /// <param name="cuesNote">The signs/forced note, if the subtitle looked like one.</param>
+    /// <param name="audioFallback">Whether a subtitle ruler was discarded and the audio used instead.</param>
+    /// <param name="stretchDropped">Whether a framerate stretch was dropped after failing the audio check.</param>
+    private void DescribeCompletedSync(
+        SyncJob job,
+        MediaBrowser.Model.Entities.MediaStream subtitleStream,
+        string subtitleInputPath,
+        string engineInput,
+        string? backupPath,
+        string? cuesNote,
+        bool audioFallback,
+        bool stretchDropped)
+    {
+        // Step 5: Success — describe what changed (offset ms / framerate). The replace-mode
+        // backup is deliberately NOT deleted: a sync that succeeds while being wrong used to
+        // leave the user with no way back, and the copy costs a few kilobytes. It is named
+        // *.bak.subsync, which is not a subtitle extension, so Jellyfin never shows it as a
+        // second track, and the result says where it is.
+        var outcomeInput = backupPath ?? (subtitleStream.IsExternal ? subtitleStream.Path : subtitleInputPath);
+        if (job.OutputPath is not null)
+        {
+            job.Outcome = DescribeSyncChange(outcomeInput, job.OutputPath);
+            if (audioFallback)
+            {
+                job.Outcome = "the file's own subtitle track is not the same cut, so this was aligned against the "
+                    + "audio" + (string.IsNullOrEmpty(job.Outcome) ? string.Empty : " \u00b7 " + job.Outcome);
+            }
+            else if (stretchDropped)
+            {
+                job.Outcome = "the stretch did not hold against the film's audio, so the subtitle was aligned with "
+                    + "offsets only" + (string.IsNullOrEmpty(job.Outcome) ? string.Empty : " \u00b7 " + job.Outcome);
+            }
+            else if (engineInput != subtitleInputPath)
+            {
+                // The subtitle the user had and the corrected file are on differently scaled timelines, so
+                // describing the difference between them reports about half the film's drift ("change=+55388 ms")
+                // for a correction that did what it was asked to. Say what was done instead: the factor, and the
+                // alignment's own change measured on the timeline the engine worked in.
+                var before = ParseSrtCueStarts(subtitleInputPath);
+                var after = ParseSrtCueStarts(engineInput);
+                var factor = before is { Count: > 2 } && after is { Count: > 2 }
+                    ? (after[^1] - after[0]) / (before[^1] - before[0])
+                    : 1.0;
+                var aligned = DescribeSyncChange(engineInput, job.OutputPath);
+                job.Outcome = $"stretched to {factor:0.#####}x onto the reference's timeline"
+                    + (string.IsNullOrEmpty(aligned) ? string.Empty : ", " + aligned);
+            }
+        }
+
+        if (cuesNote is not null)
+        {
+            job.Outcome = string.IsNullOrEmpty(job.Outcome)
+                ? cuesNote
+                : job.Outcome + " \u00b7 " + cuesNote;
+        }
+
+        if (backupPath is not null)
+        {
+            // Worth saying plainly: the original file was overwritten in place.
+            var kept = Path.GetFileName(backupPath);
+            job.Outcome = string.IsNullOrEmpty(job.Outcome)
+                ? "original replaced \u2014 kept at " + kept
+                : job.Outcome + " \u00b7 original replaced, kept at " + kept;
+            _logger.LogInformation("Original subtitle kept at {Backup} (replace mode)", backupPath);
+        }
+
+        job.Phase = "Complete";
+        job.Status = SyncJobStatus.Completed;
+        job.Progress = 1.0;
+    }
+
+    /// <summary>
+    /// Announces a finished job: probes the size of what was written, logs the completion in both logs, tells the
+    /// library monitor about the folder, and refreshes the item so its subtitle list is re-read. Every step is
+    /// best-effort - the subtitle is already on disk, so a library hiccup must not turn a finished job into a
+    /// failure, which is why this block does not sit inside the job's own try.
+    /// </summary>
+    /// <param name="job">The job that was written.</param>
+    /// <param name="video">The item the subtitle belongs to.</param>
+    /// <param name="changedDir">The folder to report, if the job wrote one.</param>
+    private async Task AnnounceCompletedAsync(SyncJob job, Video video, string? changedDir)
+    {
+        // Check what is about to be announced. On a flaky share a write can disappear between
+        // the copy and this line, and "completed" would then point at a file that is not there.
+        long? outputSize = null;
+        if (!string.IsNullOrEmpty(job.OutputPath))
+        {
+            try
+            {
+                var written = new FileInfo(job.OutputPath);
+                if (written.Exists)
+                {
+                    outputSize = written.Length;
+                }
+            }
+            catch (IOException)
+            {
+                // Unreadable size is not a failure; the existence check below decides.
+            }
+        }
+
+        _logger.LogInformation(
+            "Sync job {JobId} completed \u2014 wrote: {Output} ({Size}, {Outcome})",
+            job.Id,
+            job.OutputPath ?? "(no output path set)",
+            outputSize is null ? "size unreadable" : $"{outputSize} bytes",
+            job.Outcome ?? "unknown");
+
+        LogPluginCompletion(job, outputSize);
+
+        if (changedDir is not null && outputSize is null)
+        {
+            _logger.LogWarning(
+                "The synced subtitle {Output} is not on disk, so the library was not told anything changed. Check the share and its permissions.",
+                job.OutputPath ?? "(none)");
+            changedDir = null;
+        }
+
+        // Tell Jellyfin about the new file, then refresh the item so its stream list is re-read.
+        // Both are best-effort: the subtitle is already on disk, so a library hiccup must never
+        // turn a finished job into a failure (this block used to sit in the job's own try, where
+        // an exception marked the job FAILED and rolled the result back).
+        //
+        // The folder report is never skipped - it is what makes Jellyfin discover the file, and
+        // Jellyfin coalesces repeats itself. The item refresh re-probes the media file, so it runs
+        // once per item instead of once per subtitle track (see LibraryRefreshGate).
+        if (changedDir is not null)
+        {
+            try
+            {
+                _libraryMonitor.ReportFileSystemChanged(changedDir);
+                _logger.LogInformation("Reported the change to the Jellyfin library monitor: {Dir}", changedDir);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "The library monitor rejected the change report for {Dir}; the subtitle is written and will appear after the next library scan", changedDir);
+            }
+        }
+
+        if (_refreshGate.ShouldRefresh(video.Id))
+        {
+            try
+            {
+                await _libraryManager.UpdateItemAsync(
+                    video,
+                    video.GetParent(),
+                    ItemUpdateType.MetadataImport,
+                    CancellationToken.None).ConfigureAwait(false);
+                _logger.LogInformation("Refreshed item {ItemId} so its subtitle list is re-read", video.Id);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);
+            }
+        }
+        else
+        {
+            _logger.LogDebug("Skipped the item refresh for {ItemId}: another subtitle of the same item was synced moments ago", video.Id);
+        }
     }
 
     /// <summary>

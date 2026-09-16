@@ -459,3 +459,38 @@ which is the option §7 held back for P3.
 were re-pointed (`S46-inline-drop`) and re-run — `P5` (the cached-speech retry) and `S46-inline-drop` are CAUGHT, as
 are `P8-stale` and `S43-vad`, which consume the cluster's results rather than living in it. The characterization
 baseline is unchanged at 24 checks, which is the point of a pure move: it should not move the net at all.
+
+## 12. Phase 3 of the extraction, done (2026-09-16)
+
+§7's third step — P15–P18, "write, verify, describe, announce" — in two logical slices.
+
+**Step A: `WriteSyncedSubtitleAsync` (P14–P16), −96 lines.** The engine-output guard, the write (copy-mode
+sidecar, in-place replace with backup, embedded sidecar) and the verification of what was written. `RunSyncJob`
+1417 → 1321 lines; the method is 122. The moved block differs from the original in exactly **six lines**, and they
+are not cosmetic: `changedDir`/`backupPath` are published into a caller-owned `SyncWriteOutcome` instead of being
+assigned to locals of the caller's frame.
+
+**Why those six lines exist — the P19 check caught this twice.** The caller's failure path rolls back from the
+backup, and a write that throws returns nothing. Returning `(ChangedDir, BackupPath)` as a tuple therefore lost the
+backup path on exactly the branch the rollback exists for: the replace failed, the original was never restored from
+the kept backup, and the backup file stayed behind. Filling a holder did not fix it either while the caller still
+copied it into its own local *after* the await — the await had thrown. The structure that works is the one the
+original code had for the same reason: the value has to be published where the caller can still read it, so the
+holder is declared *outside* the job's `try` (next to `speechKey`) and the handler in the `catch` reads
+`write.BackupPath` directly. Suite 966 checks green afterwards, `P19` restored. Worth recording as the one place
+where a "pure move" was not pure: the phase's data flow crosses a `catch`, which a naive extract-method breaks.
+
+**Step B: `DescribeCompletedSync` (P17) and `AnnounceCompletedAsync` (P18), −119 lines.** The outcome sentence
+(offset, rescale factor, signs note, the replace-mode backup line, the terminal status) and the announcement (size
+probe, completion log, folder report, item refresh — every step best-effort, which is why it does not live in the
+job's own `try`). `RunSyncJob` 1321 → 1202 lines; the methods are 67 and 80. P18 moved **byte-identically**
+(76 lines, zero differences). P17 differs in **four lines**, all of them `write.BackupPath` becoming the method's own
+parameter, because step A's outcome object belongs to the caller and not to the method that builds the sentence.
+
+**Phase 3 total: 1417 → 1202 lines (−215)**, with three methods (122 + 67 + 80) and the holder class in their place.
+**Since the map was written: 1562 → 1202 = −360 lines across Phases 1–3**, with Phase 1's share counting the S46
+fix's +23 inside the method.
+
+**Also re-pointed:** three mutation anchors that lived inside the moved text (`P15-replace`, `P18-catch`, and
+`P19`'s — which reads the holder now, since the rollback moved with it) and the extraction driver's label pattern,
+which is how the first two verification runs silently reported "MISSED" instead of a real result.
