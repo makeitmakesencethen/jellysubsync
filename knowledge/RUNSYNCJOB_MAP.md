@@ -571,3 +571,39 @@ invisible - and a symlink per analysed file left behind forever is a real leak. 
 `.mkv` links in the speech cache before and after a job that does its own analysis
 (`P19: the audio-analysis link does not outlive the job that made it`), and the new `P19-link-leak` mutation
 (skip the drop) is caught by it.
+
+## 15. The extraction, closed (2026-09-16)
+
+Four phases, eleven commits, shipped as 2.0.55 → 2.0.60. **`RunSyncJob` went from 1562 lines to 904 (−658, −42%)**,
+and reads as twenty named phases calling nine extracted methods instead of one pipeline:
+
+| step | release | lines | what it did |
+|---|---|---|---|
+| Phase 1 - terminal blocks + S22 | 2.0.56 | 1562 → 1541 (−21) | `RefuseJob`, `CompleteAlreadyInSync`, `CompleteAsNoChange` |
+| (S46 fix rode inside the method) | 2.0.57 | 1541 → 1564 (+23) | the analysis link's lifetime |
+| Phase 2 - the engine-run cluster | 2.0.57 | 1564 → 1417 (−147) | `RunEngineAttemptAsync` |
+| (dead `mode` local) | 2.0.59 | 1417 → 1201 (−1) | nothing read it |
+| Phase 3 - P3 reference resolution | 2.0.59 | 1201 → 983 (−218) | `ResolveReferenceAsync`, `PrepareAudioReferenceAsync`, `ReferenceResolution` |
+| Phase 3 - write/describe/announce | 2.0.58 | (before P3) −215 | `WriteSyncedSubtitleAsync`, `DescribeCompletedSync`, `AnnounceCompletedAsync`, `SyncWriteOutcome` |
+| P19 - the failure path | 2.0.60 | 983 → 904 (−79) | `MarkCancelled`, `FailJobAndRollBack`, `CleanUpAfterJob` |
+
+**Behaviour changed twice, both on purpose:** S22 (a refusal names the engine's real cause) and S46 (the
+wider-window retry can read its reference again - the shape of 7 of one field run's 8 refusals). Everything else
+was structure, and was *proven* structure: every moved block was compared before/after, and the only differences
+were the renames each context object forced.
+
+**The questions §7 could not answer, now answered:**
+
+- *Is `harvestedWhileWaiting` reachable?* **Yes.** The `p3-speech-gate` rig scenario runs two jobs of one file
+  (no embedded track, `ParallelWorkers = 2`): exactly one logged `reference: method=audio`, the other
+  `method=speech-cache … (harvested by another job of this file while this one waited)`, and both completed - so
+  the waiter was handed the analysis the first job produced rather than analysing the film a second time. A build
+  that dropped the second lookup would fail that assertion.
+- *What static reading could not determine about the speech gate's interleaving* is now a scenario that runs
+  against the real engine, not a paragraph of uncertainty.
+
+**What guards it now:** 40 characterization checks drive the method through reflection with a stand-in engine
+(terminals, refusals, the resends, and both P3 branches), 25 mutations each fail the check they target, and the
+969-check suite (including the rig's real-engine scenarios) is green. Two tooling defects found on the way - a
+label list that ignored new check families, and a driver that replaced only the first occurrence of an anchor -
+had been quietly weakening every mutation verdict, including earlier phases'.
