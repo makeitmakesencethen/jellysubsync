@@ -1,3 +1,14 @@
+## 2.0.60 (beta)
+
+Under the hood — the last step of the `RunSyncJob` refactor, with nothing user-visible changed. A job's failure
+path is now three named methods: `MarkCancelled` (the user killed it), `FailJobAndRollBack` (it threw, so an
+in-place replace is undone from the kept backup) and `CleanUpAfterJob` (release the temp directory, the file's
+speech gate, the audio-analysis link — which has to outlive every run of the job, not the job itself — and the
+shared extraction tree, each best-effort so a cleanup failure cannot change a job that already finished).
+`RunSyncJob` is 904 lines, down from 1562 when this refactor started. The suite gained one check in the process:
+nothing had asserted that the audio-analysis link is *dropped* when its job ends, only that the job's own retries
+can still read it — a symlink per analysed file left behind forever would have gone unnoticed, and now does not.
+
 ## 2.0.59 (beta)
 
 Under the hood — the fourth and largest step of the `RunSyncJob` refactor, with nothing user-visible changed.

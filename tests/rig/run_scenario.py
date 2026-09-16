@@ -1181,6 +1181,105 @@ def scenario_s39_ratio(rig, args, ctx):
     ]
 
 
+# The map's last open question: two jobs of ONE file, both needing the film's audio, so both go through the
+# per-file speech gate. One job analyses, the other waits - and when the first harvests its analysis and releases
+# the gate, the waiter should find it. That branch (`harvestedWhileWaiting`) has never been exercised, because
+# nothing else in the suite or the harness runs two jobs of one file at the same moment.
+P3_DIR = JELLYFIN / 'media' / 'P3 Speech Gate'
+P3_MEDIA = P3_DIR / 'P3 Probe (2026).mkv'
+
+
+def prepare_p3_fixtures() -> None:
+    """A file with NO embedded subtitle track and two external sidecars.
+
+    Without an embedded track there is no sibling to use as a reference, so both jobs must use the film's own
+    audio - the path that goes through the speech gate and the speech cache. The sidecars are rewritten every run
+    so they are always out of sync with the film (eng +5 s, swe +8 s).
+    """
+    P3_DIR.mkdir(parents=True, exist_ok=True)
+    scratch = pathlib.Path('/tmp/p3-fixture')
+    scratch.mkdir(parents=True, exist_ok=True)
+    if not P3_MEDIA.exists():
+        subprocess.run(['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
+                        '-map', '0:v', '-map', '0:a', '-c', 'copy', str(P3_MEDIA)],
+                       check=True, capture_output=True)
+    raw = scratch / 'source.srt'
+    if not raw.exists() or raw.read_text(encoding='utf-8', errors='replace').count(' --> ') < 100:
+        subprocess.run(['/usr/bin/ffmpeg', '-y', '-v', 'error', '-i', str(S31_SOURCE),
+                        '-map', '0:4', str(raw)], check=True, capture_output=True)
+    text = raw.read_text(encoding='utf-8', errors='replace')
+    for lang, shift in (('eng', 5.0), ('swe', 8.0)):
+        (P3_DIR / f'P3 Probe (2026).{lang}.srt').write_text(
+            _rerender(text, lambda x, s=shift: x + s), encoding='utf-8')
+    log(f'[rig] P3 fixture ready: no embedded subtitle, two external sidecars (eng +5 s, swe +8 s)')
+
+
+def scenario_p3_speech_gate(rig, args, ctx):
+    """The last open question from the map: is `harvestedWhileWaiting` reachable?
+
+    Two jobs of one file start together (ParallelWorkers = 2). Both need the film's audio, so one takes the file's
+    speech gate and runs the analysis while the other waits on that gate. The first harvests its analysis and
+    releases the gate; the waiter's next lookup should then find it - the branch that has never been exercised.
+
+    Assertions: both jobs finish, exactly one of them analysed the audio, and the other says it found what another
+    job stored while it waited. A build that skips the second lookup would fail the third.
+    """
+    original = rig.get('/SubSync/Configuration')
+    rig.post('/SubSync/Configuration', dict(original, ParallelWorkers=2))
+    try:
+        rig.refresh_library()
+        time.sleep(15)
+        prepare_p3_fixtures()
+        rig.refresh_library()
+        time.sleep(10)
+        items = [i for i in rig.items(str(P3_DIR)) if str(P3_DIR) in (i.get('Path') or '')]
+        if not items:
+            rig.refresh_library()
+            time.sleep(20)
+            items = [i for i in rig.items(str(P3_DIR)) if str(P3_DIR) in (i.get('Path') or '')]
+        if not items:
+            return [('the speech-gate fixture is in the library', False, f'no item whose path contains {P3_DIR}')]
+        item = items[0]
+        streams = [s for s in (item.get('MediaStreams') or [])
+                   if s.get('Type') == 'Subtitle' and s.get('IsExternal')]
+        if len(streams) < 2:
+            return [('the file carries two external subtitles to sync', False,
+                     f'{len(streams)} external subtitle stream(s) in the item')]
+
+        rig.post('/SubSync/SpeechCache/Clear')
+        rig.log_lines()
+        since = rig._log_offset
+        # Two tasks for the SAME item: the two sidecars, so two jobs of one file exist at once.
+        tasks = [{'ItemId': item['Id'], 'SubtitleIndex': int(s.get('Index', 0)),
+                  'Title': f'{item.get("Name")} {(s.get("Language") or s.get("Index"))}'}
+                 for s in streams[:2]]
+        view = rig.post('/SubSync/Batch', {'Tasks': tasks, 'Label': 'rig-p3-gate'})
+        batch = view.get('BatchId') or view.get('Id')
+        ctx['batch'] = batch
+        rig.wait_batch(batch, timeout=300)
+        lines = rig.log_lines(since)
+
+        audio = [ln for ln in lines if 'reference: method=audio' in ln]
+        cached = [ln for ln in lines if 'reference: method=speech-cache' in ln]
+        harvested = [ln for ln in lines if 'harvested by another job of this file' in ln]
+        completed = [ln for ln in lines if 'completed' in ln or 'already in sync' in ln]
+        ctx['observations'] = audio + cached + harvested
+
+        return [
+            ('both jobs of the one file reach a terminal state', len(completed) >= 2,
+             f'{len(completed)} completion line(s): ' + ' | '.join(ln.split('INFO')[-1].strip()[:90] for ln in completed[:2])),
+            ('exactly one of the two jobs analysed the audio', len(audio) == 1,
+             f'{len(audio)} method=audio line(s): ' + ' | '.join(ln.split('INFO')[-1].strip()[:110] for ln in audio)),
+            ('the waiting job found the analysis the other job stored while it waited',
+             bool(harvested),
+             harvested[0].split('INFO')[-1].strip()[:170] if harvested
+             else '(that branch never ran; the waiting job logged: '
+                  + ' | '.join(ln.split('INFO')[-1].strip()[:110] for ln in cached) + ')'),
+        ]
+    finally:
+        rig.post('/SubSync/Configuration', original)
+
+
 SCENARIOS = {
     'smoke': dict(run=scenario_smoke, storage='any',
                   needs='nothing: it is the harness checking itself (2 volumes, fixtures, log)'),
@@ -1202,6 +1301,9 @@ SCENARIOS = {
                         needs='nothing: it drives the settings API, the same way the page does'),
     's43-audio-is-audio': dict(run=scenario_s43_audio_is_audio, storage='any',
                                needs='a file whose only subtitle track is out of sync: the audio is the only reference'),
+    'p3-speech-gate': dict(run=scenario_p3_speech_gate, storage='any',
+                           needs='two jobs of one file needing the audio (no embedded track), run together with '
+                                 'ParallelWorkers=2: is the harvested-while-waiting branch reachable'),
     's39-ratio': dict(run=scenario_s39_ratio, storage='shim',
                       shim={'MS_PER_CALL': 0.0, 'MS_PER_16K': 12.8},
                       needs='8 walks on one volume, then a slow walk on another: the ratios must decide, not a constant'),

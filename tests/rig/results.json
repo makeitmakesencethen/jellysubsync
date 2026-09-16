@@ -4576,5 +4576,43 @@
     ],
     "batch": "9dbafa7a07524710bca43a17e54267e6",
     "seconds": 36.0
+  },
+  {
+    "scenario": "p3-speech-gate",
+    "when": "2026-09-16 13:13:02",
+    "plugin": "SubSync_2.0.59.0",
+    "shim": null,
+    "note": "",
+    "repo_head": "068d94c",
+    "assertions": [
+      {
+        "check": "both jobs of the one file reach a terminal state",
+        "passed": true,
+        "detail": "2 completion line(s): job 9acd1d1eed754b929e12fbb3c6591560 completed: mode=ultimate output=/opt/data/jf12test/me | job a2a95e1afaaf4f0ab8006de17d38d1e6 completed: mode=ultimate output=/opt/data/jf12test/me"
+      },
+      {
+        "check": "exactly one of the two jobs analysed the audio",
+        "passed": true,
+        "detail": "1 method=audio line(s): [9acd1d1eed754b929e12fbb3c6591560] reference: method=audio why=the audio is this job's own reference (this job"
+      },
+      {
+        "check": "the waiting job found the analysis the other job stored while it waited",
+        "passed": true,
+        "detail": "[a2a95e1afaaf4f0ab8006de17d38d1e6] reference: method=speech-cache why=the audio is this job's own reference (harvested by another job of this file while this one waited)"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "2026-09-16 11:13:54.621Z INFO  [9acd1d1eed754b929e12fbb3c6591560] reference: method=audio why=the audio is this job's own reference (this job does the file's analysis; the others wait for it)",
+      "2026-09-16 11:14:10.573Z INFO  [a2a95e1afaaf4f0ab8006de17d38d1e6] reference: method=speech-cache why=the audio is this job's own reference (harvested by another job of this file while this one waited)",
+      "2026-09-16 11:14:10.573Z INFO  [a2a95e1afaaf4f0ab8006de17d38d1e6] reference: method=speech-cache why=the audio is this job's own reference (harvested by another job of this file while this one waited)"
+    ],
+    "batch": "2a5b520188654583be89fb1c760b8ad6",
+    "log_tail": [
+      "2026-09-16 11:14:14.580Z INFO  settings applied: workers=64 lanes=3",
+      "2026-09-16 11:14:14.580Z INFO  extract lane: started",
+      "2026-09-16 11:14:14.580Z INFO  extract lane: started"
+    ],
+    "seconds": 73.1
   }
 ]
