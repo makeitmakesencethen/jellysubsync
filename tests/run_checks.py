@@ -31,7 +31,8 @@ def service_classes():
     new file instead of being rewritten to match a file boundary - which keeps the pin pointed at the
     behaviour rather than at the layout.
     """
-    names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs']
+    names = ['SubSyncService.cs', 'MediaStreamMap.cs', 'SyncedTargetNaming.cs', 'AlignmentMetrics.cs',
+             'SubSyncProcesses.cs']
     return '\n'.join(open(os.path.join(SERVICE_DIR, name), encoding='utf-8').read() for name in names)
 
 
@@ -3448,11 +3449,11 @@ var b16StoppedProcess = System.Diagnostics.Process.Start(
     new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60") { UseShellExecute = false })!;
 Thread.Sleep(150);
 b16StoppedProcess.Kill();
-var b16Counted = SubSyncService.CountExited(new[] { b16StoppedProcess }, 3000);
+var b16Counted = SubSyncProcesses.CountExited(new[] { b16StoppedProcess }, 3000);
 var b16Alive = System.Diagnostics.Process.Start(
     new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60") { UseShellExecute = false })!;
 Thread.Sleep(150);
-var b16StillRunning = SubSyncService.CountExited(new[] { b16Alive }, 300);
+var b16StillRunning = SubSyncProcesses.CountExited(new[] { b16Alive }, 300);
 b16Alive.Kill();
 b16Alive.WaitForExit(3000);
 b16StoppedProcess.Dispose();
@@ -3662,12 +3663,12 @@ else
         b14Tracked == 1 && JobProcessRegistry.LiveProcesses == 0,
         $"before={b14Tracked} after={JobProcessRegistry.LiveProcesses}");
 
-    var b14Service = new SubSyncService(null!, null!, null!, null!);
+    var b14Processes = new SubSyncProcesses(null!);
     var b14Child = System.Diagnostics.Process.Start(
         new System.Diagnostics.ProcessStartInfo("/bin/sleep", "60"));
-    b14Service.TrackChildProcess(b14Child!);
+    b14Processes.TrackChildProcess(b14Child!);
     var b14Watch = System.Diagnostics.Stopwatch.StartNew();
-    var (b14Asked, b14Stopped) = b14Service.KillChildProcesses();
+    var (b14Asked, b14Stopped) = b14Processes.KillChildProcesses();
     b14Watch.Stop();
     Check("B14: a tracked child is killed by the teardown path and counted as exited",
         b14Asked == 1 && b14Stopped == 1 && b14Child!.HasExited,
@@ -5186,7 +5187,7 @@ def run_page_checks():
 
     # B14: teardown cancels the run tokens, kills what it tracks, waits for a bounded time and forgets the registry.
     report('B14: teardown kills the tracked children, waits for the lanes, and clears the registry',
-           'var (childrenAsked, childrenStopped) = KillChildProcesses();' in service_source
+           'var (childrenAsked, childrenStopped) = _processes.KillChildProcesses();' in service_source
            and 'var tasksDone = WaitForLanes(ShutdownWaitMs);' in service_source
            and 'JobProcessRegistry.Clear();' in service_source
            and 'foreach (var entry in _jobCancellation)' in service_source

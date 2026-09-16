@@ -1,4 +1,5 @@
 using System.Globalization;
+using MediaBrowser.Controller.Entities;
 using System.Runtime.InteropServices;
 
 namespace Jellyfin.Plugin.SubSync.Services;
@@ -15,6 +16,49 @@ namespace Jellyfin.Plugin.SubSync.Services;
 /// </remarks>
 public static class MediaStreamMap
 {
+    /// <summary>
+    /// Locates the REAL container stream index of an embedded subtitle track by
+    /// probing the file with ffmpeg. Jellyfin's MediaStream.Index cannot be used
+    /// as a container index (values have been observed pointing past the file's
+    /// actual stream count when a video mixes embedded and external subtitles),
+    /// so the target is matched by position: the Nth embedded subtitle stream
+    /// Jellyfin reports corresponds to the Nth subtitle stream ffmpeg sees.
+    /// </summary>
+    /// <param name="video">The video item.</param>
+    /// <param name="target">The embedded subtitle stream to extract.</param>
+    /// <returns>The container index, subtitle ordinal and codecs in subtitle-stream order.</returns>
+    /// <param name="ffmpegPath">The ffmpeg binary the container is probed with.</param>
+    /// <param name="processes">The process layer the probe runs through.</param>
+    /// <exception cref="InvalidOperationException">The stream could not be mapped.</exception>
+    internal static async Task<(int ContainerIndex, int SubtitleOrdinal, List<string> Codecs)> ResolveContainerSubtitleIndexAsync(
+        Video video, MediaBrowser.Model.Entities.MediaStream target, string ffmpegPath, SubSyncProcesses processes)
+    {
+        var (_, stderr) = await processes.RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
+        var containerSubs = MediaStreamMap.ParseProbeSubtitleIndexes(stderr);
+        var subtitleCodecs = MediaStreamMap.ParseProbeSubtitleCodecs(stderr);
+
+        var mediaSources = video.GetMediaSources(true);
+        var jellyfinStreams = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
+            ?? new List<MediaBrowser.Model.Entities.MediaStream>();
+        var jellyfinEmbedded = jellyfinStreams
+            .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
+            .ToList();
+
+        // The ordinal comes from the same definition the enqueue path uses, so the track a job was
+        // queued for and the track this resolver finds cannot drift apart.
+        var pos = MediaStreamMap.EmbeddedSubtitleOrdinal(jellyfinStreams, target);
+
+        if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
+        {
+            return (containerSubs[pos], pos, subtitleCodecs);
+        }
+
+        throw new InvalidOperationException(
+            $"Could not map the embedded subtitle to a real container stream: ffmpeg reports {containerSubs.Count} subtitle stream(s) " +
+            $"(container indexes [{string.Join(", ", containerSubs)}]) but Jellyfin reports {jellyfinEmbedded.Count} embedded subtitle stream(s) " +
+            $"for {video.Path}.");
+    }
+
     /// <summary>
     /// True when an external subtitle is one of this plugin's own outputs.
     /// </summary>

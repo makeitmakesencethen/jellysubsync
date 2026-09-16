@@ -48,20 +48,26 @@
 
     string SvcQuote(string value) => "'" + value.Replace("'", "'\\''", StringComparison.Ordinal) + "'";
 
-    var svcRunner = new SubSyncService(Microsoft.Extensions.Logging.Abstractions.NullLogger<SubSyncService>.Instance, null!, null!, null!);
+    // The process runners and their table live in SubSyncProcesses (the C4 extraction), so a check drives the
+    // class that owns the member rather than the class it used to be in.
+    var svcProcesses = new SubSyncProcesses(Microsoft.Extensions.Logging.Abstractions.NullLogger<SubSyncService>.Instance);
     MethodInfo? SvcMethod(string name) => typeof(SubSyncService).GetMethod(
         name,
         BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
 
-    object? SvcField(object target, string name) => typeof(SubSyncService)
+    MethodInfo? SvcMethodOn(object target, string name) => target.GetType().GetMethod(
+        name,
+        BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Public | BindingFlags.Static);
+
+    object? SvcField(object target, string name) => target.GetType()
         .GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)?.GetValue(target);
 
-    void SvcSetField(object target, string name, object? value) => typeof(SubSyncService)
+    void SvcSetField(object target, string name, object? value) => target.GetType()
         .GetField(name, BindingFlags.NonPublic | BindingFlags.Instance)?.SetValue(target, value);
 
     async Task<object?> SvcCall(object target, string name, params object?[] arguments)
     {
-        var method = SvcMethod(name) ?? throw new InvalidOperationException("no method named " + name);
+        var method = SvcMethodOn(target, name) ?? throw new InvalidOperationException("no method named " + name);
         var result = method.Invoke(target, arguments);
         if (result is Task task)
         {
@@ -82,27 +88,25 @@
     }
 
     int SvcLiveProcesses() =>
-        (SvcField(svcRunner, "_liveProcesses") as System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>)?.Count ?? -1;
+        (SvcField(svcProcesses, "_liveProcesses") as System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>)?.Count ?? -1;
 
     // ===========================================================================================
     // C4: the five process runners, of which four are called. Characterization for B18.
     // ===========================================================================================
     Check("C4: the runner set is the four that are called, and the dead one is gone",
-        SvcMethod("RunProcessArgumentListAsync") is not null
-        && SvcMethod("RunProcessAsync") is not null
-        && SvcMethod("RunProcessWithStderrCallbackAsync") is not null
-        && SvcMethod("RunProcessCaptureAsync") is not null
-        && SvcMethod("RunCapturedAsync") is null,
-        $"present={SvcMethod("RunProcessArgumentListAsync") is not null}/{SvcMethod("RunProcessAsync") is not null}"
-        + $"/{SvcMethod("RunProcessWithStderrCallbackAsync") is not null}/{SvcMethod("RunProcessCaptureAsync") is not null}"
-        + $" RunCapturedAsync={(SvcMethod("RunCapturedAsync") is null ? "absent" : "still there")}");
+        SvcMethodOn(svcProcesses, "RunProcessArgumentListAsync") is not null
+        && SvcMethodOn(svcProcesses, "RunProcessAsync") is not null
+        && SvcMethodOn(svcProcesses, "RunProcessWithStderrCallbackAsync") is not null
+        && SvcMethodOn(svcProcesses, "RunProcessCaptureAsync") is not null
+        && SvcMethodOn(svcProcesses, "RunCapturedAsync") is null,
+        $"present={SvcMethodOn(svcProcesses, "RunProcessArgumentListAsync") is not null}/{SvcMethodOn(svcProcesses, "RunProcessAsync") is not null}"
+        + $"/{SvcMethodOn(svcProcesses, "RunProcessWithStderrCallbackAsync") is not null}/{SvcMethodOn(svcProcesses, "RunProcessCaptureAsync") is not null}"
+        + $" RunCapturedAsync={(SvcMethodOn(svcProcesses, "RunCapturedAsync") is null ? "absent" : "still there")}");
 
     // The ArgumentList style hands each element over as one argv element, whatever is inside it.
     var svcArgvA = Path.Combine(svcRoot, "argv-list.txt");
     var svcListRunner = SvcDumpScript("argv-list.sh", svcArgvA);
-    var svcListResult = SvcPairInt(await SvcCall(
-        svcRunner,
-        "RunProcessArgumentListAsync",
+    var svcListResult = SvcPairInt(await SvcCall(svcProcesses, "RunProcessArgumentListAsync",
         svcListRunner,
         new[] { "a b", "c'd", "$HOME", "x\"y" },
         svcBin,
@@ -121,11 +125,11 @@
     // involved. This is the difference B18's consolidation has to resolve, recorded as it is today.
     var svcArgvB = Path.Combine(svcRoot, "argv-string.txt");
     var svcStringRunner = SvcDumpScript("argv-string.sh", svcArgvB);
-    var svcStringExit = (int)(await SvcCall(svcRunner, "RunProcessAsync", svcStringRunner, "a b", svcBin, CancellationToken.None))!;
+    var svcStringExit = (int)(await SvcCall(svcProcesses, "RunProcessAsync", svcStringRunner, "a b", svcBin, CancellationToken.None))!;
     var svcStringArgv = File.Exists(svcArgvB) ? File.ReadAllLines(svcArgvB) : Array.Empty<string>();
     var svcArgvC = Path.Combine(svcRoot, "argv-quoted.txt");
     var svcQuotedRunner = SvcDumpScript("argv-quoted.sh", svcArgvC);
-    await SvcCall(svcRunner, "RunProcessAsync", svcQuotedRunner, "\"a b\" c", svcBin, CancellationToken.None);
+    await SvcCall(svcProcesses, "RunProcessAsync", svcQuotedRunner, "\"a b\" c", svcBin, CancellationToken.None);
     var svcQuotedArgv = File.Exists(svcArgvC) ? File.ReadAllLines(svcArgvC) : Array.Empty<string>();
     Check("C4: the string runner lets the runtime parse the string (a space splits, a quote groups)",
         svcStringExit == 0
@@ -138,7 +142,7 @@
     var svcEscape = (string)(SvcMethod("EscapeArg")!.Invoke(null, new object?[] { "/tmp/a b/subsync" }) ?? string.Empty);
     var svcArgvD = Path.Combine(svcRoot, "argv-escaped.txt");
     var svcEscapedRunner = SvcDumpScript("argv-escaped.sh", svcArgvD);
-    await SvcCall(svcRunner, "RunProcessAsync", svcEscapedRunner, "-m venv " + svcEscape, svcBin, CancellationToken.None);
+    await SvcCall(svcProcesses, "RunProcessAsync", svcEscapedRunner, "-m venv " + svcEscape, svcBin, CancellationToken.None);
     var svcEscapedArgv = File.Exists(svcArgvD) ? File.ReadAllLines(svcArgvD) : Array.Empty<string>();
     Check("C4: EscapeArg's quoting survives the string runner as one argument (why the install path works)",
         svcEscape == "\"/tmp/a b/subsync\""
@@ -149,13 +153,11 @@
     // Exit codes and stderr, from every runner that reports one.
     var svcCodeExit = Path.Combine(svcRoot, "exit-code.txt");
     var svcCodeRunner = SvcScript("exit7.sh", "printf 'boom\\n' >&2\nprintf 'out\\n'\nprintf 'ran' > " + SvcQuote(svcCodeExit) + "\nexit 7");
-    var svcListFailure = SvcPairInt(await SvcCall(svcRunner, "RunProcessArgumentListAsync", svcCodeRunner, new[] { "x" }, svcBin, CancellationToken.None));
-    var svcStringFailure = (int)(await SvcCall(svcRunner, "RunProcessAsync", svcCodeRunner, "x", svcBin, CancellationToken.None))!;
-    var svcCaptured = SvcPairInt(await SvcCall(svcRunner, "RunProcessCaptureAsync", svcCodeRunner, "x", svcBin));
+    var svcListFailure = SvcPairInt(await SvcCall(svcProcesses, "RunProcessArgumentListAsync", svcCodeRunner, new[] { "x" }, svcBin, CancellationToken.None));
+    var svcStringFailure = (int)(await SvcCall(svcProcesses, "RunProcessAsync", svcCodeRunner, "x", svcBin, CancellationToken.None))!;
+    var svcCaptured = SvcPairInt(await SvcCall(svcProcesses, "RunProcessCaptureAsync", svcCodeRunner, "x", svcBin));
     var svcStderrLines = new List<string>();
-    var svcCallbackExit = (int)(await SvcCall(
-        svcRunner,
-        "RunProcessWithStderrCallbackAsync",
+    var svcCallbackExit = (int)(await SvcCall(svcProcesses, "RunProcessWithStderrCallbackAsync",
         svcCodeRunner,
         new[] { "x" },
         svcBin,
@@ -223,7 +225,7 @@
         svcCts.CancelAfter(500);
         try
         {
-            await SvcCall(svcRunner, "RunProcessArgumentListAsync", svcSleepRunner, new[] { "x" }, svcBin, svcCts.Token);
+            await SvcCall(svcProcesses, "RunProcessArgumentListAsync", svcSleepRunner, new[] { "x" }, svcBin, svcCts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -256,7 +258,7 @@
     var svcRefusedBeforeStart = false;
     try
     {
-        await SvcCall(svcRunner, "RunProcessArgumentListAsync", svcNeverRunner, new[] { "x" }, svcBin, svcPreCancelled.Token);
+        await SvcCall(svcProcesses, "RunProcessArgumentListAsync", svcNeverRunner, new[] { "x" }, svcBin, svcPreCancelled.Token);
     }
     catch (OperationCanceledException)
     {
@@ -274,7 +276,7 @@
     var svcMissingCapture = false;
     try
     {
-        await SvcCall(svcRunner, "RunProcessArgumentListAsync", svcMissing, new[] { "x" }, svcBin, CancellationToken.None);
+        await SvcCall(svcProcesses, "RunProcessArgumentListAsync", svcMissing, new[] { "x" }, svcBin, CancellationToken.None);
     }
     catch (System.ComponentModel.Win32Exception)
     {
@@ -283,7 +285,7 @@
 
     try
     {
-        await SvcCall(svcRunner, "RunProcessCaptureAsync", svcMissing, "x", svcBin);
+        await SvcCall(svcProcesses, "RunProcessCaptureAsync", svcMissing, "x", svcBin);
     }
     catch (System.ComponentModel.Win32Exception)
     {

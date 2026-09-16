@@ -579,10 +579,10 @@ public class SubSyncService : IDisposable
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _jobCancellation = new();
 
     /// <summary>
-    /// Every child process currently running (ffsubsync, ffmpeg), so Kill can terminate the
+    /// Every child process this service runs (ffsubsync, ffmpeg, python3, pip), so Kill can terminate the
     /// whole tree instead of only cancelling a token and hoping the process notices.
     /// </summary>
-    private readonly ConcurrentDictionary<int, Process> _liveProcesses = new();
+    private readonly SubSyncProcesses _processes;
 
     // Cleanup timer for evicting old completed/failed jobs
     private readonly Timer _cleanupTimer;
@@ -634,9 +634,11 @@ public class SubSyncService : IDisposable
 
         // B5: the probe goes through the plugin's own process runner, so the shipped path is the one the checks
         // exercise - and it reports the one spawn per binary, which is what the rig counts from outside.
+        _processes = new SubSyncProcesses(logger);
+
         _bundledVersionCache = new EngineVersionCache(path =>
         {
-            var (exitCode, output) = RunProcessCaptureAsync(path, "--version", null).GetAwaiter().GetResult();
+            var (exitCode, output) = _processes.RunProcessCaptureAsync(path, "--version", null).GetAwaiter().GetResult();
             var version = exitCode == 0 ? output.Trim() : null;
             PluginLog.Info($"engine identity: {path} answered '{version}' (resolved once for this binary)");
             return version;
@@ -907,7 +909,7 @@ public class SubSyncService : IDisposable
         // Check system python3
         try
         {
-            var (exitCode, stdout) = await RunProcessCaptureAsync("python3", "--version", null).ConfigureAwait(false);
+            var (exitCode, stdout) = await _processes.RunProcessCaptureAsync("python3", "--version", null).ConfigureAwait(false);
             if (exitCode == 0 && !string.IsNullOrWhiteSpace(stdout))
             {
                 status.PythonAvailable = true;
@@ -924,7 +926,7 @@ public class SubSyncService : IDisposable
         {
             try
             {
-                var (exitCode, stdout) = await RunProcessCaptureAsync(ManagedFfSubSyncPath, "--version", null).ConfigureAwait(false);
+                var (exitCode, stdout) = await _processes.RunProcessCaptureAsync(ManagedFfSubSyncPath, "--version", null).ConfigureAwait(false);
                 if (exitCode == 0)
                 {
                     status.FfSubSyncVersion = stdout.Trim();
@@ -985,7 +987,7 @@ public class SubSyncService : IDisposable
             if (!Directory.Exists(venvPath) || !File.Exists(ManagedPythonPath))
             {
                 _logger.LogInformation("Creating Python virtualenv at {Path}", venvPath);
-                var (exitCode, output) = await RunProcessCaptureAsync("python3", $"-m venv {EscapeArg(venvPath)}", null).ConfigureAwait(false);
+                var (exitCode, output) = await _processes.RunProcessCaptureAsync("python3", $"-m venv {EscapeArg(venvPath)}", null).ConfigureAwait(false);
                 if (exitCode != 0)
                 {
                     throw new InvalidOperationException($"Failed to create virtualenv: {output}");
@@ -994,7 +996,7 @@ public class SubSyncService : IDisposable
 
             // Step 2: Upgrade pip
             _logger.LogInformation("Upgrading pip in virtualenv");
-            var pipExit = await RunProcessAsync(ManagedPythonPath, "-m pip install --upgrade pip", null, cancellationToken).ConfigureAwait(false);
+            var pipExit = await _processes.RunProcessAsync(ManagedPythonPath, "-m pip install --upgrade pip", null, cancellationToken).ConfigureAwait(false);
             if (pipExit != 0)
             {
                 _logger.LogWarning("pip upgrade failed with exit code {Code}, continuing anyway", pipExit);
@@ -1002,7 +1004,7 @@ public class SubSyncService : IDisposable
 
             // Step 3: Install ffsubsync + pin setuptools<81 (webrtcvad needs pkg_resources)
             _logger.LogInformation("Installing ffsubsync into virtualenv");
-            var installExit = await RunProcessAsync(ManagedPipPath, "install ffsubsync \"setuptools<81\"", null, cancellationToken).ConfigureAwait(false);
+            var installExit = await _processes.RunProcessAsync(ManagedPipPath, "install ffsubsync \"setuptools<81\"", null, cancellationToken).ConfigureAwait(false);
             if (installExit != 0)
             {
                 throw new InvalidOperationException($"pip install ffsubsync failed with exit code {installExit}.");
@@ -1879,8 +1881,8 @@ public class SubSyncService : IDisposable
         // larger of "process trees killed" and "run tokens cancelled", which is a number nobody measured - the
         // interface said "N stopped" for processes that were still alive. Each killed process is awaited on its
         // own handle with a deadline, so this is a wait rather than a poll. Shared with teardown (B14).
-        var (processesAskedToStop, processesStopped) = KillChildProcesses();
-        var survivors = _liveProcesses.Values.Count(p => !SafeHasExited(p));
+        var (processesAskedToStop, processesStopped) = _processes.KillChildProcesses();
+        var survivors = _processes.LiveCount();
         _logger.LogInformation(
             "Kill requested: {Queued} queued task(s) cancelled, {Running} run token(s) cancelled, {Killed} process tree(s) killed, {Survivors} still alive",
             queuedCancelled, runningKilled, processesStopped, survivors);
@@ -1900,21 +1902,6 @@ public class SubSyncService : IDisposable
         // The second number is processes that really exited - measured, not estimated from the tokens that
         // were cancelled or the trees that were signalled (B16).
         return (queuedCancelled, processesStopped);
-    }
-
-    /// <summary>True when a process has exited, without throwing when it is gone.</summary>
-    /// <param name="process">Process to check.</param>
-    /// <returns>True when it is no longer running.</returns>
-    private static bool SafeHasExited(Process process)
-    {
-        try
-        {
-            return process.HasExited;
-        }
-        catch (Exception)
-        {
-            return true;
-        }
     }
 
     /// <summary>
@@ -4383,47 +4370,6 @@ public class SubSyncService : IDisposable
     }
 
     /// <summary>
-    /// Locates the REAL container stream index of an embedded subtitle track by
-    /// probing the file with ffmpeg. Jellyfin's MediaStream.Index cannot be used
-    /// as a container index (values have been observed pointing past the file's
-    /// actual stream count when a video mixes embedded and external subtitles),
-    /// so the target is matched by position: the Nth embedded subtitle stream
-    /// Jellyfin reports corresponds to the Nth subtitle stream ffmpeg sees.
-    /// </summary>
-    /// <param name="video">The video item.</param>
-    /// <param name="target">The embedded subtitle stream to extract.</param>
-    /// <returns>The container index, subtitle ordinal and codecs in subtitle-stream order.</returns>
-    /// <exception cref="InvalidOperationException">The stream could not be mapped.</exception>
-    private async Task<(int ContainerIndex, int SubtitleOrdinal, List<string> Codecs)> ResolveContainerSubtitleIndexAsync(Video video, MediaBrowser.Model.Entities.MediaStream target)
-    {
-        var ffmpegPath = ResolveFfmpegPath();
-        var (_, stderr) = await RunProcessArgumentListAsync(ffmpegPath, new[] { "-i", video.Path }, null, CancellationToken.None).ConfigureAwait(false);
-        var containerSubs = MediaStreamMap.ParseProbeSubtitleIndexes(stderr);
-        var subtitleCodecs = MediaStreamMap.ParseProbeSubtitleCodecs(stderr);
-
-        var mediaSources = video.GetMediaSources(true);
-        var jellyfinStreams = (mediaSources.Count > 0 ? mediaSources[0] : null)?.MediaStreams
-            ?? new List<MediaBrowser.Model.Entities.MediaStream>();
-        var jellyfinEmbedded = jellyfinStreams
-            .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle && !s.IsExternal)
-            .ToList();
-
-        // The ordinal comes from the same definition the enqueue path uses, so the track a job was
-        // queued for and the track this resolver finds cannot drift apart.
-        var pos = MediaStreamMap.EmbeddedSubtitleOrdinal(jellyfinStreams, target);
-
-        if (pos >= 0 && pos < containerSubs.Count && containerSubs.Count == jellyfinEmbedded.Count)
-        {
-            return (containerSubs[pos], pos, subtitleCodecs);
-        }
-
-        throw new InvalidOperationException(
-            $"Could not map the embedded subtitle to a real container stream: ffmpeg reports {containerSubs.Count} subtitle stream(s) " +
-            $"(container indexes [{string.Join(", ", containerSubs)}]) but Jellyfin reports {jellyfinEmbedded.Count} embedded subtitle stream(s) " +
-            $"for {video.Path}.");
-    }
-
-    /// <summary>
     /// Describes what a successful sync actually changed, by comparing cue
     /// timings of the original and the synced file: the applied offset in
     /// milliseconds (signed; + = subtitles moved later) and, when ffsubsync
@@ -4712,7 +4658,7 @@ public class SubSyncService : IDisposable
                 // stream count on files mixing embedded + external tracks), so
                 // the real stream is located by probing the file with ffmpeg
                 // and matching by position among embedded subtitle streams.
-                var (containerIndex, subtitleStreamOrdinal, subtitleCodecs) = await ResolveContainerSubtitleIndexAsync(video, subtitleStream).ConfigureAwait(false);
+                var (containerIndex, subtitleStreamOrdinal, subtitleCodecs) = await MediaStreamMap.ResolveContainerSubtitleIndexAsync(video, subtitleStream, ResolveFfmpegPath(), _processes).ConfigureAwait(false);
 
                 // Keep ffsubsync from using the very track we are fixing as its speech
                 // signal (see SelectReferenceStream) — that would report every embedded
@@ -4959,7 +4905,7 @@ public class SubSyncService : IDisposable
 
                 double? audioScore = null;
                 double? audioOffsetSeconds = null;
-                var audioExit = await RunProcessWithStderrCallbackAsync(
+                var audioExit = await _processes.RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, audioArgs, tempDir,
                     line =>
                     {
@@ -5048,7 +4994,7 @@ public class SubSyncService : IDisposable
                     + $"\u2014 aligning again with {wideSeconds} s and checking the result against the film's audio");
 
                 var wideErrors = new List<string>();
-                var wideExit = await RunProcessWithStderrCallbackAsync(
+                var wideExit = await _processes.RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe,
                     wideArgs,
                     tempDir,
@@ -5091,7 +5037,7 @@ public class SubSyncService : IDisposable
 
                     verifyArgs.Remove("--gss");
 
-                    var verifyExit = await RunProcessWithStderrCallbackAsync(
+                    var verifyExit = await _processes.RunProcessWithStderrCallbackAsync(
                         ffsubsyncExe, verifyArgs, tempDir, null, cancellationToken,
                         new EngineWatch(job.Id, Path.GetFileName(videoPath), reference.Stream ?? "(default)")).ConfigureAwait(false);
                     var residual = verifyExit == 0 && File.Exists(verifyOutput)
@@ -5302,7 +5248,7 @@ public class SubSyncService : IDisposable
                 PluginLog.Info(
                     $"[{job.Id}] cross-check run: reference={crossReference} input={subtitleInputPath} "
                     + $"args={string.Join(' ', crossArgs)}");
-                var crossExit = await RunProcessWithStderrCallbackAsync(
+                var crossExit = await _processes.RunProcessWithStderrCallbackAsync(
                     ffsubsyncExe, crossArgs, tempDir,
                     line =>
                     {
@@ -5534,7 +5480,7 @@ public class SubSyncService : IDisposable
         var engineErrors = new List<string>();
         double? engineScore = null;
         double? engineOffsetSeconds = null;
-        var exitCode = await RunProcessWithStderrCallbackAsync(
+        var exitCode = await _processes.RunProcessWithStderrCallbackAsync(
             ffsubsyncExe, args, tempDir,
             line =>
             {
@@ -5636,7 +5582,7 @@ public class SubSyncService : IDisposable
                 engineErrors.Clear();
             }
 
-            exitCode = await RunProcessWithStderrCallbackAsync(
+            exitCode = await _processes.RunProcessWithStderrCallbackAsync(
                 ffsubsyncExe, args, tempDir,
                 line =>
                 {
@@ -6757,47 +6703,6 @@ public class SubSyncService : IDisposable
     internal const int ShutdownWaitMs = 5000;
 
     /// <summary>
-    /// Kills every child process this service started and reports how many really exited.
-    /// </summary>
-    /// <remarks>
-    /// Cancelling a token only stops what polls it; ffsubsync spawns ffmpeg, and both hold the media file, so the
-    /// trees are killed directly. Used by <see cref="KillAll"/> and by <c>Dispose</c> (B14).
-    /// </remarks>
-    /// <returns>How many trees were asked to stop, and how many had exited by the deadline.</returns>
-    internal (int Asked, int Stopped) KillChildProcesses()
-    {
-        var asked = 0;
-        var toKill = new List<Process>();
-        foreach (var process in _liveProcesses.Values.ToList())
-        {
-            try
-            {
-                if (!process.HasExited)
-                {
-                    process.Kill(entireProcessTree: true);
-                    asked++;
-                    toKill.Add(process);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Could not kill process {Pid}", process.Id);
-            }
-        }
-
-        return (asked, CountExited(toKill, KillWaitMs));
-    }
-
-    /// <summary>
-    /// Tracks a child process so a kill or a teardown can find it (B14).
-    /// </summary>
-    /// <param name="process">The process just started.</param>
-    internal void TrackChildProcess(Process process)
-    {
-        _liveProcesses[process.Id] = process;
-    }
-
-    /// <summary>
     /// Waits, for a bounded time, for the extraction lanes and the pump to finish (B14).
     /// </summary>
     /// <param name="milliseconds">Deadline in milliseconds.</param>
@@ -6942,41 +6847,6 @@ public class SubSyncService : IDisposable
         }
 
         return toRemove;
-    }
-
-    /// <summary>How long a killed process is given to actually exit before it is reported as a survivor.</summary>
-    private const int KillWaitMs = 3000;
-
-    /// <summary>
-    /// Waits for processes to exit and reports how many really did (B16).
-    /// </summary>
-    /// <remarks>
-    /// `WaitForExit` on each handle, not a sleep-and-sample loop: the caller wants a count that was measured,
-    /// and a process that ignored SIGKILL for longer than the deadline has to be reported as still alive
-    /// rather than folded into a success figure.
-    /// </remarks>
-    /// <param name="processes">Processes that were asked to stop.</param>
-    /// <param name="waitMs">How long each one may take.</param>
-    /// <returns>How many of them exited.</returns>
-    internal static int CountExited(IEnumerable<Process> processes, int waitMs)
-    {
-        var exited = 0;
-        foreach (var process in processes)
-        {
-            try
-            {
-                if (process.WaitForExit(waitMs) && process.HasExited)
-                {
-                    exited++;
-                }
-            }
-            catch (Exception)
-            {
-                // A process that cannot be waited on is not counted as stopped.
-            }
-        }
-
-        return exited;
     }
 
     /// <summary>
@@ -7135,7 +7005,7 @@ public class SubSyncService : IDisposable
 
         // Read before anything is cancelled: cancelling a run token fires the runner's own kill callback, and the
         // runner then removes its entry, so a count taken later would say "nothing was running" about a run that was.
-        var trackedAtStart = _liveProcesses.Count;
+        var trackedAtStart = _processes.TrackedCount;
 
         foreach (var entry in _jobCancellation)
         {
@@ -7143,11 +7013,11 @@ public class SubSyncService : IDisposable
             catch (ObjectDisposedException) { /* the run finished first */ }
         }
 
-        var (childrenAsked, childrenStopped) = KillChildProcesses();
+        var (childrenAsked, childrenStopped) = _processes.KillChildProcesses();
         var tasksWaited = _laneTasks.Count + (_pumpTask is null ? 0 : 1);
         var tasksDone = WaitForLanes(ShutdownWaitMs);
         var trackedLeft = JobProcessRegistry.LiveProcesses;
-        var childrenLeft = _liveProcesses.Values.Count(process => !SafeHasExited(process));
+        var childrenLeft = _processes.LiveCount();
 
         // What the teardown can honestly claim: how many children it knew about, how many of those are not alive now,
         // and how many it had to kill itself. The rest were stopped by their own runner's cancellation callback, which
@@ -8032,7 +7902,7 @@ public class SubSyncService : IDisposable
 
         try
         {
-            exitCode = await RunProcessWithStderrCallbackAsync(
+            exitCode = await _processes.RunProcessWithStderrCallbackAsync(
                 ffmpegPath,
                 args,
                 null,
@@ -8206,7 +8076,7 @@ public class SubSyncService : IDisposable
 
         _logger.LogInformation("Extracting subtitle: ffmpeg {Args}", string.Join(" ", args));
 
-        var (exitCode, stderr) = await RunProcessArgumentListAsync(ffmpegPath, args, null, cancellationToken).ConfigureAwait(false);
+        var (exitCode, stderr) = await _processes.RunProcessArgumentListAsync(ffmpegPath, args, null, cancellationToken).ConfigureAwait(false);
         if (exitCode != 0)
         {
             throw new InvalidOperationException($"ffmpeg subtitle extraction failed: {FfmpegError(stderr)}");
@@ -8228,122 +8098,6 @@ public class SubSyncService : IDisposable
 
         var tail = string.Join(" | ", lines.Skip(Math.Max(0, lines.Length - 3)));
         return string.IsNullOrEmpty(tail) ? "unknown ffmpeg error" : tail;
-    }
-
-    private async Task<(int ExitCode, string Stderr)> RunProcessArgumentListAsync(
-        string executable, IReadOnlyList<string> arguments, string? workingDir, CancellationToken cancellationToken)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        foreach (var argument in arguments)
-        {
-            process.StartInfo.ArgumentList.Add(argument);
-        }
-
-        if (workingDir is not null)
-        {
-            process.StartInfo.WorkingDirectory = workingDir;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(cancellationToken);
-        }
-
-        process.Start();
-        TrackChildProcess(process);
-
-        // Kill the process if cancellation is requested
-        using var registration = cancellationToken.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* process may have already exited */ }
-        });
-
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _liveProcesses.TryRemove(process.Id, out _);
-        }
-
-        var stderr = await stderrTask.ConfigureAwait(false);
-        await stdoutTask.ConfigureAwait(false);
-
-        return (process.ExitCode, stderr);
-    }
-
-    private async Task<int> RunProcessAsync(string executable, string arguments, string? workingDir, CancellationToken cancellationToken)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        if (workingDir is not null)
-        {
-            process.StartInfo.WorkingDirectory = workingDir;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(cancellationToken);
-        }
-
-        process.Start();
-        TrackChildProcess(process);
-
-        // Kill the process if cancellation is requested
-        using var registration = cancellationToken.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* process may have already exited */ }
-        });
-
-        var stderrTask = process.StandardError.ReadToEndAsync(cancellationToken);
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _liveProcesses.TryRemove(process.Id, out _);
-        }
-
-        var stderr = await stderrTask.ConfigureAwait(false);
-        var stdout = await stdoutTask.ConfigureAwait(false);
-
-        if (process.ExitCode != 0)
-        {
-            _logger.LogWarning("Process {Exe} exited with code {Code}. stderr: {Stderr}", executable, process.ExitCode, stderr);
-        }
-        else
-        {
-            _logger.LogDebug("Process {Exe} completed. stdout: {Stdout}", executable, stdout);
-        }
-
-        return process.ExitCode;
     }
 
     /// <summary>
@@ -8406,7 +8160,7 @@ public class SubSyncService : IDisposable
             $"[{job.Id}] framerate: the subtitle was stretched, so the stretch is tested against the film's own "
             + "audio (offsets only) \u2014 a differently cut subtitle looks the same as a framerate mismatch in the spans");
 
-        var exitCode = await RunProcessWithStderrCallbackAsync(
+        var exitCode = await _processes.RunProcessWithStderrCallbackAsync(
             ffsubsyncExe, args, tempDir, null, cancellationToken).ConfigureAwait(false);
         if (exitCode != 0)
         {
@@ -8448,7 +8202,7 @@ public class SubSyncService : IDisposable
             $"[{job.Id}] framerate: the stretch does NOT hold against the audio ({ratio:0.0000}x, {shiftMs} ms) "
             + "\u2014 a different cut looks the same in the spans, so the subtitle is aligned with offsets only");
 
-        var fallbackExit = await RunProcessWithStderrCallbackAsync(
+        var fallbackExit = await _processes.RunProcessWithStderrCallbackAsync(
             ffsubsyncExe, fallbackArgs, tempDir, null, cancellationToken).ConfigureAwait(false);
         if (fallbackExit == 0 && File.Exists(fallbackOutput))
         {
@@ -8482,145 +8236,6 @@ public class SubSyncService : IDisposable
     // jobId (optional): the job this process belongs to, so the stall watchdog can tell "waiting for a slow
     // read" from "wedged" (B6). Every process the plugin runs for a job registers here: a live child is work
     // in progress even when it is quiet, and its own output is what dates its silence.
-    private async Task<int> RunProcessWithStderrCallbackAsync(
-        string executable, IReadOnlyList<string> arguments, string? workingDir,
-        Action<string>? onStderrLine, CancellationToken cancellationToken, EngineWatch? watch = null,
-        string? jobId = null)
-    {
-        var owner = jobId ?? watch?.JobId;
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        foreach (var argument in arguments)
-        {
-            process.StartInfo.ArgumentList.Add(argument);
-        }
-
-        if (workingDir is not null)
-        {
-            process.StartInfo.WorkingDirectory = workingDir;
-        }
-
-        if (cancellationToken.IsCancellationRequested)
-        {
-            throw new OperationCanceledException(cancellationToken);
-        }
-
-        process.Start();
-        TrackChildProcess(process);
-        if (owner is not null)
-        {
-            JobProcessRegistry.Begin(owner);
-        }
-
-        // S27: while this process runs, say so in the plugin's own log. Started once the process is
-        // live and disposed when it exits, so no line can ever describe a process that is already gone.
-        using var heartbeat = watch is null ? null : new EngineHeartbeat(watch);
-
-        // Kill the process if cancellation is requested
-        using var registration = cancellationToken.Register(() =>
-        {
-            try { process.Kill(entireProcessTree: true); }
-            catch { /* process may have already exited */ }
-        });
-
-        // Read stdout in background
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(cancellationToken);
-
-        // Read stderr line-by-line in real-time
-        var stderrTask = Task.Run(async () =>
-        {
-            using var reader = process.StandardError;
-            while (true)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var line = await reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
-                if (line is null)
-                {
-                    // End of the stream is the loop's own exit; EndOfStream is sync-over-async on
-                    // .NET 10 (CA2024) and blocks a thread of the pool while we await a line.
-                    break;
-                }
-
-                if (owner is not null)
-                {
-                    // A line from the process is the process saying it is working: this is what dates its
-                    // silence for the wedged-process rule (B6).
-                    JobProcessRegistry.SawOutput(owner);
-                }
-
-                onStderrLine?.Invoke(line);
-            }
-        }, cancellationToken);
-
-        try
-        {
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
-        }
-        finally
-        {
-            _liveProcesses.TryRemove(process.Id, out _);
-            if (owner is not null)
-            {
-                JobProcessRegistry.End(owner);
-            }
-        }
-
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-
-        return process.ExitCode;
-    }
-
-    /// <summary>
-    /// Runs a process and returns (exitCode, combined stdout+stderr output).
-    /// </summary>
-    private async Task<(int ExitCode, string Output)> RunProcessCaptureAsync(string executable, string arguments, string? workingDir)
-    {
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = executable,
-            Arguments = arguments,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true
-        };
-
-        if (workingDir is not null)
-        {
-            process.StartInfo.WorkingDirectory = workingDir;
-        }
-
-        process.Start();
-        TrackChildProcess(process);
-
-        try
-        {
-            var stdout = await process.StandardOutput.ReadToEndAsync().ConfigureAwait(false);
-            var stderr = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-
-            await process.WaitForExitAsync().ConfigureAwait(false);
-
-            var output = string.Concat(stdout, stderr).Trim();
-            return (process.ExitCode, output);
-        }
-        finally
-        {
-            // Registered like the other four runners (B14). This one was the exception, and it covers the provisioning
-            // and probe steps - `ffsubsync --version`, `python3 -m venv`, `pip install`, `apt-get install` - any of
-            // which can run for minutes, so a kill or a teardown had no handle on them.
-            _liveProcesses.TryRemove(process.Id, out _);
-        }
-    }
-
     /// <summary>
     /// Ensures a system python3 with venv + ensurepip support exists, installing
     /// it via apt-get when missing. The managed ffsubsync virtualenv cannot be
@@ -8638,7 +8253,7 @@ public class SubSyncService : IDisposable
 
         _logger.LogInformation("python3 with venv support is missing; attempting automatic installation via apt-get");
 
-        var (uidExit, uidOutput) = await RunProcessCaptureAsync("id", "-u", null).ConfigureAwait(false);
+        var (uidExit, uidOutput) = await _processes.RunProcessCaptureAsync("id", "-u", null).ConfigureAwait(false);
         var isRoot = uidExit == 0 && uidOutput.Trim() == "0";
         if (!isRoot)
         {
@@ -8649,13 +8264,13 @@ public class SubSyncService : IDisposable
                 "apt-get install -y python3 python3-venv");
         }
 
-        var (updateExit, updateOutput) = await RunProcessCaptureAsync("apt-get", "update", null).ConfigureAwait(false);
+        var (updateExit, updateOutput) = await _processes.RunProcessCaptureAsync("apt-get", "update", null).ConfigureAwait(false);
         if (updateExit != 0)
         {
             _logger.LogWarning("apt-get update failed during python3 provisioning (continuing anyway): {Output}", Truncate(updateOutput, 800));
         }
 
-        var (installExit, installOutput) = await RunProcessCaptureAsync(
+        var (installExit, installOutput) = await _processes.RunProcessCaptureAsync(
             "apt-get",
             "install -y --no-install-recommends python3 python3-venv",
             null).ConfigureAwait(false);
@@ -8677,7 +8292,7 @@ public class SubSyncService : IDisposable
     {
         try
         {
-            var (exitCode, _) = await RunProcessCaptureAsync("python3", $"-c {EscapeArg("import sys, venv, ensurepip")}", null).ConfigureAwait(false);
+            var (exitCode, _) = await _processes.RunProcessCaptureAsync("python3", $"-c {EscapeArg("import sys, venv, ensurepip")}", null).ConfigureAwait(false);
             return exitCode == 0;
         }
         catch (System.ComponentModel.Win32Exception)
