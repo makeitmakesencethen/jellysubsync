@@ -58,8 +58,15 @@ def ensure_constant(source, target, constants):
     stem = target.stem.replace('SubSyncService.', '')
     name = re.sub(r'(?<!^)(?=[A-Z])', '_', stem).upper()
     lines = source.split('\n')
-    last = max(i for i, l in enumerate(lines) if re.match(r'^[A-Z_]+ = .*\.cs\'$', l))
-    lines.insert(last + 1, f"{name} = '{relative}'")
+    last = max(i for i, l in enumerate(lines)
+               if re.match(r"^[A-Z_]+ = ('|REPO / )", l) and l.rstrip().endswith('.cs\''))
+    # Match the driver's own style: the Phase 0 driver names files relative to the repo, the RunSyncJob driver
+    # builds a path from REPO. A constant of the wrong kind reads fine and crashes at `path.read_text()`.
+    if 'REPO / ' in lines[last]:
+        parts = ' / '.join(f"'{part}'" for part in target.relative_to(REPO).parts)
+        lines.insert(last + 1, f"{name} = REPO / {parts}")
+    else:
+        lines.insert(last + 1, f"{name} = '{relative}'")
     return '\n'.join(lines), name
 
 
@@ -96,11 +103,9 @@ def main(dry_run):
                 constants[constant] = target
                 replaced = re.sub(rf"('{re.escape(name)}':\s*\()[A-Z_]+(\s*,)", rf'\g<1>{constant}\g<2>', source)
             else:
-                constant = next((c for c, v in constants.items() if v == target), None)
-                if constant is None:
-                    unresolved.append(f'{name} (no file constant for {target.name})')
-                    continue
-                # the job-checks driver names the file in a FILES map; add or replace the entry there
+                # the job-checks driver names the file in a FILES map, keyed by constants at the top
+                source, constant = ensure_constant(source, target, constants)
+                constants[constant] = target
                 if re.search(rf"'{re.escape(name)}':\s*METRICS", source):
                     replaced = re.sub(rf"('{re.escape(name)}':\s*)METRICS", rf'\g<1>{constant}', source)
                 else:

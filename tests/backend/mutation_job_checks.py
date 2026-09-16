@@ -26,7 +26,32 @@ SERVICE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.cs'
 # The Phase 1 split moved the alignment maths out of the service; a mutation whose line lives there names the
 # file it is in, so re-pointing one after a move is a one-line change here rather than a rename elsewhere.
 METRICS = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'AlignmentMetrics.cs'
+JOB_PIPELINE = REPO / 'Jellyfin.Plugin.SubSync' / 'Services' / 'SubSyncService.JobPipeline.cs'
 FILES = {
+    'P18-catch': JOB_PIPELINE,
+    'P19-link-leak': JOB_PIPELINE,
+    'P3-container': JOB_PIPELINE,
+    'P3-cache-hit': JOB_PIPELINE,
+    'S22-cause': JOB_PIPELINE,
+    'S46-inline-drop': JOB_PIPELINE,
+    'P8-stale': JOB_PIPELINE,
+    'S43-vad': JOB_PIPELINE,
+    'P8-refusal': JOB_PIPELINE,
+    'P8-discard': JOB_PIPELINE,
+    'P9-accepted': JOB_PIPELINE,
+    'P9-verify': JOB_PIPELINE,
+    'P9-clamped': JOB_PIPELINE,
+    'P9-nothing': JOB_PIPELINE,
+    'P10-refused': JOB_PIPELINE,
+    'P19': JOB_PIPELINE,
+    'P15-replace': JOB_PIPELINE,
+    'P17': JOB_PIPELINE,
+    'P15-copy': JOB_PIPELINE,
+    'P5': JOB_PIPELINE,
+    'P14': JOB_PIPELINE,
+    'P13': JOB_PIPELINE,
+    'P12': JOB_PIPELINE,
+    'P7': JOB_PIPELINE,
     'P10-accepted': METRICS,
 }
 # Any characterization check counts, whatever the phase number: a rule on the prefix, not a list of families.
