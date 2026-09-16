@@ -1,3 +1,18 @@
+## 2.0.59 (beta)
+
+Under the hood — the fourth and largest step of the `RunSyncJob` refactor, with nothing user-visible changed.
+Deciding what a job is aligned against (the film's own audio, analysed once and reused, or a sibling subtitle
+track built from text the plugin already has) is now `ResolveReferenceAsync`, and the audio-analysis half is
+`PrepareAudioReferenceAsync` — the seven values that decision produces (the reference path, what it is, whether it
+came from a subtitle, and the speech-cache facts) travel in one `ReferenceResolution` the caller owns, instead of
+being locals of a 1200-line method that four different places had to reach. `RunSyncJob` is 983 lines, down from
+1562 when this refactor started; this step accounts for 218 of that. The move was checked line by line before and
+after: the phase's logic is byte-identical apart from indentation, and what did change is the renames that follow
+from the context object (53 lines) plus the two call sites that gained the new arguments. The 968-check suite,
+including the rig scenarios with the real engine, stayed green, and every phase mutation still fails the check it
+is supposed to. One genuinely dead line came out of the method too — a mode value that was normalised and never
+read.
+
 ## 2.0.58 (beta)
 
 Under the hood — the third step of the `RunSyncJob` refactor, with nothing user-visible changed. Writing the synced

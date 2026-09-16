@@ -75,7 +75,7 @@ MUTATIONS = {
         "            // dropped once, in this job's finally.\n            SpeechCache.Harvest(referencePath, speechKey);\n            SpeechCache.DropLink(speechKey);\n            SpeechCache.Prune();"),
     'S22-cause': ('=> engineTail.Contains("unable to read reference", StringComparison.OrdinalIgnoreCase)',
                   '=> engineTail.Contains("unable to read referenceX", StringComparison.OrdinalIgnoreCase)'),
-    'P3-cache-hit': ('SpeechCache.TryGet(reference.SpeechKey)', 'SpeechCache.TryGet(speechKey + "-mutant")'),
+    'P3-cache-hit': ('SpeechCache.TryGet(reference.SpeechKey)', 'SpeechCache.TryGet(reference.SpeechKey + "-mutant")'),
     'P3-container': ('return SpeechCache.CreateReferenceLink(videoPath, reference.SpeechKey);', 'return videoPath;'),
     'P18-catch': ('catch (Exception ex)\n            {\n                _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);',
                   'catch (InvalidOperationException ex)\n            {\n                _logger.LogWarning(ex, "Refreshing item {ItemId} failed; the subtitle is written and appears after the next scan", video.Id);'),
