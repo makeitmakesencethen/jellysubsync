@@ -64,8 +64,28 @@ before any class extraction touches them:
   appears is refused, and a missing python3 on a non-root process is refused with the cause and the fix.
   The install runs against stand-in python3/pip scripts: no network, no root, no venv.
 
+**The two output defects (`tests/output_checks.cs`).** F19 and F21 were read against the code on
+2026-09-18 and each had a reproduction before it had a check, so the reproductions are checks now:
+
+- **F19, the inferred guess.** A cue's end used to be treated as this reader's own guess whenever it was
+  exactly 2 000 ms long, and a guess is pulled back to the next cue - so a cue the *file* gave a 2 000 ms
+  duration was rewritten (`00:00:04,999` against a next cue at `00:00:05,000`). The guess is a flag
+  (`SrtWriter.Entry.DurationGuessed`, `MkvSubtitleExtractor.Cue.DurationGuessed`) set where the duration
+  is actually known, and both renderers read it - the Matroska extractor has its own copy of the rule, so
+  it has its own checks. Six checks: the stated 2 000 ms cue keeps its duration, 1 999 ms and 2 001 ms are
+  unchanged, a real guess is still clamped, a stated duration that overlaps the next cue is still clamped,
+  and the same two behaviours through the Matroska writer (driven by reflection, since `Cue` is private).
+- **F21, the disposed response body.** `SubSyncMiddleware` swapped `context.Response.Body` for a
+  `MemoryStream` and only put the original back on the HTML success path, so a non-HTML answer to an index
+  path, an already-injected body, or a throwing `_next` left the response body on a disposed stream and a
+  later writer met `ObjectDisposedException`. Six checks drive the shipped middleware on a
+  `DefaultHttpContext` (the harness references the ASP.NET framework for this): each of those paths,
+  plus the HTML one, hands the body back and a later write succeeds, and an already-injected page is not
+  injected twice.
+
 Every one of these is mutation-verified: `tests/backend/mutation_phase0_checks.py` breaks one production
-line per check and reports which check caught it.
+line per check and reports which check caught it (`F19-render`, `F19-mkv-render`, `F21-restore` for the two
+above, each caught by the check that targets it).
 
 **Where the service's code lives, and why the checks do not care.** The map's Phase 1 and 2 split
 `SubSyncService` into real classes (`SubSyncProcesses`, `FfSubSyncEngine`, `AlignmentMetrics`,
