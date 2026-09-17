@@ -1,3 +1,42 @@
+## 2.0.61 (beta)
+
+Under the hood — the `SubSyncService.cs` file split, with nothing user-visible changed. This closes the
+structural work: the file was a single 9 646-line class this morning, and it is **1 263 lines** now, with the
+rest either in real classes or in partial-class files of the same class. What a contributor opens is no longer
+one monolith, and what an installer runs is byte-for-byte the same behaviour.
+
+Where the code went:
+
+- **Real classes** (they had no state of their own to share): `SubSyncProcesses` (the four runners and the
+  child-process registry), `FfSubSyncEngine` (engine resolution, the version cache, installation status and the
+  installer), `AlignmentMetrics` (the alignment maths), `MediaStreamMap` (embedded stream mapping and probing),
+  `SyncedTargetNaming` (what the output file is called). 1 946 lines, four commits.
+- **Partial-class files** (same class, own file — these clusters share `_jobs`, `_jobContexts`, `_runOrder` and
+  `_queueLock`): `SubSyncService.Queue.cs`, `.Scheduler.cs`, `.Extraction.cs`, `.JobPipeline.cs`,
+  `.SweepHistory.cs`. 6 546 lines moved across five commits. A partial class is one class across files, so
+  accessibility, DI registration and every call site are untouched; making these real classes needs the run
+  state to become an object first, which is a decision of its own and is deliberately not in this build.
+
+Every move was *proved* to be a text move rather than described as one: each moved block is byte-identical in
+its new file, none is left behind, and the file it left is exactly the original minus those lines (the split
+tool reports both and refuses to guess). Two members nothing called came out on the way: `RunCapturedAsync`
+(a fifth process runner, 52 lines) and `LiveProcessCount`.
+
+The safety net grew with the work instead of after it. The three clusters that had no coverage at all — the
+process runners, the access-control surface, and engine status/install — have 39 characterization checks now,
+each one mutation-verified by breaking the production line it covers, and both mutation drivers (43 + 25
+mutations) were re-run after *every* move: 43 of 43 and 25 of 25 caught at each step, with the suite green at
+1 008 checks throughout (965 before this work).
+
+Four things were found and recorded rather than fixed here, because they are behaviour questions and not
+structure: an install status can report the wrong engine's version when the configured binary differs from the
+managed one (F31), some install steps ignore their cancellation token and are only killable through the
+tracked-process table (B32), the sweep's skip counters do not account for embedded tracks so its totals do not
+add up to the tracks it saw (F32), and the note about the process runners said "five" when there are four (B18,
+which now also records the measured argument-count difference between the two runner styles, so a future
+consolidation is a behaviour change and not a refactor). All four are open in `knowledge/FIX_PLAN.md`; none of
+them regress anything that worked before.
+
 ## 2.0.60 (beta)
 
 Under the hood — the last step of the `RunSyncJob` refactor, with nothing user-visible changed. A job's failure

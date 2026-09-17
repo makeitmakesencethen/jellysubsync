@@ -6,9 +6,17 @@ Downloads the beta catalog manifest, then the zip it points at, and checks
   * the zip's MD5 equals the manifest's checksum (Jellyfin uses MD5 for installs),
   * the packaged meta.json carries the same version,
   * the packaged DLL carries the same assembly version,
+  * the packaged DLL carries the structural refactor's markers (the classes and methods that only exist
+    after the RunSyncJob split and the SubSyncService split, and the absence of the two members that were
+    deleted), so a stale or pre-refactor artifact cannot pass as this release,
   * the bundled ffsubsync binary is inside the zip.
 
-Usage: python3 tests/backend/verify_release.py 2.0.43.0
+The Phase 2 partial-class split is deliberately not a marker here: a partial class is one class, so the
+assembly is byte-for-byte what it would be with the code in one file - the split's own evidence is the
+suite, the mutation drivers and the commit history, not the binary. The markers below are the ones the
+binary can actually witness (Phase 1's real classes and the RunSyncJob methods).
+
+Usage: python3 tests/backend/verify_release.py 2.0.61.0
 """
 import hashlib
 import io
@@ -19,6 +27,18 @@ import urllib.request
 import zipfile
 
 BASE = 'https://makeitmakesencethen.github.io/jellysubsync/beta'
+
+# Names the refactored build must contain, and names the dead-code removals must have taken away.
+# Metadata strings live UTF-8 in the assembly's #Strings heap, so a byte search is the right probe.
+MARKERS_PRESENT = [
+    # Phase 1: clusters that left SubSyncService as real classes
+    'FfSubSyncEngine', 'SubSyncProcesses', 'AlignmentMetrics', 'MediaStreamMap', 'SyncedTargetNaming',
+    # the RunSyncJob phases: the names the phases gave the code they pulled out
+    'ResolveReferenceAsync', 'RunEngineAttemptAsync', 'WriteSyncedSubtitleAsync', 'PrepareAudioReferenceAsync',
+    'DescribeCompletedSync', 'AnnounceCompletedAsync', 'MarkCancelled', 'FailJobAndRollBack', 'CleanUpAfterJob',
+]
+MARKERS_ABSENT = ['RunCapturedAsync', 'LiveProcessCount']
+
 
 
 def main() -> int:
@@ -60,6 +80,15 @@ def main() -> int:
             failures.append('the bundled ffsubsync binary is missing from the zip')
         if 'Jellyfin.Plugin.SubSync.dll' not in names:
             failures.append('the plugin dll is missing from the zip')
+
+        missing = [m for m in MARKERS_PRESENT if m.encode('utf-8') not in dll]
+        still_there = [m for m in MARKERS_ABSENT if m.encode('utf-8') in dll]
+        print(f'          refactor markers: {len(MARKERS_PRESENT) - len(missing)}/{len(MARKERS_PRESENT)} present, '
+              f'{len(MARKERS_ABSENT) - len(still_there)}/{len(MARKERS_ABSENT)} removals confirmed')
+        if missing:
+            failures.append('the dll does not carry the refactor: ' + ', '.join(missing))
+        if still_there:
+            failures.append('the dll still carries removed code: ' + ', '.join(still_there))
 
     print()
     if failures:
