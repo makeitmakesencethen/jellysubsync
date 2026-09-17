@@ -22,6 +22,7 @@ import os
 import pathlib
 import re
 import shutil
+import signal
 import subprocess
 import sys
 
@@ -322,6 +323,14 @@ def main():
         print('run `python3 tests/run_checks.py` first: the harness is built from .tests-work/Program.cs')
         return 2
 
+    # Refuse to run against a tree that already carries a broken line: a driver killed mid-mutation
+    # leaves exactly that, and this run's baseline would then report a false red (FIX_PLAN T1).
+    sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
+    from mutation_residue_guard import check as sources_are_clean
+    if not sources_are_clean():
+        print('refusing to run: the production source differs from HEAD')
+        return 2
+
     env = environment()
     wanted = sys.argv[1:] or list(MUTATIONS)
     originals = {}
@@ -331,6 +340,22 @@ def main():
         if relative not in originals:
             originals[relative] = path.read_text(encoding='utf-8')
         return path, originals[relative]
+
+    # The finally below restores the source on a clean exit and on an exception, but not on a signal:
+    # a SIGKILL cannot be caught (hence the check above), and SIGINT/SIGTERM would otherwise leave the
+    # mutation in the tree.
+    def put_sources_back(signum, _frame):
+        for relative, text in originals.items():
+            try:
+                (REPO / relative).write_text(text, encoding='utf-8')
+            except OSError as exc:
+                print(f'signal {signum}: could not restore {relative}: {exc}')
+        put_back = all((REPO / relative).read_text(encoding='utf-8') == text for relative, text in originals.items())
+        print(f'\nsignal {signum}: source put back: {put_back}')
+        raise SystemExit(3)
+
+    for handled in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
+        signal.signal(handled, put_sources_back)
 
     baselines = {}
     for relative, _, _ in MUTATIONS.values():
