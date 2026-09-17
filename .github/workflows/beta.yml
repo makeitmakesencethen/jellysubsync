@@ -51,6 +51,7 @@ jobs:
         run: dotnet build Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj --configuration Release --no-restore
 
       - name: Build bundled ffsubsync binary (linux-x64)
+        if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -66,6 +67,7 @@ jobs:
           test -x /tmp/ffbin/ffsubsync/ffsubsync
 
       - name: Package plugin zip
+        if: steps.guard.outputs.skip != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -79,6 +81,7 @@ jobs:
           (cd staging && zip -q -r "../dist/beta/Jellyfin.Plugin.SubSync_${VER}.zip" .)
 
       - name: Write beta catalog manifest
+        if: steps.guard.outputs.skip != 'true'
         shell: bash
         env:
           OWNER: "${{ github.repository_owner }}"
@@ -107,6 +110,7 @@ jobs:
       # Deploys only the beta/ subfolder; keep_files preserves the stable
       # manifest, zips and images already on gh-pages.
       - name: Deploy beta to GitHub Pages
+        if: steps.guard.outputs.skip != 'true'
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
