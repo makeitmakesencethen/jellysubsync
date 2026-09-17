@@ -17,3 +17,6 @@ core.*
 
 # Test scratch space (generated harness project, synthetic fixtures)
 .tests-work/
+
+# Python bytecode from the harness drivers (imported as modules)
+__pycache__/
