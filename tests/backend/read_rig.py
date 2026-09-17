@@ -44,9 +44,11 @@ import shutil
 import subprocess
 import sys
 
+from _dotnet import find_dotnet
+
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = pathlib.Path(os.environ.get('TESTS_WORK') or REPO / '.tests-work')
-DOTNET = os.environ.get('DOTNET_BIN') or '/opt/data/.dotnet/dotnet'
+DOTNET = find_dotnet()
 SLOWREAD = REPO / 'tests' / 'backend' / 'slowread.so'
 
 # fabji's Synology share, as measured from his own plugin log (2026-09-12): ~10 ms per read AND

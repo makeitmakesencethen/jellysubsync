@@ -13,8 +13,10 @@ import random
 import subprocess
 import sys
 
+from _dotnet import find_dotnet
+
 RUNNER = 'tests/backend/qfit_runner/qfit_runner.csproj'
-DOTNET = '/opt/data/.dotnet/dotnet'
+DOTNET = find_dotnet()
 
 
 def build(count=600, shift=0.0, stretch=1.0, mode='random', seed=42):

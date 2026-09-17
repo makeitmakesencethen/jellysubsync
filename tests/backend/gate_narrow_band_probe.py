@@ -15,13 +15,15 @@ import json
 import os
 import subprocess
 import sys
+
+from _dotnet import find_dotnet
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 from s31_quality_curves import SOURCE, cue_starts, shift_curve  # noqa: E402
 
 RUNNER = 'tests/backend/qfit_runner/qfit_runner.csproj'
-DOTNET = '/opt/data/.dotnet/dotnet'
+DOTNET = find_dotnet()
 CEILING_S = 30.0        # MaxSubtitleReferenceOffsetSeconds default
 SUSPICIOUS_S = CEILING_S / 3.0   # 10 s: below this the cross-check does not run today
 WINDOW_S = 60.0         # the engine's search window (--max-offset-seconds), which the gate uses

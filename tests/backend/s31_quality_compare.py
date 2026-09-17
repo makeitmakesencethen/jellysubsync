@@ -19,6 +19,8 @@ import math
 import os
 import subprocess
 import sys
+
+from _dotnet import find_dotnet
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
@@ -26,7 +28,7 @@ from s31_quality_curves import (  # noqa: E402
     SOURCE, SPAN_STRETCH, TARGET_SHIFT, TARGET_SHIFT_CORRECT, cue_starts, shift_curve)
 
 RUNNER = Path(__file__).parent / 'qfit_runner' / 'qfit_runner.csproj'
-DOTNET = '/opt/data/.dotnet/dotnet'
+DOTNET = find_dotnet()
 CEILING_S = 30.0     # MaxSubtitleReferenceOffsetSeconds default
 SPAN_RULE = 3.0      # the 3 % span rule
 MATCH_TOL = 0.30     # a cue counts as matched inside this many seconds

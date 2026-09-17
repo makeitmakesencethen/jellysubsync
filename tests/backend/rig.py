@@ -29,6 +29,8 @@ Usage from a scenario:
 """
 from __future__ import annotations
 
+from _dotnet import find_dotnet
+
 import json
 import os
 import re
@@ -44,7 +46,7 @@ import urllib.request
 from pathlib import Path
 
 JELLYFIN = Path('/opt/data/jf12test')
-DOTNET = Path('/opt/data/.dotnet/dotnet')
+DOTNET = Path(find_dotnet())
 SYSTEM_SQL = Path(__file__).resolve().parent          # tests/backend
 DB = JELLYFIN / 'data' / 'data' / 'jellyfin.db'
 PLUGIN_LOG = JELLYFIN / 'data' / 'data' / 'subsync' / 'logs' / 'subsync.log'
@@ -123,7 +125,7 @@ class Rig:
             JELLYFIN_CACHE_DIR=str(JELLYFIN / 'cache'),
             JELLYFIN_LOG_DIR=str(JELLYFIN / 'log'),
             JELLYFIN_WEB_DIR=str(JELLYFIN / 'jellyfin' / 'jellyfin-web'),
-            DOTNET_ROOT='/opt/data/.dotnet',
+            DOTNET_ROOT=str(DOTNET.parent),
             LD_LIBRARY_PATH='/opt/data/local/icu/usr/lib/x86_64-linux-gnu',
         )
         if self.shim:

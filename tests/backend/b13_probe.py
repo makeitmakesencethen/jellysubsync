@@ -37,9 +37,11 @@ import shutil
 import subprocess
 import sys
 
+from _dotnet import find_dotnet
+
 REPO = pathlib.Path(__file__).resolve().parents[2]
 WORK = pathlib.Path(os.environ.get('TESTS_WORK') or REPO / '.tests-work')
-DOTNET = os.environ.get('DOTNET_BIN') or '/opt/data/.dotnet/dotnet'
+DOTNET = find_dotnet()
 GENERATOR = REPO / 'tests' / 'fixtures' / 'make_remux.py'
 HARNESS = WORK / 'b13-probe'
 FIXTURES = WORK / 'b13-fixtures'

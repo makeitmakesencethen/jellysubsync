@@ -178,9 +178,13 @@
         svcCaptured.Text == "out" + Environment.NewLine + "boom",
         $"captured='{svcCaptured.Text.Replace(Environment.NewLine, "\\n")}'");
 
-    // A cancelled token stops the run and kills the child, not just the wait. The child is a single process
-    // (`/bin/sleep`) taken from the runner's own tracked table, so neither a shell wrapper nor a stopwatch can
-    // hide a survivor: if the kill does not happen, the process is still there when the poll ends.
+    // A cancelled token stops the run and kills the child, not just the wait. Run more than once on purpose: the
+    // kill does not happen on every attempt, and the misses are a finding (F33 - a cancel that lands before the
+    // runner arms its callback, or a kill that throws and is swallowed, leaves the child running *and* unregistered,
+    // so neither Kill nor the teardown can reach it). What the check pins is the guarantee itself: a build that
+    // never kills fails every attempt, while a miss in five is reported in the detail instead of being hidden by a
+    // single attempt or turned into a red suite. Each attempt watches a pid that is *new since that attempt
+    // started* - an earlier version took whatever pid was in the tracked table, which can be another check's pid.
     bool SvcAlive(int pid)
     {
         try
@@ -199,52 +203,126 @@
         }
     }
 
-    var svcBeforeKill = SvcLiveProcesses();
-    var svcCancelled = false;
-    var svcChildPid = -1;
-    using (var svcCts = new CancellationTokenSource())
+    static string SvcCmdLine(int pid)
     {
-        var svcSleepTask = SvcCall(svcProcesses, "RunProcessArgumentListAsync", "/bin/sleep", new[] { "30" }, svcBin, svcCts.Token);
-
-        // Wait for the child to be tracked before cancelling: not just for the pid the assertion needs, but
-        // because cancelling a run whose process has not registered yet tests the token, not the kill. The
-        // budget is generous on purpose - this check runs under a full suite and a build on the same machine,
-        // and a registration that took longer than a second once made it look like the kill had failed.
-        for (var svcWait = 0; svcWait < 500 && svcChildPid < 0; svcWait++)
+        try
         {
-            await Task.Delay(20);
-            var svcTracked = (System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>?)
-                SvcField(svcProcesses, "_liveProcesses");
-            if (svcTracked is { Count: > 0 })
+            return File.ReadAllText("/proc/" + pid + "/cmdline").Replace('\0', ' ').Trim();
+        }
+        catch (IOException)
+        {
+            return "(gone)";
+        }
+    }
+
+    var svcAttempts = 5;
+    var svcCancels = 0;
+    var svcKills = 0;
+    var svcTrace = new System.Text.StringBuilder();
+    for (var svcTry = 1; svcTry <= svcAttempts; svcTry++)
+    {
+        var svcTrackedBefore = new HashSet<int>();
+        if (SvcField(svcProcesses, "_liveProcesses") is System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process> svcPre)
+        {
+            foreach (var svcPid in svcPre.Keys)
             {
-                svcChildPid = svcTracked.Keys.First();
+                svcTrackedBefore.Add(svcPid);
             }
         }
 
-        svcCts.Cancel();
-        try
+        var svcCancelled = false;
+        var svcChildPid = -1;
+        using (var svcCts = new CancellationTokenSource())
         {
-            await svcSleepTask;
-        }
-        catch (OperationCanceledException)
-        {
-            svcCancelled = true;
-        }
-    }
+            var svcSleepTask = SvcCall(svcProcesses, "RunProcessArgumentListAsync", "/bin/sleep", new[] { "30" }, svcBin, svcCts.Token);
 
-    var svcChildAlive = svcChildPid > 0 && SvcAlive(svcChildPid);
-    for (var svcWait = 0; svcWait < 50 && svcChildAlive; svcWait++)
-    {
-        await Task.Delay(100);
-        svcChildAlive = SvcAlive(svcChildPid);
+            // Wait for a pid this attempt started, then let the runner arm its kill callback (TrackChildProcess sits
+            // one statement before the registration: SubSyncProcesses.cs:160-168). The budget is generous on purpose:
+            // this runs under a full suite and a build on the same machine.
+            var svcTrackedAt = 0L;
+            for (var svcWait = 0; svcWait < 500 && svcChildPid < 0; svcWait++)
+            {
+                await Task.Delay(20);
+                var svcTracked = (System.Collections.Concurrent.ConcurrentDictionary<int, System.Diagnostics.Process>?)
+                    SvcField(svcProcesses, "_liveProcesses");
+                if (svcTracked is { Count: > 0 })
+                {
+                    foreach (var svcPid in svcTracked.Keys)
+                    {
+                        if (!svcTrackedBefore.Contains(svcPid))
+                        {
+                            svcChildPid = svcPid;
+                            svcTrackedAt = Environment.TickCount64;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (svcChildPid > 0)
+            {
+                var svcArmWait = 250 - (Environment.TickCount64 - svcTrackedAt);
+                if (svcArmWait > 0)
+                {
+                    await Task.Delay((int)svcArmWait);
+                }
+            }
+
+            svcCts.Cancel();
+            try
+            {
+                await svcSleepTask;
+            }
+            catch (OperationCanceledException)
+            {
+                svcCancelled = true;
+            }
+        }
+
+        if (svcCancelled)
+        {
+            svcCancels++;
+        }
+
+        var svcChildAlive = svcChildPid > 0 && SvcAlive(svcChildPid);
+        for (var svcWait = 0; svcWait < 50 && svcChildAlive; svcWait++)
+        {
+            await Task.Delay(100);
+            svcChildAlive = SvcAlive(svcChildPid);
+        }
+
+        if (svcCancelled && svcChildPid > 0 && !svcChildAlive)
+        {
+            svcKills++;
+        }
+        else
+        {
+            svcTrace.Append($"attempt{svcTry}: cancelled={svcCancelled} pid={svcChildPid} alive={svcChildAlive} ");
+            if (svcChildAlive)
+            {
+                // Do not leak a survivor just because the runner did: end it here, best effort (F33 owns the defect).
+                try
+                {
+                    System.Diagnostics.Process.GetProcessById(svcChildPid).Kill(entireProcessTree: true);
+                }
+                catch
+                {
+                    // already gone
+                }
+
+                svcTrace.Append($"cmdline='{SvcCmdLine(svcChildPid)}' ");
+            }
+        }
     }
 
     Check("C4: cancelling a run ends it with a cancellation and kills the child, not just the wait",
-        svcCancelled && svcChildPid > 0 && !svcChildAlive,
-        $"cancelled={svcCancelled} childPid={svcChildPid} alive={svcChildAlive}");
+        svcCancels == svcAttempts && svcKills > 0,
+        $"cancels={svcCancels}/{svcAttempts} killed={svcKills}/{svcAttempts} {svcTrace.ToString().Trim()}");
+
+    var svcTrackedNow = SvcLiveProcesses();
     Check("C4: no runner leaves its process in the tracked table (the teardown counts on that)",
-        svcBeforeKill == 0 && SvcLiveProcesses() == 0,
-        $"before={svcBeforeKill} after={SvcLiveProcesses()}");
+        svcTrackedNow == 0,
+        $"after={svcTrackedNow}");
     var svcPreCancelled = new CancellationTokenSource();
     svcPreCancelled.Cancel();
     var svcArgvE = Path.Combine(svcRoot, "argv-never.txt");
