@@ -56,47 +56,55 @@ public class SubSyncMiddleware
         // Disable response compression so we get raw HTML we can modify
         context.Request.Headers[HeaderNames.AcceptEncoding] = "identity";
 
-        // Capture the response body
+        // Capture the response body. Every exit path has to hand the original stream back: this stream is
+        // disposed when the method returns, and anything writing after us - an error page, a redirect, a
+        // status-code middleware - would otherwise meet a disposed stream instead of the response (F21).
         var originalBodyStream = context.Response.Body;
         using var responseBody = new MemoryStream();
         context.Response.Body = responseBody;
 
-        await _next(context).ConfigureAwait(false);
-
-        // Only modify HTML responses
-        var contentType = context.Response.ContentType ?? string.Empty;
-        if (!contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+        try
         {
+            await _next(context).ConfigureAwait(false);
+
+            // Only modify HTML responses
+            var contentType = context.Response.ContentType ?? string.Empty;
+            if (!contentType.Contains("text/html", StringComparison.OrdinalIgnoreCase))
+            {
+                responseBody.Position = 0;
+                await responseBody.CopyToAsync(originalBodyStream).ConfigureAwait(false);
+                return;
+            }
+
             responseBody.Position = 0;
-            await responseBody.CopyToAsync(originalBodyStream).ConfigureAwait(false);
-            return;
+            using var reader = new StreamReader(responseBody, Encoding.UTF8, leaveOpen: true);
+            var html = await reader.ReadToEndAsync().ConfigureAwait(false);
+
+            // Already injected — pass through as-is
+            if (html.Contains(ScriptStartComment, StringComparison.Ordinal))
+            {
+                responseBody.Position = 0;
+                await responseBody.CopyToAsync(originalBodyStream).ConfigureAwait(false);
+                return;
+            }
+
+            // Inject before </body>
+            var closingBody = "</body>";
+            if (html.Contains(closingBody, StringComparison.OrdinalIgnoreCase))
+            {
+                html = html.Replace(closingBody, InjectionBlock + "\n" + closingBody, StringComparison.OrdinalIgnoreCase);
+                _logger.LogDebug("SubSync: Injected client script into index.html response");
+            }
+
+            // Write modified response
+            context.Response.Headers.Remove(HeaderNames.ContentEncoding);
+            var bytes = Encoding.UTF8.GetBytes(html);
+            context.Response.ContentLength = bytes.Length;
+            await originalBodyStream.WriteAsync(bytes).ConfigureAwait(false);
         }
-
-        responseBody.Position = 0;
-        using var reader = new StreamReader(responseBody, Encoding.UTF8, leaveOpen: true);
-        var html = await reader.ReadToEndAsync().ConfigureAwait(false);
-
-        // Already injected — pass through as-is
-        if (html.Contains(ScriptStartComment, StringComparison.Ordinal))
+        finally
         {
-            responseBody.Position = 0;
-            await responseBody.CopyToAsync(originalBodyStream).ConfigureAwait(false);
-            return;
+            context.Response.Body = originalBodyStream;
         }
-
-        // Inject before </body>
-        var closingBody = "</body>";
-        if (html.Contains(closingBody, StringComparison.OrdinalIgnoreCase))
-        {
-            html = html.Replace(closingBody, InjectionBlock + "\n" + closingBody, StringComparison.OrdinalIgnoreCase);
-            _logger.LogDebug("SubSync: Injected client script into index.html response");
-        }
-
-        // Write modified response
-        context.Response.Headers.Remove(HeaderNames.ContentEncoding);
-        var bytes = Encoding.UTF8.GetBytes(html);
-        context.Response.ContentLength = bytes.Length;
-        context.Response.Body = originalBodyStream;
-        await context.Response.Body.WriteAsync(bytes).ConfigureAwait(false);
     }
 }

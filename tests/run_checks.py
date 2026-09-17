@@ -4157,12 +4157,14 @@ else
 
 // {{JOB_CHECK_STATEMENTS}}
 // {{SERVICE_CHECK_STATEMENTS}}
+// {{OUTPUT_CHECK_STATEMENTS}}
 
 Console.WriteLine(failures == 0 ? "ALL PASS" : failures + " FAILURE(S)");
 return failures == 0 ? 0 : 1;
 
 // {{JOB_CHECK_TYPES}}
 // {{SERVICE_CHECK_TYPES}}
+// {{OUTPUT_CHECK_TYPES}}
 """
 
 
@@ -5857,6 +5859,8 @@ def program_with_job_checks():
                      '// {{JOB_CHECK_STATEMENTS}}', '// {{JOB_CHECK_TYPES}}', program)
     program = splice(os.path.join(REPO, 'tests', 'service_checks.cs'),
                      '// {{SERVICE_CHECK_STATEMENTS}}', '// {{SERVICE_CHECK_TYPES}}', program)
+    program = splice(os.path.join(REPO, 'tests', 'output_checks.cs'),
+                     '// {{OUTPUT_CHECK_STATEMENTS}}', '// {{OUTPUT_CHECK_TYPES}}', program)
     return program
 
 
@@ -5919,6 +5923,7 @@ def main():
     <InvariantGlobalization>true</InvariantGlobalization>
   </PropertyGroup>
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="{REPO}/Jellyfin.Plugin.SubSync/Jellyfin.Plugin.SubSync.csproj" />
     <PackageReference Include="Jellyfin.Controller" Version="12.0.0" />
     <PackageReference Include="Jellyfin.Model" Version="12.0.0" />

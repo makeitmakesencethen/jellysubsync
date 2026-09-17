@@ -1971,8 +1971,9 @@ public static class MkvSubtitleExtractor
         }
 
         var start = clusterTimecode + relative;
-        var end = hasDuration && durationTicks > 0 ? start + durationTicks : start + 2000;
-        cues.Add(new Cue(start, end, text));
+        var given = hasDuration && durationTicks > 0;
+        var end = given ? start + durationTicks : start + 2000;
+        cues.Add(new Cue(start, end, text, durationGuessed: !given));
     }
 
     /// <summary>Reads a SeekHead payload: which elements it points at, and where.</summary>
@@ -2551,9 +2552,10 @@ public static class MkvSubtitleExtractor
             var cue = cues[i];
             var end = cue.EndMs;
 
-            // Without a BlockDuration the end is a guess; never let a guess overrun the
-            // next cue.
-            if (i + 1 < cues.Count && (end > cues[i + 1].StartMs || cue.EndMs - cue.StartMs == 2000))
+            // Only a guessed end may be pulled back to the next cue. A duration the file stated is
+            // written as it is, whatever its length: inferring the guess from the number (2000 ms)
+            // rewrote real two-second cues (F19).
+            if (i + 1 < cues.Count && (end > cues[i + 1].StartMs || cue.DurationGuessed))
             {
                 var next = cues[i + 1].StartMs;
                 end = next > cue.StartMs ? Math.Min(next - 1, cue.StartMs + 7000) : cue.StartMs + 1500;
@@ -2718,11 +2720,12 @@ public static class MkvSubtitleExtractor
 
     private sealed class Cue
     {
-        public Cue(long startMs, long endMs, string text)
+        public Cue(long startMs, long endMs, string text, bool durationGuessed = false)
         {
             StartMs = startMs;
             EndMs = endMs;
             Text = text;
+            DurationGuessed = durationGuessed;
         }
 
         public long StartMs { get; }
@@ -2730,6 +2733,13 @@ public static class MkvSubtitleExtractor
         public long EndMs { get; }
 
         public string Text { get; }
+
+        /// <summary>
+        /// True when the block carried no BlockDuration, so <see cref="EndMs"/> is this reader's own
+        /// guess. Only a guessed end may be pulled back to the next cue: a stated duration that happens
+        /// to be exactly 2000 ms used to be treated as a guess and rewritten (F19).
+        /// </summary>
+        public bool DurationGuessed { get; }
     }
 
     /// <summary>

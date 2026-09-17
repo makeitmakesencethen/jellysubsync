@@ -16,7 +16,13 @@ public static class SrtWriter
     /// <param name="StartMs">Start time.</param>
     /// <param name="EndMs">End time.</param>
     /// <param name="Text">Plain text (line breaks allowed).</param>
-    public readonly record struct Entry(long StartMs, long EndMs, string Text);
+    /// <param name="DurationGuessed">
+    /// True when the block carried no duration and <paramref name="EndMs"/> is this reader's own
+    /// guess, so the renderer may pull it back to the next entry. False is a duration the file
+    /// stated, which must be written as it is - a stated duration that happens to equal the guess
+    /// (2000 ms) used to be indistinguishable from one, and was rewritten (F19).
+    /// </param>
+    public readonly record struct Entry(long StartMs, long EndMs, string Text, bool DurationGuessed = false);
 
     /// <summary>Renders entries as SRT text, in the order given.</summary>
     /// <param name="entries">Entries, already sorted by start time.</param>
@@ -30,9 +36,10 @@ public static class SrtWriter
             var entry = entries[i];
             var end = entry.EndMs;
 
-            // Without an explicit duration the end is a guess: never let a guess overrun
-            // the next entry.
-            var guessed = entry.EndMs - entry.StartMs == 2000;
+            // Only a guessed end may be pulled back to the next entry. A duration the file stated is
+            // written as it is, whatever its length: inferring the guess from the number (2000 ms)
+            // rewrote real two-second cues (F19).
+            var guessed = entry.DurationGuessed;
             if (i + 1 < entries.Count && (end > entries[i + 1].StartMs || guessed))
             {
                 var next = entries[i + 1].StartMs;

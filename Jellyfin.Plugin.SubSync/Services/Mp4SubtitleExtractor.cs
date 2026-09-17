@@ -316,11 +316,12 @@ public static class Mp4SubtitleExtractor
                         var text = DecodeSample(buffer);
                         if (!string.IsNullOrWhiteSpace(text))
                         {
-                            var startTicks = durations.Count > sampleIndex ? durations[sampleIndex].Start : 0;
-                            var durationTicks = durations.Count > sampleIndex ? durations[sampleIndex].Duration : 2000;
+                            var stated = durations.Count > sampleIndex;
+                            var startTicks = stated ? durations[sampleIndex].Start : 0;
+                            var durationTicks = stated ? durations[sampleIndex].Duration : 2000;
                             var startMs = startTicks * 1000 / Math.Max(1, track.Timescale);
                             var endMs = (startTicks + durationTicks) * 1000 / Math.Max(1, track.Timescale);
-                            entries.Add(new SrtWriter.Entry(startMs, endMs, text));
+                            entries.Add(new SrtWriter.Entry(startMs, endMs, text, DurationGuessed: !stated));
                         }
                     }
                 }

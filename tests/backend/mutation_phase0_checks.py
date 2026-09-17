@@ -34,9 +34,13 @@ ENGINE = 'Jellyfin.Plugin.SubSync/Services/FfSubSyncEngine.cs'
 ITEM_ACCESS = 'Jellyfin.Plugin.SubSync/Services/ItemAccess.cs'
 SWEEP_STATE = 'Jellyfin.Plugin.SubSync/Services/SweepState.cs'
 SWEEP_HISTORY = 'Jellyfin.Plugin.SubSync/Services/SubSyncService.SweepHistory.cs'
+SRT_WRITER = 'Jellyfin.Plugin.SubSync/Services/SrtWriter.cs'
+MKV_EXTRACTOR = 'Jellyfin.Plugin.SubSync/Services/MkvSubtitleExtractor.cs'
+MIDDLEWARE = 'Jellyfin.Plugin.SubSync/Api/SubSyncMiddleware.cs'
 
-# Any Phase 0 characterization check counts: C4, C8 or C9, whatever the individual label.
-LABELS = re.compile(r'FAIL  (C[0-9])')
+# Any Phase 0 characterization check counts: C4, C8, C9, or the output checks the F19/F21 fixes added
+# (tests/output_checks.cs), whatever the individual label.
+LABELS = re.compile(r'FAIL  (C[0-9]|F19|F21)')
 
 # name -> (file, text to break, what it becomes)
 MUTATIONS = {
@@ -278,6 +282,25 @@ MUTATIONS = {
                                 '            {\n'
                                 '                return; // skip/fail cache tracks external subtitle files only\n'
                                 '            }'),
+    # ---------------- F19 / F21: the output checks (tests/output_checks.cs) ----------------
+    # The old rule, back: the guess is inferred from the number again.
+    'F19-render': (SRT_WRITER,
+                   '            var guessed = entry.DurationGuessed;',
+                   '            var guessed = entry.EndMs - entry.StartMs == 2000;'),
+    # The Matroska writer has its own copy of the same rule, and its own check for it.
+    'F19-mkv-render': (MKV_EXTRACTOR,
+                       '            if (i + 1 < cues.Count && (end > cues[i + 1].StartMs || cue.DurationGuessed))',
+                       '            if (i + 1 < cues.Count && (end > cues[i + 1].StartMs || cue.EndMs - cue.StartMs == 2000))'),
+    # The body restore, gone: the response body stays on the stream the method disposes.
+    'F21-restore': (MIDDLEWARE,
+                    '        finally\n'
+                    '        {\n'
+                    '            context.Response.Body = originalBodyStream;\n'
+                    '        }',
+                    '        finally\n'
+                    '        {\n'
+                    '            // mutant: the body is not handed back\n'
+                    '        }'),
 }
 
 
