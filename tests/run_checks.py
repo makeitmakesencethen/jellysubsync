@@ -4526,7 +4526,15 @@ def run_page_checks():
 
     # The run box was reported as messy: a 7px bar, an elapsed time on every worker row, and a phase
     # line that repeated what the rows already said.
-    report('the overall progress bar stays slim', 'height: 3px' in main_html)
+    # Priority 3 (user report): the overall bar was a 3 px hairline and read as a divider rather than the run's
+    # main indicator. It is now the heaviest line in the panel (10 px, rounded, with a darker track and a lit
+    # top edge on the fill). The detail-page dialog's own bar (.ss-bar in subsync.js) is a different component
+    # and is deliberately left slim - it is not the global run indicator this priority was about.
+    report('the overall progress bar is the prominent indicator, not a hairline (priority 3)',
+           'height: 10px' in main_html
+           and '.ss-progress-bar { height: 100%; width: 0%;' in main_html
+           and 'border-radius: 5px; height: 10px' in main_html
+           and 'height: 3px' not in main_html.split('.ss-progress-wrap')[1].split('}')[0])
     report('the worker bars stay slim', 'grid-column: 2 / 4' in main_html)
     report('the phase is not printed twice while worker rows carry it',
            "workersNow > 0 ? '' : phase" in main_html)
@@ -5020,6 +5028,86 @@ console.log(JSON.stringify(out));
            and 'Directory.CreateDirectory(directory);' in shared_store)
     report('clearing caches also clears shared extraction directories nothing reads',
            'SharedExtractionStore.Cleanup(id => _jobs.ContainsKey(id))' in service_source)
+    # Priority 3 (user report): the run's counts line lost the failed count in C1 and never had one for the
+    # "already in sync" outcome (S8/S12 - the subtitle was already aligned, so nothing was written). Both are
+    # plain text beside the done/percentage, and the in-sync count is derived from the tasks' own Outcome text
+    # rather than a new server field, so it cannot disagree with what History's rows say. Measured on the rig
+    # after: a run of 6 with one genuine failure and the rest already aligned read
+    # "6/6 done (100%) · 1 failed · 5 already in sync"; before, the same line said "6/6 done (100%) · 1 failed".
+    if node:
+        counts_lift = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+function grab(from, to) {
+  const start = src.indexOf(from);
+  if (start < 0) throw new Error('missing: ' + from);
+  const end = src.indexOf(to, start + from.length);
+  if (end < 0) throw new Error('unterminated: ' + from);
+  return src.slice(start, end + to.length);
+}
+const pieces = [
+  grab('function alreadyInSyncCount(view) {', '\n    }'),
+  grab('function renderQueueLine(view) {', '\n    }'),
+];
+var written = [];
+global.$ = function () {
+  return { set textContent(v) { written.push(v); }, get textContent() { return written[written.length - 1]; } };
+};
+eval(pieces.join('\n'));
+function task(status, outcome, outPath) {
+  return { Status: status, Outcome: outcome, OutputPath: outPath };
+}
+var out = {};
+// six tasks: one real failure, four already in sync, one written
+out.mixed = (function () {
+  renderQueueLine({ Total: 6, Completed: 6, Failed: 1, Cancelled: 0, Tasks: [
+    task('Failed', null, null),
+    task('Completed', 'already in sync (shift under 3 s) \u2014 no change needed', null),
+    task('Completed', 'already in sync (nothing to change) \u2014 nothing written', null),
+    task('Completed', 'already in sync (shift under 3 s) \u2014 no change needed', null),
+    task('Completed', 'already in sync (shift under 3 s) \u2014 no change needed', null),
+    task('Completed', '\u2212250 ms offset', '/media/out.SYNCED.srt')
+  ] });
+  return written[written.length - 1];
+})();
+// a run where everything was written: the in-sync note must not appear
+out.allWritten = (function () {
+  renderQueueLine({ Total: 2, Completed: 2, Failed: 0, Cancelled: 0, Tasks: [
+    task('Completed', '\u2212250 ms offset', '/media/a.SYNCED.srt'),
+    task('Completed', '+1200 ms offset', '/media/b.SYNCED.srt')
+  ] });
+  return written[written.length - 1];
+})();
+// a completed task with an outcome but no path that is NOT the in-sync wording is not counted
+out.otherNoOutput = (function () {
+  renderQueueLine({ Total: 1, Completed: 1, Failed: 0, Cancelled: 0, Tasks: [
+    task('Completed', 'no change needed', null)
+  ] });
+  return written[written.length - 1];
+})();
+console.log(JSON.stringify(out));
+"""
+        counts_path = os.path.join(REPO, '.tests-work', 'counts_lift.js')
+        os.makedirs(os.path.dirname(counts_path), exist_ok=True)
+        with open(counts_path, 'w', encoding='utf-8') as handle:
+            handle.write(counts_lift)
+        lifted_counts = subprocess.run([node, counts_path, os.path.join(web, 'subsyncMain.js')],
+                                       capture_output=True, text=True)
+        lines = {}
+        if lifted_counts.returncode == 0 and lifted_counts.stdout.strip():
+            try:
+                lines = json.loads(lifted_counts.stdout)
+            except ValueError:
+                lines = {}
+        report('the counts line restores the failed count and adds already in sync (priority 3)',
+               lines.get('mixed') == '6/6 done (100%) \u00b7 1 failed \u00b7 4 already in sync',
+               (lifted_counts.stderr or '')[-200:] if not lines else lines.get('mixed', ''))
+        report('already in sync is counted from the outcome, and only for a task that wrote nothing (priority 3)',
+               lines.get('allWritten') == '2/2 done (100%)',
+               lines.get('allWritten', ''))
+        report('a task with no output path that did not say "already in sync" is not counted as one (priority 3)',
+               lines.get('otherNoOutput') == '1/1 done (100%)',
+               lines.get('otherNoOutput', ''))
     report('the cancel control works for a run the page did not start',
            'var target = watchedBatchId || mirroredBatchId;' in pages['subsyncMain.html']
            and "api('SubSync/Batch/' + target + '/Cancel'" in pages['subsyncMain.html'])

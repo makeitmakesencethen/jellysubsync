@@ -785,7 +785,30 @@
         var bits = [done + '/' + total + ' done (' + Math.round((done / total) * 100) + '%)'];
         if (failed) bits.push(failed + ' failed');
         if (cancelled) bits.push(cancelled + ' cancelled');
+        // "already in sync" is a success with nothing to write (the job completed with no output path and an
+        // outcome saying so), and it used to be indistinguishable from a real write in this line: a run where
+        // every subtitle was already aligned read exactly like one that had written every subtitle. Counted
+        // off the tasks themselves rather than a new server field - the outcome text is already what the rows
+        // in History show, so this cannot drift from them (one definition, the same one the detail view uses).
+        var inSync = alreadyInSyncCount(view);
+        if (inSync) bits.push(inSync + ' already in sync');
         line.textContent = bits.join(' \u00b7 ');
+    }
+
+    /** How many of a batch's finished tasks resolved as already in sync (nothing written). */
+    function alreadyInSyncCount(view) {
+        var tasks = (view && (view.Tasks || view.tasks)) || [];
+        var n = 0;
+        for (var i = 0; i < tasks.length; i++) {
+            var t = tasks[i];
+            var status = t.Status || t.status || '';
+            var outcome = t.Outcome || t.outcome || '';
+            var outPath = t.OutputPath !== undefined ? t.OutputPath : t.outputPath;
+            if (status === 'Completed' && !outPath && /already in sync/i.test(outcome)) {
+                n++;
+            }
+        }
+        return n;
     }
 
     function showRunBox(show) {

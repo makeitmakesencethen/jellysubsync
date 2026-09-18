@@ -69,8 +69,13 @@
             .ss-row-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: flex-end; max-width: 62%; }
             .ss-row-actions .emby-select { width: auto; }
             .ss-compact { width: auto !important; max-width: 220px; }
-            .ss-progress-wrap { background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin: 8px 0 4px; overflow: hidden; }
-            .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
+            /* Priority 3 (user report): the run's overall progress was a 3 px hairline that read as a divider
+               rather than as the run's main indicator, while the per-worker bars below it were the same
+               weight. It is now the heaviest line in the panel: 10 px, rounded, on a darker track so the
+               filled part stands out against the panel behind it, and the fill carries a light top edge so
+               the bar reads as an object rather than a rule. Measured before: 3 px tall. */
+            .ss-progress-wrap { background: rgba(0,0,0,.35); border-radius: 5px; height: 10px; margin: 10px 0 6px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); }
+            .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); border-radius: 5px; box-shadow: inset 0 1px 0 rgba(255,255,255,.25); transition: width .3s ease; }
             .ss-workers { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; max-height: 420px; overflow-y: auto; }
             .ss-worker {
                 display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: baseline;
