@@ -5453,7 +5453,9 @@ def run_page_checks():
            'SubtitleCacheSummary = SubtitleCache.Describe()' in service_source
            and 'public string? SubtitleCacheSummary { get; set; }' in service_source
            and 'ss-subtitlecache' in main_html
-           and 'extracted subtitle' in main_html
+           # the interface names the cache; the wording is the page's to change (E2 rewrote this description
+           # from 'The extracted subtitle is ...' to a labelled line), so only the name is pinned
+           and 'extracted subtitle' in main_html.lower()
            and 'SubtitleCacheSummary' in page_js)
     report('F30: the sweep history has one cap, applied on load and on every write',
            'public const int MaxEntries = 5000;' in sweepstate_source
