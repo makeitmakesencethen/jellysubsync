@@ -791,39 +791,32 @@
         // disturbing the option the user picked.
         var langSel = $('ss-sellang');
         if (langSel) {
+            // B3: this box is the same control in every state. While the subtitle lists were being read it had
+            // its whole option list replaced by a single "LOADING" entry and was disabled, which reads as the
+            // filter box being swapped out for a line of text. What it does now is keep its box, keep the
+            // languages the last scan found (a re-scan does not invalidate them), stay enabled, and say what it
+            // is doing inside its own text.
+            var counts = langScan.running ? lastLangCounts : langScan.langs;
+            var codes = Object.keys(counts).sort(function (a, b) {
+                return langLabel(a).localeCompare(langLabel(b));
+            });
+            var first = selLangs.length ? 'Add another language\u2026' : 'All languages';
             if (langScan.running) {
-                // The box itself says LOADING - same box, same position, no second layer:
-                // the text is replaced inside it and put back when the lists are in.
-                var progress = langScan.total
-                    ? 'LOADING ' + langScan.done + '/' + langScan.total
-                    : 'LOADING';
-                if (langScan.signature !== progress) {
-                    langScan.signature = progress;
-                    langSel.innerHTML = '<option value="">' + esc(progress) + '</option>';
-                }
-                langSel.disabled = true;
-                langSel.value = '';
-            } else {
-                langSel.disabled = false;
-                // Only rebuild when the discovered language set actually changed,
-                // so a re-render never closes the open dropdown.
-                var codes = Object.keys(langScan.langs).sort(function (a, b) {
-                    return langLabel(a).localeCompare(langLabel(b));
-                });
-                var sig = codes.join(',') + '|' + selLangs.join(',');
-                if (sig !== langScan.signature) {
-                    langScan.signature = sig;
-                    var first = selLangs.length ? 'Add another language\u2026' : 'All languages';
-                    var opts = '<option value="">' + first + '</option>';
-                    codes.forEach(function (c) {
-                        if (selLangs.indexOf(c) !== -1) return;
-                        opts += '<option value="' + esc(c) + '">' + esc(langLabel(c))
-                            + ' (' + langScan.langs[c] + ')</option>';
-                    });
-                    langSel.innerHTML = opts;
-                }
-                langSel.value = '';
+                first = 'Sorting\u2026' + (langScan.total ? ' ' + langScan.done + '/' + langScan.total : '');
             }
+            var sig = codes.join(',') + '|' + selLangs.join(',') + '|' + first;
+            if (sig !== langScan.signature) {
+                langScan.signature = sig;
+                var opts = '<option value="">' + esc(first) + '</option>';
+                codes.forEach(function (c) {
+                    if (selLangs.indexOf(c) !== -1) return;
+                    opts += '<option value="' + esc(c) + '">' + esc(langLabel(c))
+                        + ' (' + counts[c] + ')</option>';
+                });
+                langSel.innerHTML = opts;
+            }
+            langSel.value = '';
+            langSel.disabled = false;
         }
 
         var chips = $('ss-selchips');
@@ -920,6 +913,9 @@
     var selLangs = [];           // canonical codes; empty = every language
     var langScanToken = 0;
     var langScan = { running: false, done: 0, total: 0, langs: {}, partial: false, signature: '' };
+    // The languages the last finished scan found. Kept apart from langScan.langs (which is emptied when a new
+    // scan starts) so the filter box stays usable and populated while a re-scan reads the lists (B3).
+    var lastLangCounts = {};
     var LANG_SCAN_BUDGET = 400;  // max track requests per scan
 
     // Jellyfin hands back language codes in whatever form the file used:
@@ -1114,6 +1110,7 @@
             });
 
             langScan.running = false;
+            lastLangCounts = langScan.langs;
             refreshDataline();
         }).catch(function (e) {
             if (token !== langScanToken) return;

@@ -4671,6 +4671,17 @@ def run_page_checks():
            and '.ss-langrow .emby-button { margin: 0; height: 39px; padding: 0 15px; }' in pages['subsyncMain.html']
            and 'class="ss-langrow"' in pages['subsyncMain.html']
            and 'align-items:flex-start;flex-wrap:wrap;margin-top:8px;' not in pages['subsyncMain.html'])
+    # B3: the language filter box is never swapped out for a line of text. Measured while the lists were read:
+    # its whole option list was replaced by one "LOADING" entry and it was disabled (options 1, disabled true,
+    # text "LOADING 0/40" then "LOADING 25/40"). It now keeps its box, keeps the languages the last scan found
+    # (a re-scan does not invalidate them), stays enabled, and says what it is doing in its own text.
+    report('the multi-select language box stays a box while the lists are read (B3)',
+           'var counts = langScan.running ? lastLangCounts : langScan.langs;' in pages['subsyncMain.js']
+           and "first = 'Sorting\\u2026'" in pages['subsyncMain.js']
+           and 'langSel.disabled = false;' in pages['subsyncMain.js']
+           and 'var lastLangCounts = {};' in pages['subsyncMain.js']
+           and 'lastLangCounts = langScan.langs;' in pages['subsyncMain.js']
+           and "'LOADING '" not in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

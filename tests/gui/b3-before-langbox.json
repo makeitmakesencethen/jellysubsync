@@ -1,0 +1,148 @@
+{
+ "label": "b3-before",
+ "delayMs": 4000,
+ "before": {
+  "text": "All languages",
+  "firstOptionText": "All languages",
+  "options": 1,
+  "optionTexts": [
+   "All languages"
+  ],
+  "disabled": false,
+  "opacity": "1",
+  "visibility": "visible",
+  "display": "block",
+  "box": [
+   0,
+   0,
+   0,
+   0
+  ],
+  "rowVisible": false,
+  "note": ""
+ },
+ "observed": [
+  {
+   "key": "{\"t\":\"LOADING 0/40\",\"o\":1,\"d\":true,\"r\":true}",
+   "at": 0,
+   "text": "LOADING 0/40",
+   "firstOptionText": "LOADING 0/40",
+   "options": 1,
+   "optionTexts": [
+    "LOADING 0/40"
+   ],
+   "disabled": true,
+   "opacity": "0.7",
+   "visibility": "visible",
+   "display": "block",
+   "box": [
+    709,
+    298,
+    155,
+    42
+   ],
+   "rowVisible": true,
+   "note": "40 files selected — series sync all their episodes · reading subtitle lists… 0/40"
+  },
+  {
+   "key": "{\"t\":\"LOADING 25/40\",\"o\":1,\"d\":true,\"r\":true}",
+   "at": 4000,
+   "text": "LOADING 25/40",
+   "firstOptionText": "LOADING 25/40",
+   "options": 1,
+   "optionTexts": [
+    "LOADING 25/40"
+   ],
+   "disabled": true,
+   "opacity": "0.7",
+   "visibility": "visible",
+   "display": "block",
+   "box": [
+    709,
+    298,
+    164,
+    42
+   ],
+   "rowVisible": true,
+   "note": "40 files selected — series sync all their episodes · reading subtitle lists… 25/40"
+  },
+  {
+   "key": "{\"t\":\"All languages\",\"o\":32,\"d\":false,\"r\":true}",
+   "at": 8250,
+   "text": "All languages",
+   "firstOptionText": "All languages",
+   "options": 32,
+   "optionTexts": [
+    "All languages",
+    "Arabic (5)",
+    "Chinese (10)",
+    "Croatian (5)",
+    "Czech (10)"
+   ],
+   "disabled": false,
+   "opacity": "1",
+   "visibility": "visible",
+   "display": "block",
+   "box": [
+    709,
+    298,
+    165,
+    42
+   ],
+   "rowVisible": true,
+   "note": "40 files selected — series sync all their episodes"
+  }
+ ],
+ "after": {
+  "text": "All languages",
+  "firstOptionText": "All languages",
+  "options": 32,
+  "optionTexts": [
+   "All languages",
+   "Arabic (5)",
+   "Chinese (10)",
+   "Croatian (5)",
+   "Czech (10)"
+  ],
+  "disabled": false,
+  "opacity": "1",
+  "visibility": "visible",
+  "display": "block",
+  "box": [
+   709,
+   298,
+   165,
+   42
+  ],
+  "rowVisible": true,
+  "note": "40 files selected — series sync all their episodes"
+ },
+ "rescan": [
+  {
+   "key": "{\"t\":\"All languages\",\"o\":32,\"d\":false}",
+   "at": 0,
+   "text": "All languages",
+   "firstOptionText": "All languages",
+   "options": 32,
+   "optionTexts": [
+    "All languages",
+    "Arabic (5)",
+    "Chinese (10)",
+    "Croatian (5)",
+    "Czech (10)"
+   ],
+   "disabled": false,
+   "opacity": "1",
+   "visibility": "visible",
+   "display": "block",
+   "box": [
+    709,
+    298,
+    165,
+    42
+   ],
+   "rowVisible": true,
+   "note": "40 files selected — series sync all their episodes"
+  }
+ ]
+}
