@@ -47,6 +47,10 @@ MARKERS_PRESENT = [
     # as plainly (the DLL carries the page's own source), so both halves of this batch are witnessable here.
     'RunId', 'MaxSingleRuns', 'ToHistoryJob',
     'renderQueueLine', 'buildTaskRow', 'subtitleButtonLabel', 'syncButtonText', 'ss-hist-summary',
+    # 2.0.64: the G2 work (an image track cannot be queued from the page, and the sweep skips one) plus
+    # the run box changes - the predicate the page filters on, the greying-out rule, and the one wording
+    # the disabled button and the diagnostic line share.
+    'trackUnsupported', 'syncableTracks', 'selectionUnsyncableReason', 'nothingToSync', 'SkippedUnsupported',
 ]
 MARKERS_ABSENT = ['RunCapturedAsync', 'LiveProcessCount']
 

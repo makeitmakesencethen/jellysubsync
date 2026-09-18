@@ -1,3 +1,46 @@
+## 2.0.64 (beta)
+
+Four things the user found by using 2.0.63 on a real library, three of them in the run box and one of them a
+correctness defect that had been producing failures for as long as the library page has existed.
+
+**An image-based subtitle track can no longer be queued from the page - and this one was a real bug, not a
+cosmetic one.** Blu-ray PGS and DVD VobSub/DVB/XSUB tracks carry pictures, so the engine can never align them,
+and the queue refuses one deliberately rather than dropping it silently. What the library page never did was
+read the flag that says so: the listing shows such a track with its reason on it (a track that cannot be synced
+is information the file carries) and the detail dialog filters on it, but the library page offered it in the
+track picker, counted it in "All N tracks", could pick it as the only track of its language, offered languages
+carried only by one, counted it on the button, and handed it to the queue. Every one of those clicks came back
+as a **failed task of a run that had nothing wrong with it** - five times in a single afternoon of testing, per
+the server log ("Batch \"b258342a…\" task 3 failed validation: \"This track is DVDSUB, an image subtitle
+format…\""), which is also why the plugin's own log said nothing: the refusal happens at enqueue. One
+predicate now guards every path that builds a queue or counts what a button would queue, the picker lists the
+track as unselectable with the reason on it, the row's Sync button and the selection's Sync button are greyed
+out with that reason when nothing can be queued, "nothing found" and "only image formats" are different
+messages, and the library sweep skips such a file with its own counter instead of spending a failure on it
+every pass. Measured on a file whose only track is DVDSUB: before, one task posted and one failure; after, no
+task at all and nothing sent to the server - while a file with five text tracks still offers all five.
+
+**The run box says each number once.** Both lines carried the fraction and the failure count
+(`parallel · 1/64 workers · 1/9 · 1 failed` over `8 subtitles left · 1/9 done (11%) · 1 failed · time left:
+estimating`). The workers line now says what the workers are doing and the counts line says how the run is
+going, "N subtitles left" is gone because "1/9" states it, and the time estimate is **removed rather than
+fixed**: on a 489-task run it read "about 4 min left" at 29% and "about 10 min left" at 46%, and a run mixes
+25-minute episodes with two-hour films, so the average of what has finished says nothing about what is left. A
+number that moves the wrong way while the run advances is worse than no number. The worker rows and phase line
+moved above the counts line, so the reading order is live state, then the run's totals.
+
+**The run box shows the run, not a record of what each subtitle did.** The per-file results list under the
+counts line is gone (a 489-task run filled it), along with the code that wrote it. What is left is the live
+run: workers line, bar, worker rows, counts line. A run's record is the History tab, which renders the same
+rows from the same renderer, with the summary, the problems-only switch and Copy as text.
+
+**The run box belongs to the Sync tab.** It was a sibling of the three panels, so History and Settings showed
+it too. It is now part of the Sync panel: on another tab with a run going, none of it is on screen, and
+switching back shows the run exactly as it was.
+
+Suite: 1 038 checks green (`python3 tests/run_checks.py`), including the new C# case for the sweep and pins for
+every filtered path.
+
 ## 2.0.63 (beta)
 
 A pass over the interface, worked from a list the user wrote after using it, with every item reproduced before it
