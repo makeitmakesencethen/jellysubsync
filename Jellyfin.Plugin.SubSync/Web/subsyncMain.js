@@ -255,21 +255,44 @@
 
     /** One result as a row: the state as a word, the file, and the note. Built in one place so a run's detail
      *  in History (D1) has one definition to render - the live progress panel no longer shows results at all
-     *  (see the removal note below). */
+     *  (see the removal note below).
+     *
+     *  The word and the colour come from one table, and every status the server reports has a row in it.
+     *  They used to come from a three-way ternary - "Synced" for Completed, "Skipped" for Cancelled,
+     *  **"Failed" for everything else** - and "everything else" is where Queued and Running fall. Opening a
+     *  run in History while it was still going therefore painted every task that had not started yet as
+     *  Failed in red: measured on the rig against the shipped code, a ten-task batch spent its whole life
+     *  with 1-10 tasks reading "Failed" (`Queued -> "Failed" (ss-task-bad)`, `Running -> "Failed"
+     *  (ss-task-bad)`), i.e. the panel told the user the run had failed where nothing had gone wrong. A
+     *  status the table has never seen is not a failure either - it says what it is, in the neutral colour,
+     *  because an unknown word must not be an accusation. */
+    var TASK_STATES = {
+        Completed: { word: 'Synced', kind: 'ok' },
+        Cancelled: { word: 'Skipped', kind: 'skip' },
+        Failed: { word: 'Failed', kind: 'bad' },
+        Refused: { word: 'Refused', kind: 'skip' },
+        Running: { word: 'Running', kind: 'pending' },
+        Queued: { word: 'Queued', kind: 'pending' }
+    };
+
+    function taskState(status) {
+        return TASK_STATES[status] || { word: status || 'Unknown', kind: 'pending' };
+    }
+
     function buildTaskRow(status, title, note) {
         var row = document.createElement('div');
-        var kind = status === 'Completed' ? 'ok' : (status === 'Cancelled' ? 'skip' : 'bad');
-        row.className = 'ss-task ss-task-' + kind;
+        var state = taskState(status);
+        row.className = 'ss-task ss-task-' + state.kind;
 
-        var state = document.createElement('span');
-        state.className = 'ss-task-state';
-        state.textContent = status === 'Completed' ? 'Synced' : (status === 'Cancelled' ? 'Skipped' : 'Failed');
+        var stateEl = document.createElement('span');
+        stateEl.className = 'ss-task-state';
+        stateEl.textContent = state.word;
 
         var name = document.createElement('span');
         name.className = 'ss-task-name';
         name.textContent = title || '';
 
-        row.appendChild(state);
+        row.appendChild(stateEl);
         row.appendChild(name);
         if (note) {
             var detail = document.createElement('span');
@@ -396,6 +419,12 @@
         return status === 'Completed' || status === 'Failed' || status === 'Cancelled';
     }
 
+    /** A task the server has not finished: it has no result yet, so nothing may be said about it as one
+     *  (and it must never be counted as a failure - see the note on the state table). */
+    function isPendingStatus(status) {
+        return status === 'Queued' || status === 'Running';
+    }
+
     /** The rows of one run: grouped by file, so a movie with four tracks reads as one file with four results
      *  rather than four unrelated lines. */
     function historyTaskRows(tasks, problemsOnly) {
@@ -428,11 +457,21 @@
             }
             shown.forEach(function (e) {
                 var t = e.task;
-                var note = e.status === 'Completed'
-                    ? taskResultNote(t.Outcome || t.outcome || '', t.ExtractionNote || t.extractionNote || '',
-                                     t.OutputPath || t.outputPath || '')
-                    : (e.status === 'Cancelled' ? 'cancelled before it started'
-                        : (t.Error || t.error || t.Status || e.status));
+                var note;
+                if (e.status === 'Completed') {
+                    note = taskResultNote(t.Outcome || t.outcome || '', t.ExtractionNote || t.extractionNote || '',
+                                          t.OutputPath || t.outputPath || '');
+                } else if (e.status === 'Cancelled') {
+                    note = 'cancelled before it started';
+                } else if (isPendingStatus(e.status)) {
+                    // A queued or running task has no result to report: it says why it is waiting, when the
+                    // server knows (the phase carries it), and nothing when it does not. This used to read
+                    // the task's own status word, which is how a pending row said "Queued" as its *note*
+                    // under a state word that claimed it had failed.
+                    note = t.Phase || t.phase || '';
+                } else {
+                    note = t.Error || t.error || t.Status || e.status;
+                }
                 fragment.appendChild(buildTaskRow(e.status, file && entries.length > 1 ? e.track : (file || e.track), note));
             });
         });

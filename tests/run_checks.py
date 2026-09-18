@@ -12,6 +12,7 @@ Run from the repository root or anywhere else:
 Requires the .NET 9 SDK and python3. No ffsubsync binary and no media library are needed: the
 fixtures are synthetic and the tests never call ffsubsync.
 """
+import json
 import os
 import pathlib
 import shutil
@@ -4785,6 +4786,86 @@ def run_page_checks():
            and 'function buildTaskRow(status, title, note)' in pages['subsyncMain.js']
            and 'function taskResultNote(outcome, extractNote, outPath)' in pages['subsyncMain.js']
            and "fragment.appendChild(buildTaskRow(" in pages['subsyncMain.js'])
+    # Priority 4 (2026-09-18): a task that has not finished was drawn as a FAILURE. The state word came from
+    # a three-way ternary - "Synced" for Completed, "Skipped" for Cancelled, "Failed" for everything else -
+    # and "everything else" is where Queued and Running fall, so opening a run in History while it was still
+    # going painted every task that had not started yet as Failed in red. Measured against the shipped code
+    # (buildTaskRow lifted out of Web/subsyncMain.js and run in node): `Queued -> "Failed" (ss-task-bad)` and
+    # `Running -> "Failed" (ss-task-bad)`, and on the rig a ten-task batch spent its whole life with 1-10
+    # tasks reading "Failed" while the server reported them Queued/Running
+    # (tests/backend/priority4_queued_failed.py). The word and the colour now come from one table with a row
+    # per status the server reports, and a status the table has not seen is neutral, never red: an unknown
+    # word must not be an accusation.
+    #
+    # This runs the shipped function rather than pinning a string: the defect was a *mapping*, and a source
+    # pin cannot see a mapping. The pieces are lifted straight out of the page source so the check measures
+    # the code and not a copy of it, and node is already required by this file elsewhere.
+    if node:
+        lifter = r"""
+const fs = require('fs');
+const src = fs.readFileSync(process.argv[2], 'utf8');
+function grab(from, to) {
+  const start = src.indexOf(from);
+  if (start < 0) throw new Error('missing: ' + from);
+  const end = src.indexOf(to, start + from.length);
+  if (end < 0) throw new Error('unterminated: ' + from);
+  return src.slice(start, end + to.length);
+}
+const pieces = [
+  grab('var TASK_STATES = {', '\n    };'),
+  grab('function taskState(status) {', '\n    }'),
+  grab('function buildTaskRow(status, title, note) {', '\n    }'),
+];
+global.document = { createElement: function () {
+  var kids = [];
+  return { className: '', textContent: '', children: kids,
+    appendChild: function (c) { kids.push(c); },
+    querySelector: function (sel) {
+      var cls = sel.replace('.', '');
+      return kids.filter(function (k) {
+        return (k.className || '').split(' ').indexOf(cls) !== -1; })[0] || null;
+    } };
+} };
+eval(pieces.join('\n'));
+var out = {};
+['Queued', 'Running', 'Completed', 'Failed', 'Cancelled', 'SomethingNew'].forEach(function (s) {
+  var row = buildTaskRow(s, 'Some Movie');
+  out[s] = { word: row.querySelector('.ss-task-state').textContent, cls: row.className };
+});
+console.log(JSON.stringify(out));
+"""
+        lifter_path = os.path.join(REPO, '.tests-work', 'taskrow_lift.js')
+        os.makedirs(os.path.dirname(lifter_path), exist_ok=True)
+        with open(lifter_path, 'w', encoding='utf-8') as handle:
+            handle.write(lifter)
+        lifted = subprocess.run([node, lifter_path, os.path.join(web, 'subsyncMain.js')],
+                                capture_output=True, text=True)
+        states = {}
+        if lifted.returncode == 0 and lifted.stdout.strip():
+            try:
+                states = json.loads(lifted.stdout)
+            except ValueError:
+                states = {}
+        report('a task that has not finished is never drawn as a failure (priority 4)',
+               states.get('Queued', {}).get('word') == 'Queued'
+               and states.get('Running', {}).get('word') == 'Running'
+               and states.get('Completed', {}).get('word') == 'Synced'
+               and states.get('Failed', {}).get('word') == 'Failed'
+               and states.get('Cancelled', {}).get('word') == 'Skipped'
+               # the two that must not be red, and the one that must
+               and 'ss-task-bad' not in states.get('Queued', {}).get('cls', 'bad')
+               and 'ss-task-bad' not in states.get('Running', {}).get('cls', 'bad')
+               and 'ss-task-bad' in states.get('Failed', {}).get('cls', '')
+               # a status nobody has seen yet is neutral too: it must not accuse the run of failing
+               and 'ss-task-bad' not in states.get('SomethingNew', {}).get('cls', 'bad')
+               and states.get('SomethingNew', {}).get('word') == 'SomethingNew',
+               (lifted.stderr or '')[-200:] if states == {} else '')
+    report('an unfinished task says why it is waiting, not its own status word (priority 4)',
+           'function isPendingStatus(status)' in pages['subsyncMain.js']
+           and 'if (isPendingStatus(e.status))' in pages['subsyncMain.js']
+           and 'note = t.Phase || t.phase' in pages['subsyncMain.js']
+           # the neutral colour exists and is not the failure colour
+           and '.ss-task-pending .ss-task-state { color: rgba(255,255,255,.55); }' in pages['subsyncMain.html'])
     # G2: an image-based subtitle track (PGS, VobSub, DVB, XSUB) can never be aligned, and the page used to
     # offer them anyway: the row's picker listed one as selectable, "All N tracks" counted it, the language
     # filter offered a language carried only by one, and the button counted it. Measured before, on the user's

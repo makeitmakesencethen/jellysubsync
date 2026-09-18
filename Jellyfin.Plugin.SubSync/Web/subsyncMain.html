@@ -90,6 +90,9 @@
             .ss-task-state { flex: 0 0 auto; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .85; font-weight: 600; }
             .ss-task-ok .ss-task-state { color: #7fce8f; }
             .ss-task-skip .ss-task-state { color: #fc3; }
+            /* A task that has not finished is not a failure: it gets the page's own muted colour, so an
+               unfinished run never reads as a broken one. */
+            .ss-task-pending .ss-task-state { color: rgba(255,255,255,.55); }
             .ss-task-bad .ss-task-state { color: #ff6b6b; }
             .ss-task-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
             .ss-task-note { flex: 1 1 auto; opacity: .6; font-size: .8rem; word-break: break-word; }
