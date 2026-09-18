@@ -90,6 +90,31 @@
             ? "the Cue type or ToSrt moved, so this check could not run"
             : $"rendered='{F19Mkv(0, "guessed", guessed: true, withNext: true).Split('\n').Skip(1).FirstOrDefault() ?? "(none)"}'");
 
+    // ---------------- F19 again, this time end to end on a real Matroska file ----------------
+    // The checks above drive the renderer directly. This one runs the shipped extractor over a file a muxer
+    // would write: each cue carries a *stated* 2 000 ms duration (a BlockGroup with a BlockDuration) and the
+    // next cue is 5 s later, so a 2 000 ms end that is treated as a guess shows up as 00:00:04,999.
+    // tests/run_checks.py generates it (`MKV_FIX_DURATION`); without that variable the check reports skipped.
+    var f19File = Environment.GetEnvironmentVariable("MKV_FIX_DURATION");
+    if (string.IsNullOrEmpty(f19File) || !File.Exists(f19File))
+    {
+        Check("F19: a Matroska file that states 2 000 ms renders it (end to end)",
+            true, "skipped: MKV_FIX_DURATION is not set (the suite sets it)");
+    }
+    else
+    {
+        var f19Ok = MkvSubtitleExtractor.TryExtract(f19File, 0, out var f19Srt, out var f19Why);
+        var f19Timings = f19Srt.Split('\n').Where(l => l.Contains("-->", StringComparison.Ordinal)).ToArray();
+        Check("F19: a Matroska file that states 2 000 ms renders it (end to end, real file)",
+            f19Ok
+            && f19Timings.Length == 2
+            && f19Timings[0] == "00:00:00,000 --> 00:00:02,000"
+            && f19Timings[1] == "00:00:05,000 --> 00:00:07,000",
+            f19Ok
+                ? $"cues={f19Timings.Length} [{string.Join(" | ", f19Timings)}]"
+                : $"extraction failed: {f19Why}");
+    }
+
     // ---------------- F21: the response body comes back on every path ----------------
     async Task<(bool Restored, string Note, string Content)> F21Probe(Microsoft.AspNetCore.Http.RequestDelegate next, bool expectThrow)
     {

@@ -43,6 +43,9 @@ LANGUAGE = bytes.fromhex('22B59C')
 CLUSTER = bytes.fromhex('1F43B675')
 TIMECODE = bytes.fromhex('E7')
 SIMPLE_BLOCK = bytes.fromhex('A3')
+BLOCK_GROUP = bytes.fromhex('A0')
+BLOCK = bytes.fromhex('A1')
+BLOCK_DURATION = bytes.fromhex('9B')
 CUES = bytes.fromhex('1C53BB6B')
 CUE_POINT = bytes.fromhex('BB')
 CUE_TIME = bytes.fromhex('B3')
@@ -91,18 +94,35 @@ def track_entry(number, track_type, codec, extra=b''):
     return element(TRACK_ENTRY, body)
 
 
-def simple_block(track, timecode, payload, keyframe=True):
-    header = vint_size(track) + struct.pack('>h', timecode) + bytes([0x80 if keyframe else 0x00])
-    return element(SIMPLE_BLOCK, header + payload)
+def block_body(track, timecode, payload, keyframe=True):
+    return vint_size(track) + struct.pack('>h', timecode) + bytes([0x80 if keyframe else 0x00]) + payload
+
+
+def simple_block(track, timecode, payload, keyframe=True, duration_ms=0):
+    if duration_ms:
+        # A *stated* duration has to be a BlockGroup: BlockDuration is a child of the block group, not
+        # of a SimpleBlock (whose payload is frame data alone, so an element written there is read back
+        # as part of the frame). mkvmerge writes a subtitled cue with a duration this way, and the F19
+        # spot check needs a file that says 2 000 ms rather than one that leaves the end to be guessed.
+        return element(BLOCK_GROUP,
+                       element(BLOCK, block_body(track, timecode, payload, keyframe))
+                       + element(BLOCK_DURATION, uint_bytes(duration_ms)))
+    return element(SIMPLE_BLOCK, block_body(track, timecode, payload, keyframe))
 
 
 def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True, cues=True,
           rel_pos=True, sub_tracks=1, sub_position='early', grouped_cues=False, blocks_per_cluster=0,
-          frame_payload_kb=0):
+          frame_payload_kb=0, sub_duration=0, sub_text='srt'):
     payload = payload_mb * 1024 * 1024
     frame_payload = frame_payload_kb * 1024
-    sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
-                 for i in range(1, clusters // sub_every + 2)]
+    if sub_text == 'plain':
+        # Text with no timing lines of its own: the extractor writes the cue's own start and end, so a
+        # file whose payload carries timings as well puts two timing lines per cue in the output and
+        # makes a timing assertion ambiguous.
+        sub_texts = [f"Subtitle line {i}\n\n" for i in range(1, clusters // sub_every + 2)]
+    else:
+        sub_texts = [f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nSubtitle line {i}\n\n"
+                     for i in range(1, clusters // sub_every + 2)]
     # Extra subtitle tracks carry recognisably different text, so a pass that shares one read of the
     # file across tracks can be checked for putting the right blocks in the right track.
     extra_texts = [[f"{i}\n00:00:{i % 60:02d},000 --> 00:00:{(i % 60) + 3:02d},000\nTrack {k} line {i}\n\n"
@@ -198,7 +218,7 @@ def build(path, clusters, payload_mb, sub_every, sub_cues=True, video_cues=True,
             def sub_block(k):
                 text = sub_texts[sub_index % len(sub_texts)] if k == 0 \
                     else extra_texts[k - 1][sub_index % len(extra_texts[k - 1])]
-                return simple_block(sub_track_numbers[k], 0, text.encode('utf-8'))
+                return simple_block(sub_track_numbers[k], 0, text.encode('utf-8'), duration_ms=sub_duration)
 
             if write_sub and sub_position == 'early':
                 for k in range(len(sub_track_numbers)):
@@ -307,6 +327,12 @@ if __name__ == '__main__':
                     help="one CuePoint per timestamp holding every track's position (mkvmerge's shape)")
     ap.add_argument('--no-rel-pos', action='store_true', help='omit CueRelativePosition (forces the block walk)')
     ap.add_argument('--sub-tracks', type=int, default=1, help='how many text subtitle tracks to write')
+    ap.add_argument('--sub-duration', type=int, default=0,
+                    help='write a stated BlockDuration of this many ms on each subtitle cue, as a '
+                         'BlockGroup (0 = omit it, so the reader has to guess the end)')
+    ap.add_argument('--sub-text', choices=('srt', 'plain'), default='srt',
+                    help="payload text: 'srt' carries its own timing lines (the default, what the other "
+                         "fixtures use), 'plain' carries none, so the output has one timing line per cue")
     ap.add_argument('--frame-payload', type=int, default=0,
                     help='KB of (sparse) payload per extra frame, so their headers sit far apart in the '
                          'cluster the way a real video stream spreads them')
@@ -317,7 +343,8 @@ if __name__ == '__main__':
                     help="where the subtitle block sits in its cluster: early = first blocks, "
                          "late = after the video payload (a real remux's shape)")
     args = ap.parse_args()
-    build(args.out, args.clusters, args.payload, args.sub_every, sub_tracks=args.sub_tracks,
+    build(args.out, args.clusters, args.payload, args.sub_every, sub_duration=args.sub_duration,
+          sub_text=args.sub_text, sub_tracks=args.sub_tracks,
           sub_cues=not args.no_sub_cues, video_cues=not args.no_video_cues, cues=not args.no_cues,
           rel_pos=not args.no_rel_pos, sub_position=args.sub_position,
           grouped_cues=args.grouped_cues, blocks_per_cluster=args.blocks_per_cluster,

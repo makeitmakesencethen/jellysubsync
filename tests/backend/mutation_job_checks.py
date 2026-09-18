@@ -131,6 +131,16 @@ def environment():
     env['SUBSYNC_FAKE_ENGINE'] = engine_dir
     env['SUBSYNC_FAKE_FFMPEG'] = fake_ffmpeg
     env['PATH'] = engine_dir + os.pathsep + env['PATH']
+    # The F19 end-to-end check needs its own Matroska file (a stated 2 000 ms duration). The suite writes
+    # it under .tests-work/fixtures and this driver runs after the suite, so it is normally already there;
+    # generating it when it is missing keeps that check from silently skipping during a mutation run.
+    duration = REPO / '.tests-work' / 'fixtures' / 'duration-2000.mkv'
+    if not duration.exists():
+        duration.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['python3', str(REPO / 'tests' / 'fixtures' / 'make_remux.py'), str(duration),
+                        '--clusters', '6', '--payload', '0', '--sub-every', '5',
+                        '--sub-duration', '2000', '--sub-text', 'plain'], check=True, capture_output=True)
+    env['MKV_FIX_DURATION'] = str(duration)
     return env
 
 

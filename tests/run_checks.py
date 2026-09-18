@@ -5954,6 +5954,16 @@ def main():
         env[variable] = path
         env[variable + '_EXPECT'] = str(expected)
 
+    # F19's own file: two subtitle cues that *state* a 2 000 ms duration (a BlockGroup with a
+    # BlockDuration, which is how a muxer writes a cue whose end is a fact), five seconds apart, with
+    # payload text that carries no timings of its own so one cue is one timing line. The other fixtures
+    # write plain SimpleBlocks with no duration, which is why the defect never showed up in them.
+    duration_path = os.path.join(fixtures, 'duration-2000.mkv')
+    subprocess.run(['python3', generator, duration_path, '--clusters', '6', '--payload', '0',
+                    '--sub-every', '5', '--sub-duration', '2000', '--sub-text', 'plain'],
+                   check=True, capture_output=True)
+    env['MKV_FIX_DURATION'] = duration_path
+
     # One file written the way mkvmerge writes them: a cue point per timestamp, holding a
     # CueTrackPositions for the video and for every subtitle track, so the highest track number is last.
     grouped_path = os.path.join(fixtures, 'grouped.mkv')
