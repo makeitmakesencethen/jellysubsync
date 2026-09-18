@@ -36,7 +36,9 @@ const runState = () => {
     queueY: y('#ss-queue'),
     workerRows: document.querySelectorAll('#ss-workers .ss-worker').length,
     resultsArea: !!document.querySelector('#ss-log'),
-    runBoxShown: !!box && getComputedStyle(box).display !== 'none',
+    // Own display is not enough: an ancestor with .ss-hidden still leaves this element's computed
+    // display at 'block'. Visibility is whether the box actually occupies space on screen.
+    runBoxShown: !!box && box.offsetHeight > 0 && box.getBoundingClientRect().height > 0,
     runBoxInSyncPanel: !!document.querySelector('#panel-sync #ss-runbox'),
     visibleText: (document.body.innerText || ''),
     tab: (function () {
@@ -45,7 +47,7 @@ const runState = () => {
     })(),
     clip: (function () {
       const el = document.querySelector('#ss-runbox');
-      if (!el || getComputedStyle(el).display === 'none') return null;
+      if (!el || !el.offsetHeight) return null;
       const r = el.getBoundingClientRect();
       return { x: Math.max(0, r.x - 8), y: Math.max(0, r.y - 8), width: Math.min(1330, r.width + 16), height: Math.min(720, r.height + 16) };
     })(),
