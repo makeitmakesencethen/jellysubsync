@@ -1,3 +1,29 @@
+## 2.0.62 (beta)
+
+Two defects, both found by reading the shipped code rather than by a bug report, and both with a reproduction
+before they had a fix.
+
+**A subtitle cue whose own duration is exactly two seconds is no longer rewritten.** The extractors write a cue
+whose block carries no duration with a 2-second end as a *guess*, and the SRT renderer pulled a guessed end back
+to the next cue so a guess could not overrun one. It decided what was a guess by looking at the number: an end
+exactly 2 000 ms long. A cue the file itself gives a 2 000 ms duration therefore looked like a guess, and its end
+was rewritten - a real two-second subtitle rendered as `00:00:04,999` against a next cue at `00:00:05,000`, i.e.
+the line stayed on screen up to three seconds longer than the file says. The guess is now a flag the reader sets
+where the duration is actually known, and both renderers (the shared one and the Matroska path's own copy) read
+the flag. A guessed end is still clamped, and a stated duration that genuinely overlaps the next cue is still
+clamped.
+
+**The index page's response body is handed back on every path.** The middleware that injects the client script
+into `index.html` swapped the response body for a buffer and only restored it on the success path - a non-HTML
+answer to an index path, an already-injected page, or a middleware throwing further down left the response body
+pointing at a buffer that the method then disposed, so anything writing after it (an error page, a redirect, a
+status-code middleware) met a disposed stream instead of the response. The capture is inside a `try/finally` now
+and the body is restored on every exit.
+
+Both are covered by checks in the suite (12 new, including one that extracts a real Matroska file whose cues
+state their own 2 000 ms durations, end to end), and both are mutation-verified: reverting either fix is caught
+by the check that targets it.
+
 ## 2.0.61 (beta)
 
 Under the hood — the `SubSyncService.cs` file split, with nothing user-visible changed. This closes the

@@ -36,6 +36,12 @@ MARKERS_PRESENT = [
     # the RunSyncJob phases: the names the phases gave the code they pulled out
     'ResolveReferenceAsync', 'RunEngineAttemptAsync', 'WriteSyncedSubtitleAsync', 'PrepareAudioReferenceAsync',
     'DescribeCompletedSync', 'AnnounceCompletedAsync', 'MarkCancelled', 'FailJobAndRollBack', 'CleanUpAfterJob',
+    # 2.0.62: the flag that carries "this end is the reader's own guess" as a fact rather than letting the
+    # renderer infer it from a 2 000 ms length (F19). It is a member name, so it is UTF-8 metadata and this
+    # byte search is the right probe. F21's fix is a try/finally around a stream capture and adds no name and
+    # no string, so the binary cannot witness it - what the packaged assembly proves there is that it is the
+    # same build the suite ran (assembly version + md5), and the behaviour is what the suite's F21 checks drive.
+    'DurationGuessed',
 ]
 MARKERS_ABSENT = ['RunCapturedAsync', 'LiveProcessCount']
 
