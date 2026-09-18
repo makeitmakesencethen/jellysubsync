@@ -1,0 +1,138 @@
+{
+ "label": "c2-after",
+ "beforeStart": {
+  "queue": "",
+  "runLabel": "Idle",
+  "phase": "Nothing queued.",
+  "progressWidth": "0%",
+  "button": "Sync 8 subtitles",
+  "runBoxShown": false,
+  "logLines": [],
+  "logTail": [],
+  "logShape": {
+   "tag": "div",
+   "cls": "ss-tasks",
+   "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans ",
+   "childRows": 0
+  }
+ },
+ "samples": [
+  {
+   "at": 1,
+   "queue": "7 subtitles left · 1/8 done (13%) · 1 failed · time left: estimating",
+   "runLabel": "parallel · 1/64 workers · 1/8 · 1 failed",
+   "phase": "",
+   "progressWidth": "13%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…  Ass Track: 3 subtitle tracks  Bitmap: 1 subtitle track  Embedded Test: 4 subtitle tracksFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   ],
+   "logTail": [
+    "Building queue for 3 picked files…",
+    "Ass Track: 3 subtitle tracks",
+    "Bitmap: 1 subtitle track",
+    "Embedded Test: 4 subtitle tracks",
+    "FailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   ],
+   "logShape": {
+    "tag": "div",
+    "cls": "ss-tasks",
+    "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans ",
+    "childRows": 5
+   }
+  },
+  {
+   "at": 2,
+   "queue": "5 subtitles left · 3/8 done (38%) · 1 failed · about 1 min left",
+   "runLabel": "parallel · 2/64 workers · 3/8 · 1 failed",
+   "phase": "",
+   "progressWidth": "47%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…  Ass Track: 3 subtitle tracks  Bitmap: 1 subtitle track  Embedded Test: 4 subtitle tracksFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.SyncedAss Track — SYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srtSyncedAss Track — SYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing writtenFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   ],
+   "logTail": [
+    "Bitmap: 1 subtitle track",
+    "Embedded Test: 4 subtitle tracks",
+    "FailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.",
+    "SyncedAss Track — SYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt",
+    "SyncedAss Track — SYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing written",
+    "FailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   ],
+   "logShape": {
+    "tag": "div",
+    "cls": "ss-tasks",
+    "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans ",
+    "childRows": 8
+   }
+  },
+  {
+   "at": 3,
+   "queue": "2 subtitles left · 6/8 done (75%) · 2 failed · about 1 min left",
+   "runLabel": "parallel · 1/64 workers · 6/8 · 2 failed",
+   "phase": "",
+   "progressWidth": "84%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…  Ass Track: 3 subtitle tracks  Bitmap: 1 subtitle track  Embedded Test: 4 subtitle tracksFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.SyncedAss Track — SYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srtSyncedAss Track — SYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing writtenFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.SyncedEmbedded Test — SYNCED - English - SUBRIP - External-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srtSyncedEmbedded Test — SYNCED - Swedish - SUBRIP - Externalalready in sync (+0 ms offset) — nothing written"
+   ],
+   "logTail": [
+    "FailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.",
+    "SyncedAss Track — SYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt",
+    "SyncedAss Track — SYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing written",
+    "FailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.",
+    "SyncedEmbedded Test — SYNCED - English - SUBRIP - External-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt",
+    "SyncedEmbedded Test — SYNCED - Swedish - SUBRIP - Externalalready in sync (+0 ms offset) — nothing written"
+   ],
+   "logShape": {
+    "tag": "div",
+    "cls": "ss-tasks",
+    "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans ",
+    "childRows": 10
+   }
+  },
+  {
+   "at": 4,
+   "queue": "0 subtitles left · 8/8 done (100%) · 2 failed",
+   "runLabel": "Finished: 6/8 succeeded.",
+   "phase": "",
+   "progressWidth": "100%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…  Ass Track: 3 subtitle tracks  Bitmap: 1 subtitle track  Embedded Test: 4 subtitle tracksFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.SyncedAss Track — SYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srtSyncedAss Track — SYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing writtenFailedBitmap — English - Default - DVDSUBThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.SyncedEmbedded Test — SYNCED - English - SUBRIP - External-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srtSyncedEmbedded Test — SYNCED - Swedish - SUBRIP - Externalalready in sync (+0 ms offset) — nothing writtenSyncedEmbedded Test — Swedish - SUBRIP-250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srtFailedAss Track — English - ASSunverified: this subtitle was aligned against the audio (+1770 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync it against a subtitle track if the file has one, or run it from an external .srt, where the audio is the reference the plugin is meant to use.SyncedEmbedded Test — English - Default - SUBRIP+250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srtDone (Selection (3 files)): 6/8 succeeded."
+   ],
+   "logTail": [
+    "SyncedEmbedded Test — SYNCED - English - SUBRIP - External-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt",
+    "SyncedEmbedded Test — SYNCED - Swedish - SUBRIP - Externalalready in sync (+0 ms offset) — nothing written",
+    "SyncedEmbedded Test — Swedish - SUBRIP-250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt",
+    "FailedAss Track — English - ASSunverified: this subtitle was aligned against the audio (+1770 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync it against a subtitle track if the file has one, or run it from an external .srt, where the audio is the reference the plugin is meant to use.",
+    "SyncedEmbedded Test — English - Default - SUBRIP+250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt",
+    "Done (Selection (3 files)): 6/8 succeeded."
+   ],
+   "logShape": {
+    "tag": "div",
+    "cls": "ss-tasks",
+    "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans ",
+    "childRows": 14
+   }
+  }
+ ],
+ "calls": [
+  "GET /SubSync/ClientScript",
+  "GET /SubSync/MainScript",
+  "GET /SubSync/InstallationStatus",
+  "GET /SubSync/Configuration",
+  "GET /SubSync/Batches",
+  "GET /SubSync/Active",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Batch",
+  "GET /SubSync/Active"
+ ]
+}

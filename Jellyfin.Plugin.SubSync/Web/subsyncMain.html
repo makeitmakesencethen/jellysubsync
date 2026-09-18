@@ -82,7 +82,18 @@
             .ss-worker-pct { font-size: .76rem; opacity: .8; font-variant-numeric: tabular-nums; }
             .ss-worker-bar-wrap { grid-column: 2 / 4; background: rgba(255,255,255,.09); border-radius: 2px; height: 3px; margin-top: 3px; overflow: hidden; }
             .ss-worker-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); transition: width .3s ease; }
-            .ss-log { white-space: pre-wrap; max-height: 130px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin-top: 8px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
+            /* C2: what happened to each subtitle, as rows rather than a terminal. The information is the
+               same - what happened, which file, the outcome and the path - and the monospace pre with
+               "OK   Title → /path (+2,4 s offset)" lines is gone. */
+            .ss-tasks { display: flex; flex-direction: column; gap: 4px; max-height: 200px; overflow-y: auto; margin-top: 8px; }
+            .ss-task { display: flex; gap: 8px; align-items: baseline; padding: 5px 9px; border-radius: 6px; background: rgba(255,255,255,.04); font-size: .84rem; }
+            .ss-task-state { flex: 0 0 auto; font-size: .72rem; text-transform: uppercase; letter-spacing: .04em; opacity: .85; font-weight: 600; }
+            .ss-task-ok .ss-task-state { color: #7fce8f; }
+            .ss-task-skip .ss-task-state { color: #fc3; }
+            .ss-task-bad .ss-task-state { color: #ff6b6b; }
+            .ss-task-name { flex: 0 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .ss-task-note { flex: 1 1 auto; opacity: .6; font-size: .8rem; word-break: break-word; }
+            .ss-task-note-row { opacity: .72; font-size: .84rem; padding: 2px 9px; }
             .ss-settings-grid { max-width: 620px; }
             .ss-settings-grid .ss-subhead { margin: 1.6em 0 .3em; }
             .ss-settings-grid .ss-field { margin-bottom: 22px; }
@@ -147,7 +158,7 @@
                             <div id="ss-queue" class="ss-muted" style="font-size:.82rem;"></div>
                             <div id="ss-phase" class="ss-muted"></div>
                             <div id="ss-workers" class="ss-workers ss-hidden"></div>
-                            <pre id="ss-log" class="ss-log"></pre>
+                            <div id="ss-log" class="ss-tasks" role="log" aria-live="polite"></div>
                         </div>
                         <section id="panel-sync">
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">

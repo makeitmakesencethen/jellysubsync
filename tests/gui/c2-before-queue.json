@@ -1,0 +1,92 @@
+{
+ "label": "c2-before",
+ "beforeStart": {
+  "queue": "",
+  "runLabel": "Idle",
+  "phase": "Nothing queued.",
+  "progressWidth": "0%",
+  "button": "Sync 8 subtitles",
+  "runBoxShown": false,
+  "logLines": [],
+  "logTail": [],
+  "logShape": {
+   "tag": "pre",
+   "cls": "ss-log",
+   "fontFamily": "ui-monospace, SFMono-Regular, Menlo, mon",
+   "childRows": 0
+  }
+ },
+ "samples": [
+  {
+   "at": 1,
+   "queue": "7 subtitles left · 1/8 done (13%) · 1 failed · time left: estimating",
+   "runLabel": "5/1 workers · 1/8 · 1 failed",
+   "phase": "",
+   "progressWidth": "13%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 3 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 4 subtitle tracks"
+   ],
+   "logTail": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 3 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 4 subtitle tracks",
+    "FAIL Bitmap — English - Default - DVDSUB — This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   ],
+   "logShape": {
+    "tag": "pre",
+    "cls": "ss-log",
+    "fontFamily": "ui-monospace, SFMono-Regular, Menlo, mon",
+    "childRows": 0
+   }
+  },
+  {
+   "at": 2,
+   "queue": "0 subtitles left · 8/8 done (100%) · 2 failed",
+   "runLabel": "Finished: 6/8 succeeded.",
+   "phase": "",
+   "progressWidth": "100%",
+   "button": "Sync 8 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 3 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 4 subtitle tracks"
+   ],
+   "logTail": [
+    "FAIL Bitmap — English - Default - DVDSUB — This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.",
+    "OK   Embedded Test — SYNCED - English - SUBRIP - External → /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt (-250 ms offset)",
+    "OK   Embedded Test — SYNCED - Swedish - SUBRIP - External (already in sync (+0 ms offset) — nothing written)",
+    "OK   Embedded Test — English - Default - SUBRIP → /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt (+250 ms offset · served from the extracted-subtitle cache, no read this run)",
+    "OK   Embedded Test — Swedish - SUBRIP → /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt (-250 ms offset · served from the extracted-subtitle cache, no read this run)",
+    "Done (Selection (3 files)): 6/8 succeeded."
+   ],
+   "logShape": {
+    "tag": "pre",
+    "cls": "ss-log",
+    "fontFamily": "ui-monospace, SFMono-Regular, Menlo, mon",
+    "childRows": 0
+   }
+  }
+ ],
+ "calls": [
+  "GET /SubSync/ClientScript",
+  "GET /SubSync/MainScript",
+  "GET /SubSync/InstallationStatus",
+  "GET /SubSync/Configuration",
+  "GET /SubSync/Batches",
+  "GET /SubSync/Active",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Batch",
+  "GET /SubSync/Active"
+ ]
+}

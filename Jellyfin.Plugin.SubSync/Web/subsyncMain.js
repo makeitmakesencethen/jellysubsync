@@ -253,10 +253,51 @@
         return request;
     }
 
+    // C2: the progress area is a list of what happened, not a terminal window. A note is a line about the run
+    // (a scope, a queue that was split, an error); a task is one subtitle's own result, with its state as a
+    // word, the file, and the outcome the job reported.
     function logLine(text) {
-        var el = $('ss-log');
-        el.textContent += text + '\n';
-        el.scrollTop = el.scrollHeight;
+        var box = $('ss-log');
+        var row = document.createElement('div');
+        row.className = 'ss-task-note-row';
+        row.textContent = text;
+        box.appendChild(row);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    function logTask(status, title, note) {
+        var box = $('ss-log');
+        var row = document.createElement('div');
+        var kind = status === 'Completed' ? 'ok' : (status === 'Cancelled' ? 'skip' : 'bad');
+        row.className = 'ss-task ss-task-' + kind;
+
+        var state = document.createElement('span');
+        state.className = 'ss-task-state';
+        state.textContent = status === 'Completed' ? 'Synced' : (status === 'Cancelled' ? 'Skipped' : 'Failed');
+
+        var name = document.createElement('span');
+        name.className = 'ss-task-name';
+        name.textContent = title || '';
+
+        row.appendChild(state);
+        row.appendChild(name);
+        if (note) {
+            var detail = document.createElement('span');
+            detail.className = 'ss-task-note';
+            detail.textContent = note;
+            row.appendChild(detail);
+        }
+        box.appendChild(row);
+        box.scrollTop = box.scrollHeight;
+    }
+
+    /** One task's result as a single note: the outcome, the reader's cost, and where it was written. */
+    function taskResultNote(outcome, extractNote, outPath) {
+        var parts = [];
+        if (outcome) parts.push(outcome);
+        if (extractNote) parts.push(extractNote);
+        if (outPath) parts.push('wrote ' + outPath);
+        return parts.join(' \u00b7 ');
     }
 
     function refreshHistory() {
@@ -1757,9 +1798,9 @@
             var extractNote = t.ExtractionNote || t.extractionNote || '';
             // The reader and its cost travel with the result: a subtitle that took two minutes
             // to extract is otherwise indistinguishable from one that took 30 ms.
-            if (status === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
-            else if (status === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
-            else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
+            logTask(status, title, status === 'Completed'
+                ? taskResultNote(outcome, extractNote, outPath)
+                : (status === 'Cancelled' ? 'cancelled before it started' : (error || status)));
             taskLines[idx] = true;
         });
     }
@@ -1794,9 +1835,9 @@
                         var outPath = t.OutputPath || t.outputPath;
                         var outcome = t.Outcome || t.outcome || '';
                         var extractNote = t.ExtractionNote || t.extractionNote || '';
-                        if (st === 'Completed') logLine('OK   ' + title + (outPath ? ' \u2192 ' + outPath : '') + (outcome || extractNote ? ' (' + [outcome, extractNote].filter(Boolean).join(' \u00b7 ') + ')' : ''));
-                        else if (st === 'Cancelled') logLine('SKIP ' + title + ' \u2014 cancelled');
-                        else logLine('FAIL ' + title + ' \u2014 ' + (error || status));
+                        logTask(st, title, st === 'Completed'
+                            ? taskResultNote(outcome, extractNote, outPath)
+                            : (st === 'Cancelled' ? 'cancelled before it started' : (error || status)));
                         taskLines[idx] = true;
                     }
                 });

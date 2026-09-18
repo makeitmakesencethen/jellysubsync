@@ -4723,6 +4723,25 @@ def run_page_checks():
            and 'id="ss-queue"' in pages['subsyncMain.html']
            and "'time left: estimating'" in pages['subsyncMain.js']
            and 'done < 2' in pages['subsyncMain.js'])
+    # C2: the progress area is a list of results, not a terminal. Measured: #ss-log was a <pre class="ss-log">
+    # in ui-monospace printing "OK   Embedded Test — SYNCED - English - SUBRIP - External → /opt/data/…
+    # (-250 ms offset)"; it is now a <div class="ss-tasks"> whose rows each read "Synced · <file> · -250 ms
+    # offset · wrote /opt/data/…", in the page's own font. The information (state, file, outcome, path, the
+    # reader's cost) is unchanged; the OK/FAIL/SKIP prefixes and the monospace box are gone.
+    report('progress results are rows, not terminal output (C2)',
+           'class="ss-tasks"' in pages['subsyncMain.html']
+           and '.ss-tasks {' in pages['subsyncMain.html']
+           and '.ss-log {' not in pages['subsyncMain.html']
+           and 'class="ss-log"' not in pages['subsyncMain.html']
+           and 'function logTask(status, title, note)' in pages['subsyncMain.js']
+           and 'function taskResultNote(outcome, extractNote, outPath)' in pages['subsyncMain.js']
+           # the progress path builds rows; the OK/FAIL/SKIP prefixes only survive in batchToLines, which is
+           # the History panel's own log and is what D1 redesigns
+           and 'logTask(status, title' in pages['subsyncMain.js']
+           and 'logTask(st, title' in pages['subsyncMain.js']
+           and "logLine('OK" not in pages['subsyncMain.js']
+           and "logLine('SKIP" not in pages['subsyncMain.js']
+           and "logLine('FAIL" not in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

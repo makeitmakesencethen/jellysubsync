@@ -22,7 +22,20 @@ const runState = () => ({
   progressWidth: (document.querySelector('#ss-progress') || {}).style ? document.querySelector('#ss-progress').style.width : null,
   button: (function () { const b = document.querySelector('#ss-syncsel-btn span'); return b ? b.textContent : null; })(),
   runBoxShown: (function () { const b = document.querySelector('#ss-runbox'); return !!b && getComputedStyle(b).display !== 'none'; })(),
-  logLines: (document.querySelector('#ss-log') || {}).textContent ? document.querySelector('#ss-log').textContent.split('\n').filter(Boolean).slice(0, 4) : [],
+  logLines: (document.querySelector('#ss-log') || {}).textContent
+    ? document.querySelector('#ss-log').textContent.split('\n').filter(Boolean).slice(0, 4) : [],
+  logTail: (function () {
+    const box = document.querySelector('#ss-log');
+    if (!box) return [];
+    if (box.tagName === 'PRE') return box.textContent.split('\n').filter(Boolean).slice(-6);
+    return Array.from(box.children).slice(-6).map((r) => (r.textContent || '').trim());
+  })(),
+  logShape: (function () {
+    const box = document.querySelector('#ss-log');
+    if (!box) return null;
+    const cs = getComputedStyle(box);
+    return { tag: box.tagName.toLowerCase(), cls: box.className, fontFamily: cs.fontFamily.slice(0, 40), childRows: box.children.length };
+  })(),
 });
 
 (async () => {
