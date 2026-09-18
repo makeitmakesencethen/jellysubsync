@@ -1,0 +1,697 @@
+{
+ "label": "c-after3",
+ "steps": [
+  {
+   "step": "as loaded",
+   "state": {
+    "dataline": "40 items in All Libraries · Select all · click or right-click a row to add it, shift-click removes it",
+    "syncButton": "Sync",
+    "selectionShown": false,
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "picked": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "picked": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "picked": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "picked": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "picked": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "picked": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "picked": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false
+     },
+     {
+      "i": 19,
+      "name": "s28-slice",
+      "picked": false
+     },
+     {
+      "i": 20,
+      "name": "S31 Wrong Ruler",
+      "picked": false
+     },
+     {
+      "i": 21,
+      "name": "S43 Audio Is Audio",
+      "picked": false
+     },
+     {
+      "i": 22,
+      "name": "Signs Test",
+      "picked": false
+     },
+     {
+      "i": 23,
+      "name": "Single Track",
+      "picked": false
+     },
+     {
+      "i": 24,
+      "name": "Slow Single Track",
+      "picked": false
+     },
+     {
+      "i": 25,
+      "name": "Test Movie",
+      "picked": false
+     },
+     {
+      "i": 26,
+      "name": "Truncated",
+      "picked": false
+     },
+     {
+      "i": 27,
+      "name": "Walk Reference 01",
+      "picked": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 02",
+      "picked": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 03",
+      "picked": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 04",
+      "picked": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 05",
+      "picked": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 06",
+      "picked": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 07",
+      "picked": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 08",
+      "picked": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 09",
+      "picked": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 10",
+      "picked": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 11",
+      "picked": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 12",
+      "picked": false
+     },
+     {
+      "i": 39,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false
+     }
+    ],
+    "languageBox": {
+     "text": "All languages",
+     "options": 1,
+     "disabled": false
+    }
+   }
+  },
+  {
+   "step": "three rows picked by right-click",
+   "picked": [
+    "Embedded Test",
+    "Empty Track",
+    "External Copy"
+   ],
+   "state": {
+    "dataline": "40 items in All Libraries · Select all · 3 files picked",
+    "syncButton": "Sync 3 files",
+    "selectionShown": true,
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "picked": true
+     },
+     {
+      "i": 1,
+      "name": "Empty Track",
+      "picked": true
+     },
+     {
+      "i": 2,
+      "name": "External Copy",
+      "picked": true
+     },
+     {
+      "i": 3,
+      "name": "Ass Track",
+      "picked": false
+     },
+     {
+      "i": 4,
+      "name": "Bitmap",
+      "picked": false
+     },
+     {
+      "i": 5,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 6,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "picked": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "picked": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "picked": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false
+     },
+     {
+      "i": 19,
+      "name": "s28-slice",
+      "picked": false
+     },
+     {
+      "i": 20,
+      "name": "S31 Wrong Ruler",
+      "picked": false
+     },
+     {
+      "i": 21,
+      "name": "S43 Audio Is Audio",
+      "picked": false
+     },
+     {
+      "i": 22,
+      "name": "Signs Test",
+      "picked": false
+     },
+     {
+      "i": 23,
+      "name": "Single Track",
+      "picked": false
+     },
+     {
+      "i": 24,
+      "name": "Slow Single Track",
+      "picked": false
+     },
+     {
+      "i": 25,
+      "name": "Test Movie",
+      "picked": false
+     },
+     {
+      "i": 26,
+      "name": "Truncated",
+      "picked": false
+     },
+     {
+      "i": 27,
+      "name": "Walk Reference 01",
+      "picked": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 02",
+      "picked": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 03",
+      "picked": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 04",
+      "picked": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 05",
+      "picked": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 06",
+      "picked": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 07",
+      "picked": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 08",
+      "picked": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 09",
+      "picked": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 10",
+      "picked": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 11",
+      "picked": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 12",
+      "picked": false
+     },
+     {
+      "i": 39,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false
+     }
+    ],
+    "languageBox": {
+     "text": "All languages",
+     "options": 3,
+     "disabled": false
+    }
+   }
+  },
+  {
+   "step": "searched (one pick hidden)",
+   "search": "helicopter",
+   "state": {
+    "dataline": "40 items in All Libraries · Select all · 3 files picked",
+    "syncButton": "Sync 3 files",
+    "selectionShown": true,
+    "rows": [
+     {
+      "i": 0,
+      "name": "The Helicopter Heist",
+      "picked": false
+     }
+    ],
+    "languageBox": {
+     "text": "All languages",
+     "options": 3,
+     "disabled": false
+    }
+   }
+  },
+  {
+   "step": "one more row clicked while searching",
+   "added": "The Helicopter Heist",
+   "state": {
+    "dataline": "40 items in All Libraries · Clear selection · 4 files picked",
+    "syncButton": "Sync 4 files",
+    "selectionShown": true,
+    "rows": [
+     {
+      "i": 0,
+      "name": "The Helicopter Heist",
+      "picked": true
+     }
+    ],
+    "languageBox": {
+     "text": "All languages",
+     "options": 32,
+     "disabled": false
+    }
+   }
+  },
+  {
+   "step": "search cleared",
+   "state": {
+    "dataline": "40 items in All Libraries · Select all · 4 files picked",
+    "syncButton": "Sync 4 files",
+    "selectionShown": true,
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "picked": true
+     },
+     {
+      "i": 1,
+      "name": "Empty Track",
+      "picked": true
+     },
+     {
+      "i": 2,
+      "name": "External Copy",
+      "picked": true
+     },
+     {
+      "i": 3,
+      "name": "The Helicopter Heist",
+      "picked": true
+     },
+     {
+      "i": 4,
+      "name": "Ass Track",
+      "picked": false
+     },
+     {
+      "i": 5,
+      "name": "Bitmap",
+      "picked": false
+     },
+     {
+      "i": 6,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 7,
+      "name": "Embedded Test",
+      "picked": false
+     },
+     {
+      "i": 8,
+      "name": "External Replace",
+      "picked": false
+     },
+     {
+      "i": 9,
+      "name": "Fishmas Season 1",
+      "picked": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false
+     },
+     {
+      "i": 19,
+      "name": "s28-slice",
+      "picked": false
+     },
+     {
+      "i": 20,
+      "name": "S31 Wrong Ruler",
+      "picked": false
+     },
+     {
+      "i": 21,
+      "name": "S43 Audio Is Audio",
+      "picked": false
+     },
+     {
+      "i": 22,
+      "name": "Signs Test",
+      "picked": false
+     },
+     {
+      "i": 23,
+      "name": "Single Track",
+      "picked": false
+     },
+     {
+      "i": 24,
+      "name": "Slow Single Track",
+      "picked": false
+     },
+     {
+      "i": 25,
+      "name": "Test Movie",
+      "picked": false
+     },
+     {
+      "i": 26,
+      "name": "Truncated",
+      "picked": false
+     },
+     {
+      "i": 27,
+      "name": "Walk Reference 01",
+      "picked": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 02",
+      "picked": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 03",
+      "picked": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 04",
+      "picked": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 05",
+      "picked": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 06",
+      "picked": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 07",
+      "picked": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 08",
+      "picked": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 09",
+      "picked": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 10",
+      "picked": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 11",
+      "picked": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 12",
+      "picked": false
+     },
+     {
+      "i": 39,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false
+     }
+    ],
+    "languageBox": {
+     "text": "All languages",
+     "options": 32,
+     "disabled": false
+    }
+   }
+  }
+ ]
+}

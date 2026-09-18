@@ -749,7 +749,7 @@
             (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
         if (n === 0) {
-            html += ' <span style="opacity:.6;">\u00b7 right-click a row to pick it, shift+right-click for a range</span>';
+            html += ' <span style="opacity:.6;">\u00b7 click or right-click a row to add it, shift-click removes it</span>';
         } else {
             html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked</span>';
         }
@@ -1408,10 +1408,11 @@
                 }
 
                 if (!selectedIds[id]) {
-                    // A plain click on an unpicked row starts a fresh
-                    // selection; clicking one that is already picked just
-                    // opens its options without losing the selection.
-                    selectedIds = {};
+                    // C3: a plain click adds the row to the selection. It used to clear every pick first, which
+                    // is exactly what searching costs: find the next file, click it, and everything already
+                    // picked is gone (measured: three picked, searched, clicked the row the search found, and
+                    // the count read "1 file picked"). Clearing has its own control in the count line, so
+                    // nothing is lost by making a click additive.
                     selectedIds[id] = true;
                     anchorId = id;
                     startLangScan();

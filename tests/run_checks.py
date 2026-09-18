@@ -4691,6 +4691,13 @@ def run_page_checks():
            and '(selectedIds[x.Id] ? picked : rest).push(x);' in pages['subsyncMain.js']
            and 'return picked.concat(rest);' in pages['subsyncMain.js']
            and 'var filtered = visibleItems();' in pages['subsyncMain.js'])
+    # C3: a click adds to the selection instead of replacing it. Measured before: three rows picked, a search,
+    # then a click on the row the search found, and the count read "1 file picked" - the work already picked
+    # was gone. After: "4 files picked".
+    report('a click adds to the selection instead of replacing it (C3)',
+           'selectedIds[id] = true;' in pages['subsyncMain.js']
+           and 'A plain click on an unpicked row starts a fresh' not in pages['subsyncMain.js']
+           and 'click or right-click a row to add it, shift-click removes it' in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source
