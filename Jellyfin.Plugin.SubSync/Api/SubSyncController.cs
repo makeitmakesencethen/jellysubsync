@@ -504,7 +504,11 @@ public class SubSyncController : ControllerBase
         return new BatchView
         {
             Id = batchId,
-            Label = jobs.FirstOrDefault(j => j.BatchLabel is not null)?.BatchLabel ?? string.Empty,
+            // A run of one has no batch label to show, so its row is titled by the item the job carries -
+            // what the user picked on the detail page (G1). Batches keep the label their caller sent.
+            Label = Services.RunId.IsSingle(batchId)
+                ? jobs[0].Label ?? string.Empty
+                : jobs.FirstOrDefault(j => j.BatchLabel is not null)?.BatchLabel ?? string.Empty,
             Status = status,
             Total = jobs.Count,
             Completed = jobs.Count(j => j.Status is Services.SyncJobStatus.Completed or Services.SyncJobStatus.Failed or Services.SyncJobStatus.Cancelled),

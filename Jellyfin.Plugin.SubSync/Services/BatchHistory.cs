@@ -96,6 +96,16 @@ public static class BatchHistory
     /// <summary>How many batches are kept; the oldest are dropped.</summary>
     public const int MaxBatches = 20;
 
+    /// <summary>
+    /// How many runs of a single job are kept beside them (G1).
+    /// </summary>
+    /// <remarks>
+    /// A sync started from a detail page is one job, and it is history like any other run, so it is kept.
+    /// It is bounded separately on purpose: those runs arrive one at a time and a busy week of them would
+    /// otherwise rotate the batches - the runs a user is most likely to want back - out of the file.
+    /// </remarks>
+    public const int MaxSingleRuns = 20;
+
     private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
     /// <summary>Gets the file the plugin keeps the history in.</summary>
@@ -103,19 +113,16 @@ public static class BatchHistory
         Plugin.Instance?.StatePath ?? Path.GetTempPath(), "batch-history.json");
 
     /// <summary>
-    /// Writes the given batches, keeping the newest <see cref="MaxBatches"/>.
+    /// Writes the given runs, keeping the newest <see cref="MaxBatches"/> batches and the newest
+    /// <see cref="MaxSingleRuns"/> runs of a single job.
     /// </summary>
     /// <param name="path">The file to write.</param>
-    /// <param name="entries">The batches, oldest first.</param>
+    /// <param name="entries">The runs, oldest first.</param>
     public static void Save(string path, IEnumerable<BatchHistoryEntry> entries)
     {
         try
         {
-            var kept = entries
-                .OrderByDescending(e => e.CreatedUtc)
-                .Take(MaxBatches)
-                .OrderBy(e => e.CreatedUtc)
-                .ToList();
+            var kept = Bound(entries);
 
             var dir = Path.GetDirectoryName(path);
             if (!string.IsNullOrEmpty(dir))
@@ -134,10 +141,11 @@ public static class BatchHistory
     }
 
     /// <summary>
-    /// Reads the batches back. A missing, empty or corrupt file is an empty history, not an error.
+    /// Reads the runs back - batches and runs of a single job alike.
+    /// A missing, empty or corrupt file is an empty history, not an error.
     /// </summary>
     /// <param name="path">The file to read.</param>
-    /// <returns>The batches, oldest first.</returns>
+    /// <returns>The runs, oldest first.</returns>
     public static List<BatchHistoryEntry> Load(string path)
     {
         try
@@ -150,17 +158,30 @@ public static class BatchHistory
             var entries = JsonSerializer.Deserialize<List<BatchHistoryEntry>>(File.ReadAllText(path))
                 ?? new List<BatchHistoryEntry>();
 
-            return entries
-                .Where(e => !string.IsNullOrEmpty(e.BatchId))
-                .OrderBy(e => e.CreatedUtc)
-                .TakeLast(MaxBatches)
-                .ToList();
+            return Bound(entries.Where(e => !string.IsNullOrEmpty(e.BatchId)));
         }
         catch (Exception)
         {
             // A corrupt history must never block a start-up.
             return new List<BatchHistoryEntry>();
         }
+    }
+
+    /// <summary>
+    /// Keeps the newest <see cref="MaxBatches"/> batches and the newest <see cref="MaxSingleRuns"/> runs of a
+    /// single job, oldest first.
+    /// </summary>
+    /// <param name="entries">Every run to consider.</param>
+    /// <returns>What is kept, oldest first.</returns>
+    private static List<BatchHistoryEntry> Bound(IEnumerable<BatchHistoryEntry> entries)
+    {
+        var newestFirst = entries.OrderByDescending(e => e.CreatedUtc).ToList();
+        return newestFirst
+            .Where(e => !RunId.IsSingle(e.BatchId))
+            .Take(MaxBatches)
+            .Concat(newestFirst.Where(e => RunId.IsSingle(e.BatchId)).Take(MaxSingleRuns))
+            .OrderBy(e => e.CreatedUtc)
+            .ToList();
     }
 
     /// <summary>

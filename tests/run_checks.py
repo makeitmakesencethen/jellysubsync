@@ -2630,6 +2630,70 @@ Check("a missing history file is an empty history, not an error (S25)",
 Console.WriteLine("---- S25 sample: what a restart now finds ----");
 Console.WriteLine("   " + BatchHistory.DescribeRestore(historyBack.Count, historyBack.Sum(b => b.Jobs.Count), historyPath));
 
+// ---------------- G1: a sync queued on its own is a run of its own ----------------
+// The detail page posts to /SubSync/Sync, which enqueues without a batch on purpose: there is no group for
+// one job to belong to. Both read models asked for jobs that carry a batch, so that run appeared nowhere -
+// not in History, not in the file a restart reads. It is addressed by a derived id instead of by a batch
+// invented at enqueue time, and the file bounds those runs separately so a week of them cannot rotate the
+// batches out (which is the whole reason MaxSingleRuns exists).
+Check("a run of one is addressable by an id a batch id cannot be (G1)",
+    RunId.ForJob("abc123") == "single:abc123"
+    && RunId.IsSingle(RunId.ForJob("abc123"))
+    && !RunId.IsSingle("8c013666da274c8ab5fc22beee89dde0")
+    && !RunId.IsSingle(null)
+    && !RunId.IsSingle(string.Empty)
+    && RunId.JobIdOf(RunId.ForJob("abc123")) == "abc123"
+    && RunId.JobIdOf("8c013666da274c8ab5fc22beee89dde0") is null,
+    RunId.ForJob("abc123"));
+
+var g1Path = Path.Combine(Path.GetTempPath(), "g1-batch-history.json");
+File.Delete(g1Path);
+BatchHistory.Save(g1Path, new[]
+{
+    new BatchHistoryEntry
+    {
+        BatchId = RunId.ForJob("g1-job-1"),
+        Label = "Best Friends",
+        CreatedUtc = new DateTime(2026, 9, 18, 1, 0, 0, DateTimeKind.Utc),
+        Jobs = new List<BatchHistoryJob>
+        {
+            new BatchHistoryJob
+            {
+                Id = "g1-job-1", SubtitleIndex = 0, Mode = "normal", Status = "Completed",
+                Outcome = "written", Label = "Best Friends",
+                CreatedAtUtc = new DateTime(2026, 9, 18, 1, 0, 0, DateTimeKind.Utc)
+            }
+        }
+    }
+});
+var g1Back = BatchHistory.Load(g1Path);
+Check("a run of one survives being written and read back (G1)",
+    g1Back.Count == 1 && g1Back[0].BatchId == "single:g1-job-1" && g1Back[0].Jobs.Count == 1
+    && g1Back[0].Jobs[0].Id == "g1-job-1" && g1Back[0].Label == "Best Friends",
+    g1Back.Count + " run(s), label '" + (g1Back.Count > 0 ? g1Back[0].Label : string.Empty) + "'");
+
+// 25 of each, so both bounds are reached: 20 batches and 20 single runs are kept, the newest of each.
+var rotation = new List<BatchHistoryEntry>();
+for (var i = 0; i < 25; i++)
+{
+    var at = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc).AddHours(i);
+    rotation.Add(new BatchHistoryEntry { BatchId = "batch-" + i, CreatedUtc = at, Jobs = new List<BatchHistoryJob>() });
+    rotation.Add(new BatchHistoryEntry { BatchId = RunId.ForJob("job-" + i), CreatedUtc = at, Jobs = new List<BatchHistoryJob>() });
+}
+
+BatchHistory.Save(g1Path, rotation);
+var rotationBack = BatchHistory.Load(g1Path);
+Check("the history keeps 20 batches and 20 single runs, newest of each (G1)",
+    rotationBack.Count(e => !RunId.IsSingle(e.BatchId)) == BatchHistory.MaxBatches
+    && rotationBack.Count(e => RunId.IsSingle(e.BatchId)) == BatchHistory.MaxSingleRuns
+    && rotationBack.Any(e => e.BatchId == "batch-24") && rotationBack.Any(e => e.BatchId == "batch-5")
+    && !rotationBack.Any(e => e.BatchId == "batch-4")
+    && rotationBack.Any(e => e.BatchId == RunId.ForJob("job-24"))
+    && !rotationBack.Any(e => e.BatchId == RunId.ForJob("job-4")),
+    rotationBack.Count + " run(s): " + rotationBack.Count(e => !RunId.IsSingle(e.BatchId)) + " batch(es) + "
+    + rotationBack.Count(e => RunId.IsSingle(e.BatchId)) + " single(s)");
+File.Delete(g1Path);
+
 // ---------------- C1 was here: the sampled audio reference, measured and left out ----------------
 // tympanix/subsync's bounded slice, which this engine implements as --multi-segment-sync, was built and
 // measured on the 2,4 GB episode (FIX_PLAN C1): 16 segments answered correctly at two different shifts and
@@ -5641,6 +5705,27 @@ def run_page_checks():
            and 'id => _historyOnlyJobs.Contains(id)' in service
            and 'interrupted by a plugin restart' in service
            and 'BatchHistory.Save(BatchHistory.DefaultPath, SnapshotBatchHistory());' in service)
+
+    # G1: a sync queued on its own is a run of its own. The detail page's "Sync Subtitles" posts to
+    # /SubSync/Sync, which enqueues without a batch on purpose, and both read models used to want a batch id
+    # before they would show a job - so that run lived in no history at all, in memory or in the file a
+    # restart reads. The rule is: the read models derive a run id for it, the job carries a title for its
+    # row, and the file bounds those runs separately from the batches.
+    run_id_source = open(os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Services', 'RunId.cs'),
+                         encoding='utf-8').read()
+    report('a run started from a detail page is a run in the history read models (G1)',
+           'public static class RunId' in run_id_source
+           and 'public const string SinglePrefix = "single:"' in run_id_source
+           # both read models, and the job lookup every one of them goes through
+           and 'RunId.ForJob(j.Id)' in service
+           and 'RunId.JobIdOf(batchId)' in service
+           and 'BatchId = RunId.ForJob(job.Id)' in service
+           # the row a run of one gets, since it has no batch label to fall back on
+           and 'Label = label ?? (string.IsNullOrEmpty(batchId) ? video.Name : null)' in service
+           and 'Services.RunId.IsSingle(batchId)' in controller
+           # and the bound that keeps a week of single syncs from rotating the batches out
+           and 'MaxSingleRuns = 20' in batch_history
+           and 'RunId.IsSingle(e.BatchId)' in batch_history)
 
     report('the answer the scheduler keys on is memoised, not read per planning pass',
            'SpeechCachedTtl' in service and 'private static string MediaStamp' not in cache_source)

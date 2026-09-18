@@ -232,7 +232,10 @@ public partial class SubSyncService
             BatchId = batchId,
             BatchLabel = batchLabel,
             BatchIndex = batchIndex,
-            Label = label,
+            // A job queued on its own (the detail page's "Sync Subtitles") has no batch to be labelled by,
+            // and a run of one whose row says nothing is not worth showing: the History row is titled by the
+            // item the user picked there (G1). Batch tasks keep the label their caller sent.
+            Label = label ?? (string.IsNullOrEmpty(batchId) ? video.Name : null),
             Mode = NormalizeMode(mode ?? config.MultiSyncMode)
         };
         phase.Restart();
@@ -572,28 +575,45 @@ public partial class SubSyncService
     }
 
     /// <summary>
-    /// Gets all tracked jobs belonging to a batch, ordered by batch position.
+    /// Gets all tracked jobs belonging to a run, ordered by batch position.
     /// </summary>
-    /// <param name="batchId">The batch identifier.</param>
-    /// <returns>Ordered jobs of the batch.</returns>
+    /// <param name="batchId">The run identifier: a batch id, or a single job's own run id (<see cref="RunId"/>).</param>
+    /// <returns>Ordered jobs of the run.</returns>
     public IEnumerable<SyncJob> GetBatchJobs(string batchId)
     {
+        // A run of one is addressed by the job it names and holds nothing else (G1). Without this branch a
+        // detail-page sync had no run the history could show, and asking for one answered "not found".
+        var singleJobId = RunId.JobIdOf(batchId);
+        if (singleJobId is not null)
+        {
+            return _jobs.TryGetValue(singleJobId, out var single)
+                ? new[] { single }
+                : Enumerable.Empty<SyncJob>();
+        }
+
         return _jobs.Values
             .Where(j => j.BatchId == batchId)
             .OrderBy(j => j.BatchIndex);
     }
 
     /// <summary>
-    /// Gets all batch ids seen so far, newest first.
+    /// Gets every run seen so far, newest first.
     /// </summary>
-    /// <returns>Distinct batch ids with their newest job creation time.</returns>
+    /// <returns>Distinct run ids with their newest job creation time.</returns>
     public IEnumerable<(string BatchId, DateTime CreatedAt)> GetBatchIds()
     {
-        return _jobs.Values
-            .Where(j => j.BatchId is not null)
+        // A job with no batch is a run of one and belongs in the same list (G1): the History tab and the
+        // history file are both built from this, which is why leaving them out made a sync started from a
+        // detail page invisible everywhere - while it was visible in the run box, which reads /SubSync/Active.
+        var batched = _jobs.Values
+            .Where(j => !string.IsNullOrEmpty(j.BatchId))
             .GroupBy(j => j.BatchId!)
-            .Select(g => (BatchId: g.Key, CreatedAt: g.Min(j => j.CreatedAtUtc)))
-            .OrderByDescending(g => g.CreatedAt);
+            .Select(g => (BatchId: g.Key, CreatedAt: g.Min(j => j.CreatedAtUtc)));
+        var singles = _jobs.Values
+            .Where(j => string.IsNullOrEmpty(j.BatchId))
+            .Select(j => (BatchId: RunId.ForJob(j.Id), CreatedAt: j.CreatedAtUtc));
+
+        return batched.Concat(singles).OrderByDescending(run => run.CreatedAt);
     }
 
 

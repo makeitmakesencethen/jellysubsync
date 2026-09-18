@@ -369,31 +369,53 @@ public partial class SubSyncService
                 BatchId = group.Key,
                 Label = group.Select(j => j.BatchLabel).FirstOrDefault(l => !string.IsNullOrEmpty(l)),
                 CreatedUtc = group.Min(j => j.CreatedAtUtc),
-                Jobs = group.OrderBy(j => j.BatchIndex).Select(j => new BatchHistoryJob
-                {
-                    Id = j.Id,
-                    ItemId = j.ItemId,
-                    SubtitleIndex = j.SubtitleIndex,
-                    Mode = j.Mode,
-                    BatchId = j.BatchId,
-                    BatchIndex = j.BatchIndex,
-                    BatchLabel = j.BatchLabel,
-                    Label = j.Label,
-                    Status = j.Status.ToString(),
-                    Outcome = j.Outcome,
-                    OutputPath = j.OutputPath,
-                    Error = j.Error,
-                    ExtractionNote = j.ExtractionNote,
-                    Phase = j.Phase,
-                    Progress = j.Progress,
-                    CreatedAtUtc = j.CreatedAtUtc,
-                    FinishedAtUtc = j.FinishedAtUtc
-                }).ToList()
+                Jobs = group.OrderBy(j => j.BatchIndex).Select(ToHistoryJob).ToList()
+            });
+        }
+
+        // A sync queued on its own - the detail page's "Sync Subtitles" - is a run of one, and nothing here
+        // used to write it: the file held groups only, so the first restart after such a sync showed a history
+        // that had never heard of it (G1). It is written under its own derived id (RunId), one job per entry,
+        // and BatchHistory keeps a bound of its own for those so a run of them cannot push the batches out.
+        foreach (var job in _jobs.Values.Where(j => string.IsNullOrEmpty(j.BatchId)))
+        {
+            entries.Add(new BatchHistoryEntry
+            {
+                BatchId = RunId.ForJob(job.Id),
+                Label = job.Label,
+                CreatedUtc = job.CreatedAtUtc,
+                Jobs = new List<BatchHistoryJob> { ToHistoryJob(job) }
             });
         }
 
         return entries;
     }
+
+    /// <summary>
+    /// Maps a job to the shape the history file keeps.
+    /// </summary>
+    /// <param name="job">The job to record.</param>
+    /// <returns>The record written to the history file.</returns>
+    private static BatchHistoryJob ToHistoryJob(SyncJob job) => new()
+    {
+        Id = job.Id,
+        ItemId = job.ItemId,
+        SubtitleIndex = job.SubtitleIndex,
+        Mode = job.Mode,
+        BatchId = job.BatchId,
+        BatchIndex = job.BatchIndex,
+        BatchLabel = job.BatchLabel,
+        Label = job.Label,
+        Status = job.Status.ToString(),
+        Outcome = job.Outcome,
+        OutputPath = job.OutputPath,
+        Error = job.Error,
+        ExtractionNote = job.ExtractionNote,
+        Phase = job.Phase,
+        Progress = job.Progress,
+        CreatedAtUtc = job.CreatedAtUtc,
+        FinishedAtUtc = job.FinishedAtUtc
+    };
 
     // Called from the pump's tick. The cheap count signature decides whether anything changed at all,
     // and a minute has to have passed since the last write, so a running batch costs one small write a
