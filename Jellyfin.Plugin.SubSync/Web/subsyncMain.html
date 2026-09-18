@@ -246,18 +246,15 @@
                                         <option value="ultimate">Ultimate — parallel + reuse</option>
                                     </select>
                                     <div class="fieldDescription">
-                                        <strong>Automatic</strong> (default) picks per run: one subtitle on one file stays sequential;
-                                        several subtitles of one file analyse the audio once and then run <strong>in parallel</strong> against that
-                                        cached signal; several files run in parallel with each file's analysis reused. The other options force a specific behaviour —
-                                        they exist for troubleshooting.
-                                        <strong>Normal</strong> syncs one subtitle at a time and analyses the audio for each.
-                                        <strong>Parallel</strong> runs several subtitles of the same media file at once (CPU-bound, a
-                                        few hundred MB per worker — keep it low on slow storage).
-                                        <strong>Fast</strong> analyses the audio once per media file and reuses that speech signal
-                                        for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra
-                                        subtitle and produces identical results. Fast only helps when several subtitles share one
-                                        file (a movie with many tracks, or re-syncing the same file later).
-                                        Every mode produces the same alignments.
+                                        <strong>Automatic</strong> (default) &mdash; adapts to the work: one subtitle stays sequential; several
+                                        subtitles of one file share a single audio analysis and then run in parallel; several files run in
+                                        parallel, each analysis reused.<br>
+                                        <strong>Normal</strong> &mdash; one subtitle at a time, analysing the audio for each.<br>
+                                        <strong>Parallel</strong> &mdash; several subtitles of the same file at once. CPU-bound, a few hundred MB per worker &mdash; keep it low on slow storage.<br>
+                                        <strong>Fast</strong> &mdash; one audio analysis per file, reused by that file's other subtitles: measurably
+                                        ~2-3&times; less work per extra subtitle. Helps only when several subtitles share a file.<br>
+                                        <strong>Ultimate</strong> &mdash; Parallel + Fast.<br>
+                                        Every mode produces the same alignments. The named modes are for troubleshooting; leave it on Automatic.
                                     </div>
                                 </div>
                                 <div class="ss-field">
