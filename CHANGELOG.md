@@ -1,3 +1,53 @@
+## 2.0.66 (beta)
+
+Four things found by using 2.0.64 on a real library: one correctness defect that made a working run look
+broken from start to finish, one that made browsing the library quietly accumulate a batch nobody asked for,
+and two that made the run box harder to read than it needed to be.
+
+**A queued task is no longer drawn as a failure - this was the one that mattered.** Opening a run in History
+while it was still going showed every subtitle that had not started yet as **"Failed" in red**. The state word
+came from a three-way test - "Synced" for Completed, "Skipped" for Cancelled, "**Failed** for everything else"
+- and "everything else" is exactly where Queued and Running fall. On a ten-task batch the panel therefore spent
+its whole life with one to ten rows reading Failed while the server was reporting them Queued or Running, so a
+run that was working looked like a run that had gone wrong, and the real failures it might have had were lost
+in the noise. Every status the server reports now has its own word and its own colour, unfinished tasks say
+**Queued** or **Running** in a neutral tone, and a status the page has never seen is neutral too - an unknown
+word must not be an accusation. Measured against the shipped code, `Queued` and `Running` both rendered
+`"Failed"` with the red class; after, they render their own words and only the tasks that genuinely failed are
+red.
+
+**A plain click selects and views; it no longer adds to the selection.** 2.0.64 made every click additive, on
+the reasoning that clearing a selection while searching is costly. The cost was real but the cause was
+different - nothing clears picks on a search any more - and the effect was that browsing the library
+accumulated a sync selection nobody asked for, one click at a time. Right-click is again the only way to pick a
+row, which is what the list has always said on it ("right-click a row to pick it, shift+right-click for a
+range") and what the range selection is built on; shift-click still adds or removes a single row, and the
+selection still survives a search. Measured: one left-click used to read "1 file picked" and pulled the row to
+the top of a 41-item list; now it leaves the count at zero, a second left-click adds nothing, and only the
+right-click picks.
+
+**One picked row stays where the library put it.** Picked rows sort to the top so a selection stays visible
+and reachable while the search box narrows the list - but doing that from the first pick meant a single clicked
+row jumped to the top of the list, motion nobody asked for over a selection of one. The sorting now starts at
+the second pick, which is when there is a group worth keeping together, and the list returns to the library's
+own order when the selection drops back below that.
+
+**The run's counts line names its failures and its no-ops.** Removing the time estimate was right - a number
+that moves the wrong way while the run advances is worse than no number - but it took the failed count with it,
+so a run that failed three subtitles read the same as a clean one. The failure count is back, and beside it is
+one for the subtitles that were **already in sync**: the job completes and writes nothing because the subtitle
+was already aligned, which is a success with no output, and until now it was indistinguishable in this line
+from a subtitle that had actually been written. Both are plain text next to the done/percentage, and the
+in-sync figure is counted from the tasks' own outcome text, so it cannot disagree with what History's rows
+say. Measured against a real 30-task run fetched from a live server: `30/30 done (100%) · 5 failed` before,
+`30/30 done (100%) · 5 failed · 17 already in sync` after.
+
+**The overall progress bar is an indicator again.** It was a 3 px hairline on a very faint track - the same
+weight as the per-worker bars below it - so it read as a divider between the run's name and its status line
+rather than as the run's own progress. It is now the heaviest line in the panel: 10 px, rounded, on a darker
+track with a lit top edge on the fill. Measured in the browser: height 3 px to 10 px, radius 2 px to 5 px. The
+detail page's own dialog bar is a different component and is deliberately left slim.
+
 ## 2.0.64 (beta)
 
 Four things the user found by using 2.0.63 on a real library, three of them in the run box and one of them a
