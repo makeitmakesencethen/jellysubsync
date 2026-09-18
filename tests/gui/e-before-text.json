@@ -1,0 +1,20 @@
+{
+ "label": "e-before",
+ "clips": [
+  {
+   "item": "E3",
+   "file": "e-before-e3-sync-intro.png",
+   "text": "Click any movie or series to select it — the Sync options appear on that row. Movies can sync one picked subtitle or all tracks; series sync every episode of the series or of a chosen season. For a single movie or episode you can also sync straight from its detail page: ⋮ More → Sync Subtitles."
+  },
+  {
+   "item": "E1",
+   "file": "e-before-e1-multimode.png",
+   "text": "When one sync covers several subtitles\nAutomatic — chosen from the work (recommended)\nNormal — one at a time\nParallel — several files at once\nFast — reuse each file's audio analysis\nUltimate — parallel + reuse\nAutomatic (default) picks per run: one subtitle on one file stays sequential; several subtitles of one file analyse the audio once and then run in parallel against that cached signal; several files run in parallel with each file's analysis reused. The other options force a specific behaviour — they exist for troubleshooting. Normal syncs one subtitle at a time and analyses the audio for each. Parallel runs several subtitles of the same media file at once (CPU-bound, a few hundred MB per worker — keep it low on slow storage). Fast analyses the audio once per media file and reuses that speech signal for the remaining subtitles of the same file, which is measurably ~2-3x less work per extra subtitle and produces identical results. Fast only helps when several subtitles share one file (a movie with many tracks, or re-syncing the same file later). Every mode produces the same alignments."
+  },
+  {
+   "item": "E2",
+   "file": "e-before-e2-cachedata.png",
+   "text": "Cached data\nAudio analysis: 4 entries, 0.0 MB · references: none (references are rebuilt as each file runs) · extracted subtitles: 5 subtitles, 0.1 MB (3 in memory, 0.0 MB) · ready to reuse\nClear cache\nTwo things are cached. The audio analysis is one small file per media file, holding the speech signal so the other subtitles of that file (and later runs) do not listen to the audio again; unused entries are removed after 30 days and the cache is capped at 250 MB. The reference subtitle is the track a sync is aligned against, kept only while that file's subtitles are being worked on. The extracted subtitle is the text taken out of each media file, so the same file is never read twice — kept for 120 days, capped at 512 MB on disk, with a bounded number of entries held in memory for the files being worked on right now. Clearing removes all of them, plus the scratch folders of finished jobs — it only costs time, since everything is rebuilt when it is next needed. Extracted subtitles: 5 subtitles, 0.1 MB (3 in memory, 0.0 MB)."
+  }
+ ]
+}

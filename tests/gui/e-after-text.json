@@ -1,0 +1,20 @@
+{
+ "label": "e-after",
+ "clips": [
+  {
+   "item": "E3",
+   "file": "e-after-e3-sync-intro.png",
+   "text": "Two ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode."
+  },
+  {
+   "item": "E1",
+   "file": "e-after-e1-multimode.png",
+   "text": "When one sync covers several subtitles\nAutomatic — chosen from the work (recommended)\nNormal — one at a time\nParallel — several files at once\nFast — reuse each file's audio analysis\nUltimate — parallel + reuse\nAutomatic (default) — adapts to the work: one subtitle stays sequential; several subtitles of one file share a single audio analysis and then run in parallel; several files run in parallel, each analysis reused.\nNormal — one subtitle at a time, analysing the audio for each.\nParallel — several subtitles of the same file at once. CPU-bound, a few hundred MB per worker — keep it low on slow storage.\nFast — one audio analysis per file, reused by that file's other subtitles: measurably ~2-3× less work per extra subtitle. Helps only when several subtitles share a file.\nUltimate — Parallel + Fast.\nEvery mode produces the same alignments. The named modes are for troubleshooting; leave it on Automatic."
+  },
+  {
+   "item": "E2",
+   "file": "e-after-e2-cachedata.png",
+   "text": "Cached data\nAudio analysis: 4 entries, 0.0 MB · references: none (references are rebuilt as each file runs) · extracted subtitles: 5 subtitles, 0.1 MB (0 in memory, 0.0 MB) · ready to reuse\nClear cache\nAudio analysis — one file per media file, holding its speech signal so other subtitles of that file (and later runs) need not listen to the audio again. 30 days, 250 MB.\nExtracted subtitle — the text taken out of a media file, so no file is read twice. 120 days, 512 MB on disk, and a bounded number held in memory for the files in flight.\nReference subtitle — the track a sync is aligned against. Kept only while that file's subtitles run.\nExtracted subtitles: 5 subtitles, 0.1 MB (0 in memory, 0.0 MB). Clearing removes all three, plus the scratch folders of finished jobs. It costs time only: everything is rebuilt when it is next needed."
+  }
+ ]
+}
