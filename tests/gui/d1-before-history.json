@@ -1,0 +1,67 @@
+{
+ "label": "d1-before",
+ "steps": [
+  {
+   "step": "history list",
+   "state": {
+    "stats": "25 runs — shared from the server across every tab/device.",
+    "items": 25,
+    "dayHeadings": [],
+    "firstRow": {
+     "title": "Selection (3 files)",
+     "chip": "6/8 OK",
+     "counts": [
+      "9/18/2026, 4:41:33 AM"
+     ],
+     "hasPre": true,
+     "hasDetail": false,
+     "detailOpen": false,
+     "detailText": "",
+     "summary": "",
+     "filterButtons": [],
+     "taskRows": 0,
+     "noteRows": [],
+     "monospace": "ui-monospace, SFMono-Regular, "
+    },
+    "clip": {
+     "x": 458.875,
+     "y": 36,
+     "width": 946.25,
+     "height": 760
+    }
+   }
+  },
+  {
+   "step": "first run opened",
+   "state": {
+    "stats": "25 runs — shared from the server across every tab/device.",
+    "items": 25,
+    "dayHeadings": [],
+    "firstRow": {
+     "title": "Selection (3 files)",
+     "chip": "6/8 OK",
+     "counts": [
+      "9/18/2026, 4:41:33 AM"
+     ],
+     "hasPre": true,
+     "hasDetail": false,
+     "detailOpen": false,
+     "detailText": "",
+     "summary": "",
+     "filterButtons": [],
+     "taskRows": 0,
+     "noteRows": [],
+     "monospace": "ui-monospace, SFMono-Regular, "
+    },
+    "clip": {
+     "x": 458.875,
+     "y": 36,
+     "width": 946.25,
+     "height": 760
+    }
+   }
+  }
+ ],
+ "problemsButton": null,
+ "copiedText": null
+}

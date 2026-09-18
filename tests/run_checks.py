@@ -4728,6 +4728,25 @@ def run_page_checks():
     # (-250 ms offset)"; it is now a <div class="ss-tasks"> whose rows each read "Synced · <file> · -250 ms
     # offset · wrote /opt/data/…", in the page's own font. The information (state, file, outcome, path, the
     # reader's cost) is unchanged; the OK/FAIL/SKIP prefixes and the monospace box are gone.
+    # D1: History is a list of runs, not a terminal. Measured before: a flat list of 25 rows, each a label, a
+    # timestamp and a "6/8 OK" badge, expanding into a <pre> set in ui-monospace. After: day headings
+    # ("Today", "September 16, 2026"), one row per run with a state chip ("Partly failed") and a counts line
+    # ("8 subtitles · 6 synced · 2 failed · 2 s"), and a detail with a summary, a problems-only switch
+    # (All 8 / Problems only 2 → 8 rows to 2) and Copy as text, whose clipboard content was read back and is
+    # the old log shape. No <pre> anywhere in the panel.
+    report('history is a list of runs with a readable detail, not a log block (D1)',
+           'function historyState(b)' in pages['subsyncMain.js']
+           and 'function historyCountsLine(b)' in pages['subsyncMain.js']
+           and 'function historyDayLabel(date)' in pages['subsyncMain.js']
+           and 'function historyTaskRows(tasks, problemsOnly)' in pages['subsyncMain.js']
+           and 'function copyHistoryText(view, statusEl)' in pages['subsyncMain.js']
+           and 'function buildTaskRow(status, title, note)' in pages['subsyncMain.js']
+           and 'ss-hist-detail' in pages['subsyncMain.html']
+           and 'ss-hist-summary' in pages['subsyncMain.html']
+           and 'ss-hist-filter-btn' in pages['subsyncMain.html']
+           and 'ss-hist-log' not in pages['subsyncMain.html']
+           and 'ss-hist-log' not in pages['subsyncMain.js']
+           and "'ss-tasks ss-hist-rows'" in pages['subsyncMain.js'])
     report('progress results are rows, not terminal output (C2)',
            'class="ss-tasks"' in pages['subsyncMain.html']
            and '.ss-tasks {' in pages['subsyncMain.html']

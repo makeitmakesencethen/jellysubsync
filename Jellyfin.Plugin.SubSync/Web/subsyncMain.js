@@ -265,8 +265,9 @@
         box.scrollTop = box.scrollHeight;
     }
 
-    function logTask(status, title, note) {
-        var box = $('ss-log');
+    /** One result as a row: the state as a word, the file, and the note. Built in one place so the live
+     *  progress panel (C2) and a run's detail in History (D1) cannot drift apart. */
+    function buildTaskRow(status, title, note) {
         var row = document.createElement('div');
         var kind = status === 'Completed' ? 'ok' : (status === 'Cancelled' ? 'skip' : 'bad');
         row.className = 'ss-task ss-task-' + kind;
@@ -287,8 +288,18 @@
             detail.textContent = note;
             row.appendChild(detail);
         }
-        box.appendChild(row);
+        return row;
+    }
+
+    function logTask(status, title, note) {
+        var box = $('ss-log');
+        box.appendChild(buildTaskRow(status, title, note));
         box.scrollTop = box.scrollHeight;
+    }
+
+    /** A count with its noun, so the page never prints "1 subtitles". */
+    function plural(n, one, many) {
+        return n + ' ' + (n === 1 ? one : (many || one + 's'));
     }
 
     /** One task's result as a single note: the outcome, the reader's cost, and where it was written. */
@@ -300,55 +311,312 @@
         return parts.join(' \u00b7 ');
     }
 
+    // D1: History is a list of runs, not a terminal. One row per run, grouped under the day it started, with
+    // a state chip ("Succeeded", "Partly failed", ...) and the numbers that describe it; opening a run shows
+    // what happened to each subtitle as rows, a switch for the problems only, and the raw report behind a
+    // "Copy as text" link. What the old <pre> of OK/FAIL lines was for - pasting a run into a bug report - is
+    // the link; the log itself is no longer the surface.
+
+    /** The run's state as a chip: what a reader wants to know before the counts. */
+    function historyState(b) {
+        var status = b.Status || b.status || '';
+        var ok = (b.Ok != null) ? b.Ok : (b.ok || 0);
+        var failed = (b.Failed != null) ? b.Failed : (b.failed || 0);
+        var total = (b.Total != null) ? b.Total : (b.total || 0);
+        if (status === 'Queued') return { chip: 'Queued', cls: 'partial' };
+        if (status === 'Running') return { chip: 'Running', cls: 'partial' };
+        if (status === 'Cancelled') return { chip: 'Cancelled', cls: 'partial' };
+        if (failed > 0 && ok > 0) return { chip: 'Partly failed', cls: 'partial' };
+        if (failed > 0 || status === 'Failed') return { chip: 'Failed', cls: 'fail' };
+        return { chip: total > 0 ? 'Succeeded' : (status || 'Finished'), cls: 'ok' };
+    }
+
+    /** How long the run took, from the two timestamps the server keeps. */
+    function historyDuration(b) {
+        var started = Date.parse(b.CreatedAtUtc || b.createdAtUtc || '');
+        var finished = Date.parse(b.FinishedAtUtc || b.finishedAtUtc || '');
+        if (!started) return '';
+        if (!finished) return 'still running';
+        var seconds = Math.max(1, Math.round((finished - started) / 1000));
+        if (seconds < 90) return seconds + ' s';
+        return Math.round(seconds / 60) + ' min';
+    }
+
+    function historyCountsLine(b) {
+        var total = (b.Total != null) ? b.Total : (b.total || 0);
+        var ok = (b.Ok != null) ? b.Ok : (b.ok || 0);
+        var failed = (b.Failed != null) ? b.Failed : (b.failed || 0);
+        var cancelled = (b.Cancelled != null) ? b.Cancelled : (b.cancelled || 0);
+        var bits = [plural(total, 'subtitle'), ok + ' synced'];
+        if (failed) bits.push(failed + ' failed');
+        if (cancelled) bits.push(cancelled + ' cancelled');
+        var time = historyDuration(b);
+        if (time) bits.push(time);
+        return bits.join(' \u00b7 ');
+    }
+
+    function historyDayLabel(date) {
+        var today = new Date();
+        var sameDay = function (a, b) {
+            return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+        };
+        var yesterday = new Date(today.getTime() - 86400000);
+        if (sameDay(date, today)) return 'Today';
+        if (sameDay(date, yesterday)) return 'Yesterday';
+        return date.toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' });
+    }
+
+    /** The folders a run wrote into, said as one path when they agree. */
+    function historyOutputFolder(tasks) {
+        var folders = {};
+        tasks.forEach(function (t) {
+            var path = t.OutputPath || t.outputPath || '';
+            if (!path) return;
+            var cut = path.lastIndexOf('/');
+            folders[cut > 0 ? path.slice(0, cut) : path] = 1;
+        });
+        var keys = Object.keys(folders);
+        if (keys.length === 1) return keys[0];
+        if (keys.length > 1) return keys.length + ' folders';
+        return '';
+    }
+
+    function historyStatusOf(t) {
+        return t.Status || t.status || '';
+    }
+
+    function isTerminalStatus(status) {
+        return status === 'Completed' || status === 'Failed' || status === 'Cancelled';
+    }
+
+    /** The rows of one run: grouped by file, so a movie with four tracks reads as one file with four results
+     *  rather than four unrelated lines. */
+    function historyTaskRows(tasks, problemsOnly) {
+        var fragment = document.createDocumentFragment();
+        var byFile = {};
+        var order = [];
+        tasks.forEach(function (t) {
+            var title = t.Title || t.title || ('track ' + (t.SubtitleIndex != null ? t.SubtitleIndex : (t.BatchIndex || 0)));
+            var file = title.indexOf(' \u2014 ') > 0 ? title.slice(0, title.indexOf(' \u2014 ')) : '';
+            var track = file ? title.slice(title.indexOf(' \u2014 ') + 3) : title;
+            var status = historyStatusOf(t);
+            if (!byFile[file]) {
+                byFile[file] = [];
+                order.push(file);
+            }
+            byFile[file].push({ track: track, status: status, task: t });
+        });
+
+        order.forEach(function (file) {
+            var entries = byFile[file];
+            var shown = entries.filter(function (e) {
+                return !problemsOnly || e.status === 'Failed';
+            });
+            if (!shown.length) return;
+            if (file && entries.length > 1) {
+                var head = document.createElement('div');
+                head.className = 'ss-hist-subhead';
+                head.textContent = file + ' \u2014 ' + plural(entries.length, 'track');
+                fragment.appendChild(head);
+            }
+            shown.forEach(function (e) {
+                var t = e.task;
+                var note = e.status === 'Completed'
+                    ? taskResultNote(t.Outcome || t.outcome || '', t.ExtractionNote || t.extractionNote || '',
+                                     t.OutputPath || t.outputPath || '')
+                    : (e.status === 'Cancelled' ? 'cancelled before it started'
+                        : (t.Error || t.error || t.Status || e.status));
+                fragment.appendChild(buildTaskRow(e.status, file && entries.length > 1 ? e.track : (file || e.track), note));
+            });
+        });
+        return fragment;
+    }
+
+    /** The detail of one run: what it was, what it did, and the two controls that make it readable. */
+    function renderHistoryDetail(detail, view) {
+        detail.innerHTML = '';
+        var tasks = (view.Tasks || view.tasks || []);
+        var failed = tasks.filter(function (t) { return historyStatusOf(t) === 'Failed'; }).length;
+        var state = historyState(view);
+        var time = historyDuration(view);
+        var folder = historyOutputFolder(tasks);
+
+        var summary = document.createElement('div');
+        summary.className = 'ss-hist-summary';
+        var bits = [state.chip + (time ? ' in ' + time : ''),
+                    plural(tasks.length, 'subtitle'),
+                    tasks.filter(function (t) { return isTerminalStatus(historyStatusOf(t)); }).length + ' finished'];
+        if (failed) bits.push(failed + ' failed');
+        var mode = view.Mode || view.mode || '';
+        if (mode) bits.push(mode + ' mode');
+        if (folder) bits.push('outputs in ' + folder);
+        summary.textContent = bits.join(' \u00b7 ');
+        detail.appendChild(summary);
+
+        var bar = document.createElement('div');
+        bar.className = 'ss-hist-filter';
+        var allBtn = document.createElement('button');
+        allBtn.type = 'button';
+        allBtn.className = 'ss-hist-filter-btn ss-hist-filter-on';
+        allBtn.textContent = 'All ' + tasks.length;
+        var problemBtn = document.createElement('button');
+        problemBtn.type = 'button';
+        problemBtn.className = 'ss-hist-filter-btn';
+        problemBtn.textContent = 'Problems only' + (failed ? ' ' + failed : '');
+        var copyLink = document.createElement('a');
+        copyLink.href = '#';
+        copyLink.className = 'ss-hist-copy';
+        copyLink.textContent = 'Copy as text';
+        var copyState = document.createElement('span');
+        copyState.className = 'ss-muted';
+        copyState.style.fontSize = '.78rem';
+        bar.appendChild(allBtn);
+        bar.appendChild(problemBtn);
+        bar.appendChild(copyLink);
+        bar.appendChild(copyState);
+        detail.appendChild(bar);
+
+        var rows = document.createElement('div');
+        rows.className = 'ss-tasks ss-hist-rows';
+        function draw(problemsOnly) {
+            rows.innerHTML = '';
+            rows.appendChild(historyTaskRows(tasks, problemsOnly));
+            if (!rows.children.length) {
+                var none = document.createElement('div');
+                none.className = 'ss-task-note-row';
+                none.textContent = problemsOnly ? 'No problems in this run.' : 'No results recorded for this run.';
+                rows.appendChild(none);
+            }
+        }
+        allBtn.addEventListener('click', function () {
+            allBtn.classList.add('ss-hist-filter-on');
+            problemBtn.classList.remove('ss-hist-filter-on');
+            draw(false);
+        });
+        problemBtn.addEventListener('click', function () {
+            problemBtn.classList.add('ss-hist-filter-on');
+            allBtn.classList.remove('ss-hist-filter-on');
+            draw(true);
+        });
+        copyLink.addEventListener('click', function (e) {
+            e.preventDefault();
+            copyHistoryText(view, copyState);
+        });
+        draw(false);
+        detail.appendChild(rows);
+    }
+
+    /** The old log shape, on the clipboard - what the terminal block was actually used for. */
+    function copyHistoryText(view, statusEl) {
+        var text = batchToLines(view);
+        var ok = function () {
+            statusEl.textContent = 'copied';
+            setTimeout(function () { statusEl.textContent = ''; }, 2500);
+        };
+        var fallback = function () {
+            var area = document.createElement('textarea');
+            area.value = text;
+            area.style.position = 'fixed';
+            area.style.top = '-1000px';
+            document.body.appendChild(area);
+            area.select();
+            var copied = false;
+            try { copied = document.execCommand('copy'); } catch (err) { copied = false; }
+            document.body.removeChild(area);
+            statusEl.textContent = copied ? 'copied' : 'could not copy - open the run and select the text';
+        };
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(ok, fallback);
+        } else {
+            fallback();
+        }
+    }
+
     function refreshHistory() {
         // History comes from the SERVER now (batches): every tab and
         // device attached to the server sees the same runs.
         api('SubSync/Batches').then(function (batches) {
-            var list = (batches || []);
+            var list = (batches || []).slice().sort(function (a, b) {
+                return Date.parse((b.CreatedAtUtc || b.createdAtUtc) || 0) - Date.parse((a.CreatedAtUtc || a.createdAtUtc) || 0);
+            });
             var el = $('ss-history');
             el.innerHTML = '';
             var stats = $('ss-history-stats');
+            var failedRuns = list.filter(function (b) { return historyState(b).cls !== 'ok'; }).length;
             if (stats) {
-                stats.textContent = list.length + ' run' + (list.length === 1 ? '' : 's') + ' — shared from the server across every tab/device.';
+                stats.textContent = plural(list.length, 'run') + ' on this server'
+                    + (failedRuns ? ' \u00b7 ' + failedRuns + ' with a failure' : '')
+                    + ' \u00b7 shared across tabs and devices';
             }
             $('ss-history-empty').classList.toggle('ss-hidden', list.length > 0);
+
+            var currentDay = null;
             list.forEach(function (b) {
-                var badge, badgeCls;
-                var status = b.Status || b.status;
-                var ok = (b.Ok != null) ? b.Ok : b.ok;
-                var total = (b.Total != null) ? b.Total : b.total;
-                if (total === 0) { badge = status; badgeCls = status === 'Failed' ? 'fail' : 'ok'; }
-                else if (status === 'Completed') { badge = ok + '/' + total + ' OK'; badgeCls = 'ok'; }
-                else if (status === 'Partial') { badge = ok + '/' + total + ' OK'; badgeCls = 'partial'; }
-                else if (status === 'Failed') { badge = ok + '/' + total + ' OK'; badgeCls = 'fail'; }
-                else if (status === 'Cancelled') { badge = 'cancelled'; badgeCls = 'partial'; }
-                else { badge = ok + '/' + total + ' running'; badgeCls = 'partial'; }
+                var created = Date.parse((b.CreatedAtUtc || b.createdAtUtc || ''));
+                if (created) {
+                    var day = historyDayLabel(new Date(created));
+                    if (day !== currentDay) {
+                        currentDay = day;
+                        var head = document.createElement('div');
+                        head.className = 'ss-hist-day';
+                        head.textContent = day;
+                        el.appendChild(head);
+                    }
+                }
 
-                var created = b.CreatedAtUtc || b.createdAtUtc || b.createdAt;
-                var time = created ? new Date(created).toLocaleString() : '';
-
+                var state = historyState(b);
                 var item = document.createElement('div');
                 item.className = 'ss-hist-item';
-                item.innerHTML =
-                    '<div class="ss-hist-head">' +
-                    '<span class="ss-hist-title">' + esc(b.Label || b.label || 'Batch') + '</span>' +
-                    '<span style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;">' +
-                    '<span class="ss-hist-meta">' + esc(time) + '</span>' +
-                    '<span class="ss-hist-badge ' + badgeCls + '">' + badge + '</span>' +
-                    '</span>' +
-                    '</div>' +
-                    '<pre class="ss-hist-log ss-hidden"></pre>';
-                item.addEventListener('click', function () {
-                    var log = item.querySelector('.ss-hist-log');
-                    if (log.textContent === '') {
-                        log.textContent = 'Loading\u2026';
+
+                var top = document.createElement('div');
+                top.className = 'ss-hist-head';
+                var title = document.createElement('span');
+                title.className = 'ss-hist-title';
+                title.textContent = b.Label || b.label || 'Run';
+                var right = document.createElement('span');
+                right.className = 'ss-hist-right';
+                var when = document.createElement('span');
+                when.className = 'ss-hist-meta';
+                when.textContent = created ? new Date(created).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) : '';
+                var chip = document.createElement('span');
+                chip.className = 'ss-hist-badge ' + state.cls;
+                chip.textContent = state.chip;
+                right.appendChild(when);
+                right.appendChild(chip);
+                top.appendChild(title);
+                top.appendChild(right);
+
+                var counts = document.createElement('div');
+                counts.className = 'ss-hist-meta ss-hist-counts';
+                counts.textContent = historyCountsLine(b);
+
+                var detail = document.createElement('div');
+                detail.className = 'ss-hist-detail ss-hidden';
+
+                item.appendChild(top);
+                item.appendChild(counts);
+                item.appendChild(detail);
+                item.addEventListener('click', function (e) {
+                    if (e.target.closest('.ss-hist-detail')) return;
+                    var opening = detail.classList.contains('ss-hidden');
+                    detail.classList.toggle('ss-hidden', !opening);
+                    if (opening && !detail.getAttribute('data-loaded')) {
+                        detail.setAttribute('data-loaded', '1');
+                        detail.innerHTML = '';
+                        var loading = document.createElement('div');
+                        loading.className = 'ss-task-note-row';
+                        loading.textContent = 'Loading\u2026';
+                        detail.appendChild(loading);
                         api('SubSync/Batch/' + (b.Id || b.id)).then(function (view) {
-                            log.textContent = batchToLines(view);
-                        }).catch(function (e) {
-                            log.textContent = 'Could not load run: ' + (e.message || e);
+                            if (view) renderHistoryDetail(detail, view);
+                        }).catch(function (err) {
+                            detail.innerHTML = '';
+                            var failed = document.createElement('div');
+                            failed.className = 'ss-task-note-row';
+                            failed.textContent = 'Could not load this run: ' + (err.message || err);
+                            detail.appendChild(failed);
                         });
                     }
-                    log.classList.toggle('ss-hidden');
                 });
                 el.appendChild(item);
             });

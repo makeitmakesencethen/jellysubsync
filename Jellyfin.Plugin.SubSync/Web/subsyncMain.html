@@ -103,16 +103,29 @@
                (F12). Its tick is kept, so turning framerate correction back on restores what was set. */
             .ss-settings-grid .checkboxContainer.ss-inert { opacity: .55; }
             .ss-settings-grid .checkboxContainer.ss-inert .emby-checkbox-label { cursor: not-allowed; }
-            .ss-hist-item { border-bottom: 1px solid rgba(255,255,255,.07); padding: 10px 4px; cursor: pointer; border-radius: 6px; }
+            /* D1: History is a list of runs. A day heading, then one row per run: label and state chip, the
+               counts under it, and a detail that opens in place - per-file result rows, a problems-only
+               switch, and the raw report behind a Copy as text link. The monospace <pre> is gone. */
+            .ss-hist-day { margin: 18px 0 4px; font-size: .78rem; text-transform: uppercase; letter-spacing: .06em; opacity: .5; }
+            .ss-hist-item { border-bottom: 1px solid rgba(255,255,255,.07); padding: 10px 6px 12px; cursor: pointer; border-radius: 6px; }
             .ss-hist-item:hover { background: rgba(255,255,255,.04); }
-            .ss-hist-head { display: flex; justify-content: space-between; gap: 10px; align-items: center; flex-wrap: wrap; }
-            .ss-hist-title { font-weight: 500; }
+            .ss-hist-head { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; flex-wrap: wrap; }
+            .ss-hist-title { font-weight: 600; font-size: .96rem; }
+            .ss-hist-right { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
             .ss-hist-meta { opacity: .6; font-size: .84rem; }
-            .ss-hist-badge { font-size: .76rem; padding: 2px 10px; border-radius: 999px; background: rgba(255,255,255,.08); white-space: nowrap; }
+            .ss-hist-counts { margin-top: 2px; }
+            .ss-hist-badge { font-size: .74rem; padding: 3px 10px; border-radius: 999px; background: rgba(255,255,255,.08); white-space: nowrap; font-weight: 600; }
             .ss-hist-badge.ok { color: #8f8; background: rgba(80,220,80,.12); }
             .ss-hist-badge.fail { color: #ff6b6b; background: rgba(255,80,80,.12); }
             .ss-hist-badge.partial { color: #fc3; background: rgba(255,200,60,.12); }
-            .ss-hist-log { white-space: pre-wrap; max-height: 260px; overflow: auto; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .78rem; margin: 8px 0 2px; padding: 8px 10px; background: rgba(0,0,0,.25); border-radius: 6px; }
+            .ss-hist-detail { margin-top: 10px; cursor: default; }
+            .ss-hist-summary { font-size: .82rem; opacity: .72; padding: 6px 0 8px; }
+            .ss-hist-filter { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+            .ss-hist-filter-btn { background: rgba(255,255,255,.06); color: inherit; border: 1px solid rgba(255,255,255,.12); border-radius: 999px; padding: 3px 12px; font-size: .78rem; cursor: pointer; }
+            .ss-hist-filter-btn.ss-hist-filter-on { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 22%, transparent); border-color: var(--theme-primary-color, #00a4dc); }
+            .ss-hist-copy { font-size: .78rem; color: var(--theme-primary-color, #00a4dc); text-decoration: none; margin-left: auto; }
+            .ss-hist-subhead { font-size: .8rem; opacity: .72; margin: 8px 0 2px; }
+            .ss-hist-rows { max-height: 340px; }
             .ss-diag { margin: 8px 0; padding: 8px 12px; border-radius: 6px; background: rgba(255,255,255,.05); white-space: pre-wrap; word-break: break-word; font-size: .85rem; }
             .ss-diag.err { color: #ff6b6b; background: rgba(255,80,80,.08); }
             .ss-hidden { display: none; }
@@ -344,7 +357,7 @@
 
                         <section id="panel-history" class="ss-hidden">
                             <h2 class="sectionTitle" style="margin:0;">Sync history</h2>
-                            <p class="sectionDescription ss-muted" style="margin-top:4px;">Every run on this server, shared across tabs and devices. Click a run to see its log.</p>
+                            <p class="sectionDescription ss-muted" style="margin-top:4px;">Every run on this server, shared across tabs and devices. Open a run to see what it did to each subtitle.</p>
                             <p id="ss-history-stats" class="ss-muted" style="font-size:.8rem;"></p>
                             <div id="ss-history"></div>
                             <p id="ss-history-empty" class="ss-muted">Nothing synced yet. Start a sync from the Sync tab and it will show up here.</p>

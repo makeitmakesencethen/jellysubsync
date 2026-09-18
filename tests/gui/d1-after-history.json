@@ -1,0 +1,118 @@
+{
+ "label": "d1-after",
+ "steps": [
+  {
+   "step": "history list",
+   "state": {
+    "stats": "25 runs on this server · 17 with a failure · shared across tabs and devices",
+    "items": 25,
+    "dayHeadings": [
+     "Today",
+     "September 16, 2026",
+     "September 15, 2026"
+    ],
+    "firstRow": {
+     "title": "Selection (3 files)",
+     "chip": "Partly failed",
+     "counts": [
+      "04:41 AM",
+      "8 subtitles · 6 synced · 2 failed · 2 s"
+     ],
+     "hasPre": false,
+     "hasDetail": true,
+     "detailOpen": false,
+     "detailText": "",
+     "summary": "",
+     "filterButtons": [],
+     "taskRows": 0,
+     "noteRows": [],
+     "monospace": null
+    },
+    "clip": {
+     "x": 458.875,
+     "y": 36,
+     "width": 946.25,
+     "height": 760
+    }
+   }
+  },
+  {
+   "step": "first run opened",
+   "state": {
+    "stats": "25 runs on this server · 17 with a failure · shared across tabs and devices",
+    "items": 25,
+    "dayHeadings": [
+     "Today",
+     "September 16, 2026",
+     "September 15, 2026"
+    ],
+    "firstRow": {
+     "title": "Selection (3 files)",
+     "chip": "Partly failed",
+     "counts": [
+      "04:41 AM",
+      "8 subtitles · 6 synced · 2 failed · 2 s"
+     ],
+     "hasPre": false,
+     "hasDetail": true,
+     "detailOpen": true,
+     "detailText": "Partly failed in 2 s · 8 subtitles · 8 finished · 2 failed · ultimate mode · outputs in 2 foldersAll 8Problems only 2Copy as textAss Track — 3 tracksSyncedSYNCED - English - SUBRIP - External-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srtSyncedSYNCED - Undefined - SUBRIP - Externalalready in sync (+0 ms offset) — nothing writtenFailedEnglish - ASSunverified: t",
+     "summary": "Partly failed in 2 s · 8 subtitles · 8 finished · 2 failed · ultimate mode · outputs in 2 folders",
+     "filterButtons": [
+      "All 8",
+      "Problems only 2"
+     ],
+     "taskRows": 8,
+     "noteRows": [],
+     "monospace": null
+    },
+    "clip": {
+     "x": 458.875,
+     "y": 36,
+     "width": 946.25,
+     "height": 760
+    }
+   }
+  },
+  {
+   "step": "problems only",
+   "state": {
+    "stats": "25 runs on this server · 17 with a failure · shared across tabs and devices",
+    "items": 25,
+    "dayHeadings": [
+     "Today",
+     "September 16, 2026",
+     "September 15, 2026"
+    ],
+    "firstRow": {
+     "title": "Selection (3 files)",
+     "chip": "Partly failed",
+     "counts": [
+      "04:41 AM",
+      "8 subtitles · 6 synced · 2 failed · 2 s"
+     ],
+     "hasPre": false,
+     "hasDetail": true,
+     "detailOpen": true,
+     "detailText": "Partly failed in 2 s · 8 subtitles · 8 finished · 2 failed · ultimate mode · outputs in 2 foldersAll 8Problems only 2Copy as textAss Track — 3 tracksFailedEnglish - ASSunverified: this subtitle was aligned against the audio (+1770 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync ",
+     "summary": "Partly failed in 2 s · 8 subtitles · 8 finished · 2 failed · ultimate mode · outputs in 2 folders",
+     "filterButtons": [
+      "All 8",
+      "Problems only 2"
+     ],
+     "taskRows": 2,
+     "noteRows": [],
+     "monospace": null
+    },
+    "clip": {
+     "x": 458.875,
+     "y": 36,
+     "width": 946.25,
+     "height": 760
+    }
+   }
+  }
+ ],
+ "problemsButton": "Problems only 2",
+ "copiedText": "OK   Ass Track — SYNCED - English - SUBRIP - External → /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt (-1770 ms offset)\nOK   Ass Track — SYNCED - Undefined - SUBRIP - External (already in sync (+0 ms offset) — nothing written)\nFAIL Ass Track — English - ASS — unverified: this subtitl"
+}
