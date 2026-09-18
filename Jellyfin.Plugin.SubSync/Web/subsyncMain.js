@@ -777,13 +777,10 @@
         var btn = $('ss-syncsel-btn');
         var span = btn ? btn.querySelector('span') : null;
         if (span) {
-            if (busyNow) {
-                span.textContent = 'Working\u2026';
-            } else if (selLangs.length && estimate !== null) {
-                span.textContent = 'Sync ' + fmt(estimate) + ' subtitle' + (estimate === 1 ? '' : 's');
-            } else {
-                span.textContent = 'Sync ' + n + ' file' + (n === 1 ? '' : 's');
-            }
+            // C5: the same words as every other sync button - a number of subtitles, never a number of files.
+            // The count is only known once the subtitle lists of the picks have been read; until then the
+            // button says what it will do without inventing a number.
+            span.textContent = busyNow ? 'Working\u2026' : subtitleButtonLabel(estimate);
         }
         if (btn) btn.disabled = busyNow;
 
@@ -883,6 +880,52 @@
         var n = 0;
         for (var k in selectedIds) { if (Object.prototype.hasOwnProperty.call(selectedIds, k)) n++; }
         return n;
+    }
+
+    // C5: every sync button states how many subtitle tracks it will queue, in the same words. A count that is
+    // not known yet says the unit without inventing a number, and nothing says "files" any more: what a sync
+    // queues is a number of subtitle tracks, which is the number the run box and the history report too.
+    function subtitleButtonLabel(count) {
+        if (count === null || count === undefined || count <= 0) {
+            return 'Sync subtitles';
+        }
+        return 'Sync ' + count + ' subtitle' + (count === 1 ? '' : 's');
+    }
+
+    // How many tracks the row's own controls would queue: the movie's picked track (or all of them), or the
+    // series scope's tracks for the chosen language. Null until the lists for that scope have been read, which
+    // the button then says instead of guessing.
+    function movieRowCount() {
+        var sel = $('ss-trackpick');
+        if (!sel || sel.value === '') {
+            return null;
+        }
+        return sel.value === '-1' ? movieTracks.length : 1;
+    }
+
+    function seriesRowCount(only) {
+        var cache = scopeTarget ? langFilterCache[scopeTarget] : null;
+        if (!cache || !cache.counts) {
+            return null;
+        }
+        var want = (only === undefined) ? currentLangFilter() : only;
+        if (!want || want === '*') {
+            var total = 0;
+            for (var code in cache.counts) {
+                if (Object.prototype.hasOwnProperty.call(cache.counts, code)) total += cache.counts[code];
+            }
+            return total;
+        }
+        return cache.counts[want] || null;
+    }
+
+    function refreshRowButtonLabel() {
+        var btn = $('ss-syncbtn');
+        if (!btn) return;
+        var span = btn.querySelector('span');
+        if (!span) return;
+        var count = (selected && selected.Type === 'Movie') ? movieRowCount() : seriesRowCount();
+        span.textContent = subtitleButtonLabel(count);
     }
 
     // Rows are multi-selected by shift-clicking: a plain click selects
@@ -1347,13 +1390,13 @@
                 if (item.Type === 'Movie') {
                     html += '<div class="ss-row-actions">' +
                         '<select is="emby-select" id="ss-trackpick" class="ss-compact" label="Subtitle">' + trackOptionsHtml() + '</select>' +
-                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync movie</span></button>' +
+                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>' + esc(subtitleButtonLabel(movieTracks.length || null)) + '</span></button>' +
                         '</div>';
                 } else {
                     html += '<div class="ss-row-actions">' +
                         '<select is="emby-select" id="ss-scope" class="ss-compact" label="Scope"><option value="">Whole series</option></select>' +
                         '<select is="emby-select" id="ss-langfilter" class="ss-compact" label="Subtitle">' + seriesLangHtml() + '</select>' +
-                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>Sync series</span></button>' +
+                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>' + esc(subtitleButtonLabel(seriesRowCount('*'))) + '</span></button>' +
                         '</div>';
                 }
             } else {
@@ -1424,8 +1467,13 @@
         });
 
         if (selected) {
+            // C5: the row's own button states the count its controls imply, and follows them: picking a single
+            // track from a movie, or a language from a series, changes what the button would queue.
             if (selected.Type === 'Movie' && $('ss-trackpick')) {
-                $('ss-trackpick').onchange = null;
+                $('ss-trackpick').onchange = refreshRowButtonLabel;
+            }
+            if (selected.Type === 'Series' && $('ss-langfilter')) {
+                $('ss-langfilter').onchange = refreshRowButtonLabel;
             }
             if (selected.Type === 'Series' && $('ss-scope')) {
                 $('ss-scope').onchange = function () {
@@ -1454,6 +1502,9 @@
                     $('ss-langfilter').value = eL.value;
                 }
             }
+            // The saved language filter has just been put back, so the button follows it rather than the
+            // default the row was built with (C5).
+            refreshRowButtonLabel();
         }
 
         refreshDataline();
@@ -1614,7 +1665,10 @@
                     sel.value = prev;
                 }
                 sel.setAttribute('data-value', sel.value);
-                langFilterCache[scopeId] = { html: sel.innerHTML, value: sel.value };
+                // C5: the counts travel with the options, so the row's button can state what the chosen
+                // language would queue instead of guessing or saying "files".
+                langFilterCache[scopeId] = { html: sel.innerHTML, value: sel.value, counts: counts, episodes: episodes.length };
+                refreshRowButtonLabel();
             });
         }).catch(function () {
             if (token === langDiscoverToken) {

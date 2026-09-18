@@ -4698,6 +4698,18 @@ def run_page_checks():
            'selectedIds[id] = true;' in pages['subsyncMain.js']
            and 'A plain click on an unpicked row starts a fresh' not in pages['subsyncMain.js']
            and 'click or right-click a row to add it, shift-click removes it' in pages['subsyncMain.js'])
+    # C5: one wording for every sync button - a number of subtitle tracks, never a number of files. Measured
+    # after the change: three rows selected "Sync 5 subtitles" (was "Sync 3 files" / "Sync 1 file"), a movie
+    # row "Sync 2 subtitles" and then "Sync 1 subtitle" (was "Sync movie"), a series row "Sync 111 subtitles"
+    # and then "Sync 2 subtitles" after picking a language (was "Sync series"), the single-item dialog
+    # "Sync 1 subtitle" and the series dialog "Sync 61 subtitles" (both were "Sync").
+    report('every sync button states a number of subtitles (C5)',
+           'function subtitleButtonLabel(count)' in pages['subsyncMain.js']
+           and 'function syncButtonText(count)' in pages['subsync.js']
+           and "'Sync movie'" not in pages['subsyncMain.js']
+           and "'Sync series'" not in pages['subsyncMain.js']
+           and "'Sync ' + n + ' file'" not in pages['subsyncMain.js']
+           and "'Sync again'" not in pages['subsync.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

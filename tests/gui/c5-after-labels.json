@@ -1,0 +1,83 @@
+{
+ "label": "c5-after",
+ "steps": [
+  {
+   "step": "selection of three rows",
+   "state": {
+    "selectionButton": "Sync 5 subtitles",
+    "rowButton": null,
+    "rowName": "Ass Track",
+    "rowType": "Movie · 2026",
+    "trackPick": null,
+    "langFilter": null,
+    "dataline": "40 items in All Libraries · Select all · 3 files picked"
+   }
+  },
+  {
+   "step": "a movie row selected (all tracks)",
+   "state": {
+    "selectionButton": "Sync 5 subtitles",
+    "rowButton": "Sync 2 subtitles",
+    "rowName": "Ass Track",
+    "rowType": "Movie · 2026",
+    "trackPick": {
+     "options": 3,
+     "selected": "All 2 tracks",
+     "value": "-1"
+    },
+    "langFilter": null,
+    "dataline": "40 items in All Libraries · Select all · 3 files picked"
+   }
+  },
+  {
+   "step": "one track picked from that movie",
+   "picked": "English - ASS (eng)",
+   "state": {
+    "selectionButton": "Sync 5 subtitles",
+    "rowButton": "Sync 1 subtitle",
+    "rowName": "Ass Track",
+    "rowType": "Movie · 2026",
+    "trackPick": {
+     "options": 3,
+     "selected": "English - ASS (eng)",
+     "value": "3"
+    },
+    "langFilter": null,
+    "dataline": "40 items in All Libraries · Select all · 3 files picked"
+   }
+  },
+  {
+   "step": "a series row selected (all subtitles)",
+   "state": {
+    "selectionButton": "Sync 66 subtitles",
+    "rowButton": "Sync 111 subtitles",
+    "rowName": "Ass Track",
+    "rowType": "Movie · 2026",
+    "trackPick": null,
+    "langFilter": {
+     "options": 32,
+     "selected": "All subtitles (2 ep)",
+     "value": "*"
+    },
+    "dataline": "40 items in All Libraries · Select all · 4 files picked"
+   }
+  },
+  {
+   "step": "one language picked from that series",
+   "picked": "Arabic (2 tracks)",
+   "state": {
+    "selectionButton": "Sync 66 subtitles",
+    "rowButton": "Sync 2 subtitles",
+    "rowName": "Ass Track",
+    "rowType": "Movie · 2026",
+    "trackPick": null,
+    "langFilter": {
+     "options": 32,
+     "selected": "Arabic (2 tracks)",
+     "value": "ara"
+    },
+    "dataline": "40 items in All Libraries · Select all · 4 files picked"
+   }
+  }
+ ]
+}

@@ -244,6 +244,17 @@
         return n + ' ' + (n === 1 ? one : (many || one + 's'));
     }
 
+    /**
+     * C5: one wording for every sync button, wherever it appears - a number of subtitle tracks, never a
+     * number of "files". A count that is not known yet states the unit without inventing a number.
+     */
+    function syncButtonText(count) {
+        if (count === null || count === undefined || count <= 0) {
+            return 'Sync subtitles';
+        }
+        return 'Sync ' + humanCount(count, 'subtitle');
+    }
+
     function el(tag, className, text) {
         var node = document.createElement(tag);
         if (className) {
@@ -398,7 +409,7 @@
         langField.appendChild(langLabel);
         langField.appendChild(langSelect);
         var note = el('div', 'ss-note', '');
-        var startBtn = primaryButton('Sync');
+        var startBtn = primaryButton(syncButtonText(1));
         startBtn.disabled = true;
         shell.body.appendChild(scopeField);
         shell.body.appendChild(langField);
@@ -549,6 +560,7 @@
             tasks.forEach(function (t) { episodes[t.itemId] = 1; });
             if (!tasks.length) {
                 note.textContent = 'No subtitle tracks found in this scope.';
+                startBtn.textContent = syncButtonText(0);
                 startBtn.disabled = true;
                 return;
             }
@@ -556,6 +568,7 @@
                 + humanCount(Object.keys(episodes).length, 'episode')
                 + (lang === '*' ? '' : ' (' + languageLabel(lang) + ' only)')
                 + ' \u2014 runs through the server queue with the mode configured in Settings.';
+            startBtn.textContent = syncButtonText(tasks.length);
             startBtn.disabled = false;
         }
 
@@ -626,7 +639,7 @@
                 watchBatch(batchId, tasks);
             }).catch(function (err) {
                 startBtn.disabled = false;
-                startBtn.textContent = 'Sync';
+                startBtn.textContent = syncButtonText(tasks.length);
                 shell.showError('Could not start: ' + (err.message || err));
             });
         }
@@ -677,7 +690,7 @@
                         clearInterval(shell.state.timer);
                         shell.state.timer = null;
                         startBtn.disabled = false;
-                        startBtn.textContent = 'Sync again';
+                        startBtn.textContent = syncButtonText(tasks.length);
                         shell.sub.textContent = failed
                             ? 'Finished with ' + humanCount(failed, 'failure')
                             : 'Finished \u2014 the library is refreshed for the folders that changed.';
@@ -695,7 +708,7 @@
                     shell.state.timer = null;
                     shell.showError('Lost contact with the batch: ' + (err.message || err));
                     startBtn.disabled = false;
-                    startBtn.textContent = 'Sync';
+                    startBtn.textContent = syncButtonText(tasks.length);
                 });
             }
             poll();
@@ -856,7 +869,7 @@
 
     function openSingleDialog(meta) {
         var shell = buildShell('Sync Subtitles', meta.name || '');
-        var startBtn = primaryButton('Sync');
+        var startBtn = primaryButton(syncButtonText(1));
         startBtn.disabled = true;
         shell.actions.insertBefore(startBtn, shell.actions.firstChild);
 
@@ -987,7 +1000,7 @@
                         poll(jobId, started);
                     }).catch(function (err) {
                         startBtn.disabled = false;
-                        startBtn.textContent = 'Sync';
+                        startBtn.textContent = syncButtonText(1);
                         shell.showError('Could not start: ' + (err.message || err));
                     });
                 });
@@ -1026,7 +1039,7 @@
                 shell.state.timer = null;
                 shell.showError('Lost contact with the job: ' + (err.message || err));
                 startBtn.disabled = false;
-                startBtn.textContent = 'Sync';
+                startBtn.textContent = syncButtonText(1);
             });
         }
 
