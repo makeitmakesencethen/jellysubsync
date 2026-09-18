@@ -122,6 +122,13 @@ async function openRow(page, name) {
     };
   });
   bitmapSelected.row = await page.evaluate(rowState, BITMAP_NAME);
+  const selBarClip = await page.evaluate(() => {
+    const el = document.querySelector('#ss-selactions');
+    if (!el || !el.offsetHeight) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.max(0, r.x - 10), y: Math.max(0, r.y - 10), width: Math.min(1330, r.width + 20), height: Math.min(260, r.height + 20) };
+  });
+  if (selBarClip) await page.screenshot({ path: SHOTS + '/' + LABEL + '-selection.png', clip: selBarClip });
 
   // press the row's own Sync: does anything reach the server?
   const before = await batchesCount();

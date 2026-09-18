@@ -4816,6 +4816,12 @@ def run_page_checks():
            # "nothing found" and "nothing that can be aligned" are different answers
            and 'function selectionHasOnlyImageTracks(items)' in pages['subsyncMain.js']
            and 'which cannot be aligned' in pages['subsyncMain.js']
+           # the selection-level Sync is greyed out when the picks have nothing that can be queued, with the
+           # reason on it - "not known yet" (null, scan still running) is not "nothing" (0)
+           and 'function selectionUnsyncableReason(items)' in pages['subsyncMain.js']
+           and 'var nothingToSync = !busyNow && estimate === 0;' in pages['subsyncMain.js']
+           and 'btn.disabled = busyNow || nothingToSync;' in pages['subsyncMain.js']
+           and "btn.setAttribute('title', nothingToSync" in pages['subsyncMain.js']
            # and the sweep, which queues without being asked, skips one instead of spending a failure on it
            and 'if (track.UnsupportedReason is not null)' in service_source
            and 'SkippedUnsupported++' in service_source

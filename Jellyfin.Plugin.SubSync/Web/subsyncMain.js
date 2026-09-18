@@ -1122,7 +1122,17 @@
             // button says what it will do without inventing a number.
             span.textContent = busyNow ? 'Working\u2026' : subtitleButtonLabel(estimate);
         }
-        if (btn) btn.disabled = busyNow;
+        if (btn) {
+            // G2 follow-up: a selection that carries tracks but none that can be aligned has nothing to queue,
+            // so the button is greyed out with the reason on it instead of clicking through to a diagnostic
+            // line that says the same thing. While the scan is still running the count is unknown (null) and
+            // the button stays live, because "not known yet" is not "nothing".
+            var nothingToSync = !busyNow && estimate === 0;
+            btn.disabled = busyNow || nothingToSync;
+            btn.setAttribute('title', nothingToSync
+                ? (selectionUnsyncableReason(pickedItems()) || 'There is nothing to sync in this selection.')
+                : '');
+        }
 
         // Keep the language dropdown in step with the scan, without
         // disturbing the option the user picked.
@@ -1255,6 +1265,18 @@
             lists.forEach(function (list) { if (list.length) sawTrack = true; });
         });
         return sawTrack;
+    }
+
+    /** The sentence a user gets when their selection carries tracks but none that can be aligned (G2). */
+    function selectionUnsyncableReason(items) {
+        if (!selectionHasOnlyImageTracks(items)) return '';
+        return 'The selected items carry no text subtitle tracks: every track they have is an image format '
+            + '(PGS, VobSub), which cannot be aligned. Convert one to srt first.';
+    }
+
+    /** The picked rows, as objects - what the selection-level controls are about. */
+    function pickedItems() {
+        return allItems.filter(function (x) { return selectedIds[x.Id]; });
     }
 
     /** How many of the selected movie's tracks can be queued at all (G2). */
@@ -1708,10 +1730,8 @@
 
         seq.then(function () {
             if (!all.length) {
-                diag(selectionHasOnlyImageTracks(items)
-                    ? 'The selected items carry no text subtitle tracks: every track they have is an image '
-                        + 'format (PGS, VobSub), which cannot be aligned. Convert one to srt first.'
-                    : 'No subtitle tracks found for the selected items.', true);
+                diag(selectionUnsyncableReason(items)
+                    || 'No subtitle tracks found for the selected items.', true);
                 startInFlight = false;
                 isBuilding = false;
                 refreshDataline();

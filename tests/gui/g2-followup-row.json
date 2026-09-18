@@ -1,0 +1,176 @@
+{
+ "label": "g2-followup",
+ "bitmapRow": {
+  "found": true,
+  "rows": 1,
+  "viewed": "Bitmap",
+  "meta": "Movie · 2026",
+  "options": [
+   {
+    "value": "-1",
+    "text": "All 0 tracks",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "2",
+    "text": "English - Default - DVDSUB (eng) — image format, cannot be synced",
+    "disabled": true,
+    "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   }
+  ],
+  "button": {
+   "label": "Sync subtitles",
+   "disabled": true,
+   "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+  },
+  "diag": "",
+  "runLabel": "Idle",
+  "queue": "",
+  "clip": {
+   "x": 468.875,
+   "y": 365.90625,
+   "width": 926.25,
+   "height": 96.765625
+  }
+ },
+ "bitmapSelected": {
+  "button": "Sync subtitles",
+  "disabled": true,
+  "picked": "",
+  "row": {
+   "found": true,
+   "rows": 1,
+   "viewed": "Bitmap",
+   "meta": "Movie · 2026",
+   "options": [
+    {
+     "value": "-1",
+     "text": "All 0 tracks",
+     "disabled": false,
+     "title": ""
+    },
+    {
+     "value": "2",
+     "text": "English - Default - DVDSUB (eng) — image format, cannot be synced",
+     "disabled": true,
+     "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+    }
+   ],
+   "button": {
+    "label": "Sync subtitles",
+    "disabled": true,
+    "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   },
+   "diag": "",
+   "runLabel": "Idle",
+   "queue": "",
+   "clip": {
+    "x": 468.875,
+    "y": 303.4375,
+    "width": 926.25,
+    "height": 96.765625
+   }
+  }
+ },
+ "afterPress": {
+  "found": true,
+  "rows": 1,
+  "viewed": "Bitmap",
+  "meta": "Movie · 2026",
+  "options": [
+   {
+    "value": "-1",
+    "text": "All 0 tracks",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "2",
+    "text": "English - Default - DVDSUB (eng) — image format, cannot be synced",
+    "disabled": true,
+    "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+   }
+  ],
+  "button": {
+   "label": "Sync subtitles",
+   "disabled": true,
+   "title": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+  },
+  "diag": "",
+  "runLabel": "Idle",
+  "queue": "",
+  "clip": {
+   "x": 468.875,
+   "y": 303.4375,
+   "width": 926.25,
+   "height": 96.765625
+  }
+ },
+ "batchesBefore": 25,
+ "batchesAfter": 25,
+ "batchesCreatedOnClick": 0,
+ "calls": [
+  "GET /SubSync/Batches",
+  "GET /SubSync/Batches",
+  "GET /SubSync/Batches"
+ ],
+ "controlRow": {
+  "found": true,
+  "rows": 3,
+  "viewed": "Embedded Test",
+  "meta": "Movie · 2026",
+  "options": [
+   {
+    "value": "-1",
+    "text": "All 5 tracks",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "0",
+    "text": "SYNCED - English - SUBRIP - External (eng)",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "1",
+    "text": "SYNCED - Undefined - SUBRIP - External (und)",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "2",
+    "text": "SYNCED - Swedish - SUBRIP - External (swe)",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "5",
+    "text": "English - Default - SUBRIP (eng)",
+    "disabled": false,
+    "title": ""
+   },
+   {
+    "value": "6",
+    "text": "Swedish - SUBRIP (swe)",
+    "disabled": false,
+    "title": ""
+   }
+  ],
+  "button": {
+   "label": "Sync 5 subtitles",
+   "disabled": false,
+   "title": ""
+  },
+  "diag": "",
+  "runLabel": "Idle",
+  "queue": "",
+  "clip": {
+   "x": 468.875,
+   "y": 365.90625,
+   "width": 926.25,
+   "height": 96.765625
+  }
+ }
+}
