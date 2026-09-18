@@ -4500,11 +4500,14 @@ def run_page_checks():
            'waiting for earlier runs to finish' not in main_html)
     report('the detail dialog tolerates a failed poll', 'pollFailures' in client)
 
-    # A queued task is not a failed task. It was rendered as "FAIL <title> -- Queued" the moment a
-    # batch was opened, which reads as a run that failed instantly.
+    # A queued task is not a failed task. It was rendered as "FAIL <title> -- Queued" the moment a batch was
+    # opened, which reads as a run that failed instantly. The live panel no longer lists tasks at all (C2,
+    # revised); the rule now lives in the one place that does - History's rows only treat Completed, Failed
+    # and Cancelled as results, so a run that is still queued shows its counts and nothing else.
     report('queued or running tasks are never reported as failures',
-           "status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled'" in main_html
-           and 'still queued or running' in main_html)
+           "function isTerminalStatus(status)" in main_html
+           and "status === 'Completed' || status === 'Failed' || status === 'Cancelled'" in main_html
+           and 'isTerminalStatus(' in main_html)
 
     # This plugin's own sidecars are recognised by name and flagged, and re-syncing one updates it (S12). They used to
     # be hidden from the list, which left the list and the queue disagreeing: an index that resolved to a sidecar could
@@ -4760,20 +4763,28 @@ def run_page_checks():
            and 'ss-hist-log' not in pages['subsyncMain.html']
            and 'ss-hist-log' not in pages['subsyncMain.js']
            and "'ss-tasks ss-hist-rows'" in pages['subsyncMain.js'])
-    report('progress results are rows, not terminal output (C2)',
-           'class="ss-tasks"' in pages['subsyncMain.html']
+    # C2, revised: the progress area was a list of results rather than a terminal window - and that list is now
+    # gone from the run box entirely. Measured before: #ss-log was a <pre class="ss-log"> in ui-monospace
+    # printing "OK   Embedded Test - English - SUBRIP - External -> /opt/data/... (-250 ms offset)"; C2 turned
+    # that into rows ("Synced · <file> · -250 ms offset · wrote /opt/data/..."), and the user, looking at a
+    # 489-task run, asked for the whole area to go: the run box shows the run, and a run's record is History
+    # (D1), which renders the same rows from the same one renderer. So the run box has no results area, and
+    # buildTaskRow/taskResultNote survive as History's - one definition, one place that shows it.
+    report('the run box shows no results area, and History keeps the rows (C2)',
+           'class="ss-tasks"' not in pages['subsyncMain.html']
            and '.ss-tasks {' in pages['subsyncMain.html']
            and '.ss-log {' not in pages['subsyncMain.html']
            and 'class="ss-log"' not in pages['subsyncMain.html']
-           and 'function logTask(status, title, note)' in pages['subsyncMain.js']
+           and 'id="ss-log"' not in pages['subsyncMain.html']
+           and 'function logLine(text)' not in pages['subsyncMain.js']
+           and 'function logTask(status, title, note)' not in pages['subsyncMain.js']
+           and 'function logTerminal(taskLines, view)' not in pages['subsyncMain.js']
+           and 'logTerminal(' not in pages['subsyncMain.js']
+           and "'ss-log'" not in pages['subsyncMain.js']
+           # the rows themselves are still what a run's detail is made of, from the one renderer
+           and 'function buildTaskRow(status, title, note)' in pages['subsyncMain.js']
            and 'function taskResultNote(outcome, extractNote, outPath)' in pages['subsyncMain.js']
-           # the progress path builds rows; the OK/FAIL/SKIP prefixes only survive in batchToLines, which is
-           # the History panel's own log and is what D1 redesigns
-           and 'logTask(status, title' in pages['subsyncMain.js']
-           and 'logTask(st, title' in pages['subsyncMain.js']
-           and "logLine('OK" not in pages['subsyncMain.js']
-           and "logLine('SKIP" not in pages['subsyncMain.js']
-           and "logLine('FAIL" not in pages['subsyncMain.js'])
+           and "fragment.appendChild(buildTaskRow(" in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

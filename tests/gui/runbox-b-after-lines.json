@@ -1,0 +1,120 @@
+{
+ "label": "runbox-b-after",
+ "samples": [
+  {
+   "at": 1,
+   "key": "parallel · 1/64 workers|1/9 done (11%) · 1 failed",
+   "runLabel": "parallel · 1/64 workers",
+   "queue": "1/9 done (11%) · 1 failed",
+   "phase": "",
+   "bar": 122,
+   "workersY": 131,
+   "phaseY": null,
+   "queueY": 174,
+   "workerRows": 1,
+   "resultsArea": false,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": true,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 1/64 workers\nCancel\n1\nAss Track — SYNCED - English - SUBRIP - ExternalStarting…\n0%\n1/9 done (11%) · 1 failed\nSync from your library\nno bundled binary · v2.0.63.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 168.703125
+   }
+  },
+  {
+   "at": 2,
+   "key": "parallel · 3/64 workers|2/9 done (22%) · 1 failed",
+   "runLabel": "parallel · 3/64 workers",
+   "queue": "2/9 done (22%) · 1 failed",
+   "phase": "",
+   "bar": 122,
+   "workersY": 131,
+   "phaseY": null,
+   "queueY": 263,
+   "workerRows": 3,
+   "resultsArea": false,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": true,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 3/64 workers\nCancel\n1\nAss Track — SYNCED - Undefined - SUBRIP - ExternalWriting output\n75%\n2\nAss Track — English - ASSSyncing (from cache)\n10%\n3\nEmbedded Test — SYNCED - English - SUBRIP - ExternalSyncing (using another subtitle track)\n10%\n2/9 done (22%) · 1 failed\nSync from your library\nno bundled binary · v2.0.63.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 257.640625
+   }
+  },
+  {
+   "at": 3,
+   "key": "parallel · 1/64 workers|6/9 done (67%) · 2 failed",
+   "runLabel": "parallel · 1/64 workers",
+   "queue": "6/9 done (67%) · 2 failed",
+   "phase": "",
+   "bar": 122,
+   "workersY": 131,
+   "phaseY": null,
+   "queueY": 174,
+   "workerRows": 1,
+   "resultsArea": false,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": true,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 1/64 workers\nCancel\n1\nEmbedded Test — SYNCED - Swedish - SUBRIP - ExternalSyncing (from cache)\n10%\n6/9 done (67%) · 2 failed\nSync from your library\nno bundled binary · v2.0.63.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 168.703125
+   }
+  },
+  {
+   "step": "history tab, run still going",
+   "state": {
+    "runLabel": "Finished",
+    "queue": "9/9 done (100%) · 2 failed",
+    "phase": "",
+    "bar": null,
+    "workersY": null,
+    "phaseY": null,
+    "queueY": null,
+    "workerRows": 0,
+    "resultsArea": false,
+    "runBoxShown": false,
+    "runBoxInSyncPanel": true,
+    "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\nSync history\n\nEvery run on this server, shared across tabs and devices. Open a run to see what it did to each subtitle.\n\n26 runs on this server · 18 with a failure · shared across tabs and devices\n\nTODAY\nSelection (3 files)\n05:43 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nSelection (3 files)\n05:38 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nSelection (3 files)\n05:37 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nSelection (3 files)\n05:36 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nSelection (3 files)\n05:34 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 1 s\nSelection (3 files)\n05:33 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 3 s\nSelection (3 files)\n05:26 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nG2 bitmap probe\n05:24 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 1 s\nSelection (3 files)\n04:41 AM\nPartly failed\n8 subtitles · 6 synced · 2 failed · 2 s\nSelection (3 files)\n04:40 AM\nPartly failed\n8 subtitles · 6 synced · 2 failed · 1 s\nSelection (3 files)\n04:39 AM\nPartly failed\n6 subtitles · 4 synced · 2 failed · 1 s\nSelection (3 files)\n04:38 AM\nPartly failed\n5 subtitles · 3 synced · 2 failed · 2 s\nHelikopterrånet S01E01\n04:05 AM\nSucceeded\n1 subtitle · 1 synced · still running\nHelikopterrånet S01E01\n04:04 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:48 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · 1 s\nHelikopterrånet S01E01\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · 1 s\nG1 control batch\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · still running\nHelikopterrånet S01E01\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:44 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 1 s\nHelikopterrånet S01E01\n03:44 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 17 s\nSEPTEMBER 16, 2026\nrig-p3-gate\n01:13 PM\nSucceeded\n2 subtitles · 2 synced · still running\nSEPTEMBER 15, 2026\nrig-s7-burst\n11:32 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 821 min\nrig-s7-load\n11:32 PM\nFailed\n27 subtitles · 0 synced · 3 failed · 24 cancelled · 821 min\nrig-s7-burst\n11:30 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 45 s\nrig-s7-load\n11:30 PM\nFailed\n27 subtitles · 0 synced · 3 failed · 24 cancelled · 46 s",
+    "tab": "history",
+    "clip": null
+   }
+  },
+  {
+   "at": 4,
+   "key": "Finished|9/9 done (100%) · 2 failed",
+   "runLabel": "Finished",
+   "queue": "9/9 done (100%) · 2 failed",
+   "phase": "",
+   "bar": 86,
+   "workersY": null,
+   "phaseY": null,
+   "queueY": 93,
+   "workerRows": 0,
+   "resultsArea": false,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": true,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n Finished\n9/9 done (100%) · 2 failed\nSync from your library\nno bundled binary · v2.0.63.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 87.546875
+   }
+  }
+ ],
+ "sawTimeLeft": false,
+ "sawSubtitlesLeft": false,
+ "historyTabRunBoxShown": false,
+ "historyTabVisibleTextMentionsWorkers": false
+}

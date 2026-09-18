@@ -253,20 +253,9 @@
         return request;
     }
 
-    // C2: the progress area is a list of what happened, not a terminal window. A note is a line about the run
-    // (a scope, a queue that was split, an error); a task is one subtitle's own result, with its state as a
-    // word, the file, and the outcome the job reported.
-    function logLine(text) {
-        var box = $('ss-log');
-        var row = document.createElement('div');
-        row.className = 'ss-task-note-row';
-        row.textContent = text;
-        box.appendChild(row);
-        box.scrollTop = box.scrollHeight;
-    }
-
-    /** One result as a row: the state as a word, the file, and the note. Built in one place so the live
-     *  progress panel (C2) and a run's detail in History (D1) cannot drift apart. */
+    /** One result as a row: the state as a word, the file, and the note. Built in one place so a run's detail
+     *  in History (D1) has one definition to render - the live progress panel no longer shows results at all
+     *  (see the removal note below). */
     function buildTaskRow(status, title, note) {
         var row = document.createElement('div');
         var kind = status === 'Completed' ? 'ok' : (status === 'Cancelled' ? 'skip' : 'bad');
@@ -289,12 +278,6 @@
             row.appendChild(detail);
         }
         return row;
-    }
-
-    function logTask(status, title, note) {
-        var box = $('ss-log');
-        box.appendChild(buildTaskRow(status, title, note));
-        box.scrollTop = box.scrollHeight;
     }
 
     /** A count with its noun, so the page never prints "1 subtitles". */
@@ -1563,7 +1546,6 @@
     function watchOrQueueBatch(batchId, label, taskCount) {
         if (watchedBatchTimer) {
             busy = true;
-            logLine('Queued: ' + label + ' \u2014 ' + taskCount + ' task(s); starts after the current run finishes.');
             $('ss-run-label').textContent = 'Queued: ' + label + ' \u2014 behind the current run.';
             refreshHistory();
             return;
@@ -1572,8 +1554,7 @@
         busy = true;
         reattached = false;
         attachPending = false;
-        var taskLines = {};
-        pollBatchView(batchId, taskLines);
+        pollBatchView(batchId);
     }
 
     // The API refuses a batch of more than 1000 tasks (SubSyncController.CreateBatch) and both queue
@@ -1590,7 +1571,7 @@
     function noteAlreadyQueued(view) {
         var n = view && (view.AlreadyQueuedCount != null ? view.AlreadyQueuedCount : view.alreadyQueuedCount);
         if (n > 0) {
-            logLine(n + ' task(s) were already queued or running, so they were not queued a second time.');
+            diag(n + ' task(s) were already queued or running, so they were not queued a second time.');
         }
     }
 
@@ -1606,8 +1587,6 @@
         }
 
         var parts = Math.ceil(rows.length / BATCH_CHUNK);
-        logLine('Queue: ' + rows.length + ' subtitle tracks \u2014 sending them as ' + parts
-            + ' batches of up to ' + BATCH_CHUNK + ', which is what the server accepts per request.');
 
         // Sequential, not parallel - the same chain the bulk track loader uses: the enqueue is
         // synchronous server-side, so a burst of chunks would only make each one slower. The last part
@@ -1646,12 +1625,8 @@
         if (idle) {
             busy = true;
             showRunBox(true);
-            $('ss-log').textContent = '';
             $('ss-progress').style.width = '0%';
         }
-        logLine('Building queue for ' + items.length + ' picked file' + (items.length === 1 ? '' : 's')
-            + (selLangs.length ? ' (' + selLangs.map(langLabel).join(' + ') + ' subtitles only)' : '')
-            + '\u2026');
         var done = 0;
 
         var all = [];
@@ -1666,8 +1641,6 @@
                     return buildTasksForItem(it).then(function (t) {
                         all = all.concat(t);
                         done++;
-                        logLine('  ' + it.Name + ': ' + t.length + ' subtitle track' + (t.length === 1 ? '' : 's')
-                            + (it.Type === 'Series' ? ' (all episodes)' : ''));
                         $('ss-run-label').textContent = 'Loading\u2026';
                     });
                 });
@@ -1677,7 +1650,7 @@
 
         seq.then(function () {
             if (!all.length) {
-                logLine('No subtitle tracks found for the selected items.');
+                diag('No subtitle tracks found for the selected items.', true);
                 startInFlight = false;
                 isBuilding = false;
                 refreshDataline();
@@ -1704,7 +1677,6 @@
             refreshDataline();
             if (!watchedBatchTimer) busy = false;
             diag('Could not start sync: ' + (e.message || e), true);
-            logLine('ERROR: ' + (e.message || e));
         });
     }
 
@@ -1849,8 +1821,7 @@
         movieTracks = [];
         saveState({ selectedId: item.Id });
         if (!busy && !reattached && !attachPending) {
-            $('ss-log').textContent = '';
-            $('ss-progress').style.width = '0%';
+                $('ss-progress').style.width = '0%';
             showRunBox(false);
         }
         diag(null);
@@ -2028,35 +1999,9 @@
     var watchedBatchId = null;
     var watchedBatchTimer = null;
 
-    function logTerminal(taskLines, view) {
-        // After a batch finishes, write any tasks we haven't logged yet. Only finished tasks:
-        // a task that is still queued or running has no result yet, and reporting it as FAIL
-        // -- Queued was exactly the sort of false alarm this panel must never raise.
-        if (!taskLines || !view) return;
-        var tasks = (view.Tasks) || (view.tasks) || [];
-        tasks.forEach(function (t) {
-            var idx = (t.BatchIndex != null) ? t.BatchIndex : -1;
-            if (taskLines[idx] !== undefined) return;
-            var status = t.Status || t.status;
-            if (status !== 'Completed' && status !== 'Failed' && status !== 'Cancelled') return;
-            var title = t.Title || t.title || ('track ' + (t.BatchIndex != null ? t.BatchIndex : ''));
-            var error = t.Error || t.error;
-            var outPath = t.OutputPath || t.outputPath;
-            var outcome = t.Outcome || t.outcome || '';
-            var extractNote = t.ExtractionNote || t.extractionNote || '';
-            // The reader and its cost travel with the result: a subtitle that took two minutes
-            // to extract is otherwise indistinguishable from one that took 30 ms.
-            logTask(status, title, status === 'Completed'
-                ? taskResultNote(outcome, extractNote, outPath)
-                : (status === 'Cancelled' ? 'cancelled before it started' : (error || status)));
-            taskLines[idx] = true;
-        });
-    }
-
-    function pollBatchView(batchId, taskLines) {
+    function pollBatchView(batchId) {
         if (watchedBatchTimer) { clearInterval(watchedBatchTimer); watchedBatchTimer = null; }
         watchedBatchId = batchId;
-        var lastFinished = -1;
         var timer = setInterval(function () {
             // Fetch what the whole server is running as well: a batch queued behind another one
             // has no running tasks of its own, and the panel must still show the work in
@@ -2072,24 +2017,6 @@
                 var ok = (view.Ok != null) ? view.Ok : view.ok;
                 var failed = (view.Failed != null) ? view.Failed : view.failed;
                 var current = view.CurrentTask || view.currentTask;
-
-                // Log every task that just finished.
-                tasks.forEach(function (t) {
-                    var idx = (t.BatchIndex != null) ? t.BatchIndex : -1;
-                    var st = t.Status || t.status;
-                    if ((st === 'Completed' || st === 'Failed' || st === 'Cancelled') && idx > lastFinished && !taskLines[idx]) {
-                        var title = t.Title || t.title || ('track ' + idx);
-                        var error = t.Error || t.error;
-                        var outPath = t.OutputPath || t.outputPath;
-                        var outcome = t.Outcome || t.outcome || '';
-                        var extractNote = t.ExtractionNote || t.extractionNote || '';
-                        logTask(st, title, st === 'Completed'
-                            ? taskResultNote(outcome, extractNote, outPath)
-                            : (st === 'Cancelled' ? 'cancelled before it started' : (error || status)));
-                        taskLines[idx] = true;
-                    }
-                });
-                lastFinished = Math.max(lastFinished, ok + failed + ((view.Cancelled != null) ? view.Cancelled : (view.cancelled || 0)));
 
                 renderWorkerRows(view);
 
@@ -2147,9 +2074,6 @@
                     clearInterval(timer);
                     watchedBatchTimer = null;
                     watchedBatchId = null;
-                    logTerminal(taskLines, view);
-                    var doneLabel = view.Label || view.label || '';
-                    logLine('Done (' + doneLabel + '): ' + ok + '/' + total + ' succeeded.');
                     advanceToNextBatch();
                 }
             }).catch(function () { /* transient poll error — keep trying */ });
@@ -2164,7 +2088,6 @@
     // is doing, whoever started it, so the numbers on screen are never stale.
     var heartbeatTimer = null;
     var mirroredBatchId = null;
-    var mirroredLines = {};
     var mirroredSummary = '';
 
     function renderMirroredBatch(view) {
@@ -2196,14 +2119,9 @@
         renderQueueLine(view);
         renderWorkerRows(view);
 
-        // Finished tasks are logged once each, exactly as a streamed batch does.
-        var tasks = (view.Tasks || view.tasks || []);
-        var id = (view.Id || view.id) || '';
-        if (id !== mirroredBatchId) {
-            mirroredBatchId = id;
-            mirroredLines = {};
-        }
-        logTerminal(mirroredLines, view);
+        // Which run this is, so a different one is not mistaken for the same box (the idle state
+        // takes the box away again when it ends).
+        mirroredBatchId = (view.Id || view.id) || '';
 
         // A run that is done should not stay on screen as if it were still going.
         if (runningTasks.length === 0 && pos >= total && total > 0) {
@@ -2287,12 +2205,10 @@
         var cancel = $('ss-cancel');
         if (cancel) cancel.classList.remove('ss-hidden');
         showRunBox(true);
-        $('ss-log').textContent = '';
         $('ss-progress').style.width = '0%';
         $('ss-run-label').textContent = 'Attaching to run\u2026';
         runSpinner(true);
-        var taskLines = {};
-        pollBatchView(batchId, taskLines);
+        pollBatchView(batchId);
     }
 
     // After a batch finishes, stream the next queued batch (oldest first —
@@ -2308,12 +2224,10 @@
                 if (st === 'Running' || st === 'Queued') { next = b; break; }
             }
             if (next && (next.Id || next.id) !== watchedBatchId) {
-                logLine('Starting next queued run: ' + (next.Label || next.label || ''));
                 busy = true;
                 reattached = false;
                 attachPending = false;
-                var taskLines = {};
-                pollBatchView(next.Id || next.id, taskLines);
+                pollBatchView(next.Id || next.id);
                 return;
             }
             busy = false;
@@ -2343,8 +2257,7 @@
         if (idle) {
             busy = true;
             showRunBox(true);
-            $('ss-log').textContent = '';
-            $('ss-progress').style.width = '0%';
+                $('ss-progress').style.width = '0%';
         }
 
         var isMovie = selected.Type === 'Movie';
@@ -2363,7 +2276,7 @@
         // went away after a refresh. Fall back to the series itself instead.
         var idLooksReal = /^[0-9a-fA-F-]{16,}$/.test(String(scopeId || ''));
         if (!idLooksReal) {
-            logLine('Scope was not ready yet (' + scopeId + ') — syncing the whole series.');
+            diag('Scope was not ready yet (' + scopeId + ') — syncing the whole series.');
             scopeId = selected.Id;
         }
         if (scopeTarget && !/^[0-9a-fA-F-]{16,}$/.test(String(scopeTarget))) {
@@ -2383,17 +2296,13 @@
 
         episodesInScopeChain(isMovie ? null : scopeId, seasonOnly).then(function (result) {
             var tasks = result ? result.queue : [];
-            if (result) {
-                logLine('Scope: ' + label + ' \u2014 ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's'));
-            }
             if (!tasks.length) {
-                logLine('No subtitle tracks found in the selected scope.');
+                diag('No subtitle tracks found in the selected scope.', true);
                 startInFlight = false;
                 if (btn) btn.disabled = false;
                 if (idle) busy = false;
                 return;
             }
-            logLine('Queue: ' + tasks.length + ' subtitle track' + (tasks.length === 1 ? '' : 's') + ' across ' + result.episodeCount + ' episode' + (result.episodeCount === 1 ? '' : 's') + ' to sync.');
             $('ss-run-label').textContent = 'Loading\u2026';
 
             return postBatch(label, tasks.map(function (t) {
@@ -2410,7 +2319,6 @@
             if (btn) btn.disabled = false;
             if (!watchedBatchTimer) busy = false;
             diag('Could not start batch: ' + (e.message || e), true);
-            logLine('ERROR: ' + (e.message || e));
         });
     }
 
@@ -2470,14 +2378,11 @@
                 $('ss-phase').textContent = running.length + ' run' + (running.length === 1 ? '' : 's')
                     + ' still working: ' + names + ' \u2014 a running sync cannot be interrupted, use Kill to stop it.';
                 setCancelButton('Kill all syncing', true);
-                logLine('Cancel: ' + queued + ' queued task(s) dropped. ' + running.length
-                    + ' run(s) still in progress \u2014 press Kill to terminate them.');
                 return;
             }
 
             $('ss-phase').textContent = 'Cancelled \u2014 nothing is running any more.';
             setCancelButton('Cancel', false);
-            logLine('Cancel: everything stopped (' + queued + ' queued task(s) dropped).');
             if (watchedBatchId || mirroredBatchId) refreshHistory();
         }).catch(function () {
             setCancelButton('Kill all syncing', true);
@@ -2499,7 +2404,6 @@
         if (el) el.disabled = true;
         $('ss-run-label').textContent = 'Cancelling queued tasks\u2026';
         $('ss-phase').textContent = 'Dropping tasks that have not started yet\u2026';
-        logLine('Cancel requested \u2014 dropping queued tasks of this run.');
         api('SubSync/Batch/' + target + '/Cancel', { method: 'POST' }).then(function () {
             // Give the server a moment to reflect the running job's state.
             setTimeout(reportStillRunning, 700);
@@ -2520,8 +2424,6 @@
             setCancelButton('Confirm: kill all syncing', true);
             $('ss-phase').textContent = 'Press again to stop every sync on this server '
                 + '\u2014 that includes runs other users started. Nothing has been stopped yet.';
-            logLine('Kill armed \u2014 press the button again within 8 seconds to stop every run on '
-                + 'this server.');
             return;
         }
 
@@ -2531,13 +2433,10 @@
         if (el) el.disabled = true;
         $('ss-run-label').textContent = 'Killing running syncs\u2026';
         $('ss-phase').textContent = 'Terminating ffsubsync/ffmpeg processes and dropping the queue\u2026';
-        logLine('Kill requested \u2014 terminating running processes.');
         api('SubSync/Kill', { method: 'POST', body: JSON.stringify({ all: true }) }).then(function (r) {
             var killed = (r && (r.runningKilled != null ? r.runningKilled : r.RunningKilled)) || 0;
             var dropped = (r && (r.queuedCancelled != null ? r.queuedCancelled : r.QueuedCancelled)) || 0;
             var still = (r && (r.stillRunning != null ? r.stillRunning : r.StillRunning)) || 0;
-            logLine('Killed ' + killed + ' running run(s), dropped ' + dropped + ' queued task(s)'
-                + (still > 0 ? ' \u2014 ' + still + ' still shutting down.' : '.'));
             $('ss-phase').textContent = still > 0 ? 'Waiting for ' + still + ' process(es) to exit\u2026' : 'All syncing stopped.';
             if (still > 0) {
                 setTimeout(reportStillRunning, 900);
