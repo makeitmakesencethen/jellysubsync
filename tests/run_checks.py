@@ -4785,6 +4785,45 @@ def run_page_checks():
            and 'function buildTaskRow(status, title, note)' in pages['subsyncMain.js']
            and 'function taskResultNote(outcome, extractNote, outPath)' in pages['subsyncMain.js']
            and "fragment.appendChild(buildTaskRow(" in pages['subsyncMain.js'])
+    # G2: an image-based subtitle track (PGS, VobSub, DVB, XSUB) can never be aligned, and the page used to
+    # offer them anyway: the row's picker listed one as selectable, "All N tracks" counted it, the language
+    # filter offered a language carried only by one, and the button counted it. Measured before, on the user's
+    # own server: five refusals in one afternoon of testing (Jellyfin log, "task 3 failed validation: This
+    # track is DVDSUB, an image subtitle format..."), each one a failed task of a run that had nothing wrong
+    # with it. The server refuses such a track at enqueue on purpose (the refusal is a visible failed task, not
+    # a silent drop); the interface must not hand it one. Measured after, on the rig: the row for a file whose
+    # only track is DVDSUB shows that track listed and unselectable, its Sync button disabled and labelled with
+    # the count of syncable tracks (0), and clicking it queues no batch at all.
+    report('an image-based subtitle track cannot be queued from the page (G2)',
+           'function trackUnsupported(t)' in pages['subsyncMain.js']
+           and 'function syncableTracks(tracks)' in pages['subsyncMain.js']
+           # the picker lists it and disables it, and "All N tracks" counts what can be queued
+           and "' disabled title=" in pages['subsyncMain.js']
+           and 'image format, cannot be synced' in pages['subsyncMain.js']
+           and "var usable = syncableTracks(movieTracks);" in pages['subsyncMain.js']
+           and "All ' + usable.length" in pages['subsyncMain.js']
+           and "'All ' + movieTracks.length" not in pages['subsyncMain.js']
+           # nothing that builds a queue, counts one, or reads languages may see an image track
+           and 'syncableTracks(tracks).forEach(function (t) {' in pages['subsyncMain.js']
+           and 'syncableTracks(tracks) : (tracks || [])' not in pages['subsyncMain.js']
+           and 'syncableTracks(tracks)).length' in pages['subsyncMain.js']
+           and 'syncableTracks(movieTracks).length : 1' in pages['subsyncMain.js']
+           and 'syncableTracks(movieTracks).filter(function (t)' in pages['subsyncMain.js']
+           and 'var use = syncableTracks(tracks);' in pages['subsyncMain.js']
+           # the row's own button cannot offer work that does not exist
+           and 'movieSyncableCount() ? \'\' : \' disabled title=' in pages['subsyncMain.js']
+           and "subtitleButtonLabel(movieSyncableCount() || null)" in pages['subsyncMain.js']
+           # "nothing found" and "nothing that can be aligned" are different answers
+           and 'function selectionHasOnlyImageTracks(items)' in pages['subsyncMain.js']
+           and 'which cannot be aligned' in pages['subsyncMain.js']
+           # and the sweep, which queues without being asked, skips one instead of spending a failure on it
+           and 'if (track.UnsupportedReason is not null)' in service_source
+           and 'SkippedUnsupported++' in service_source
+           and 'left out entirely' not in service_source
+           and 'public int SkippedUnsupported' in service_source
+           and 'skipped (image subtitle format)'
+               in open(os.path.join(SERVICE_DIR, 'SubSyncSweepTask.cs'), encoding='utf-8').read())
+
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

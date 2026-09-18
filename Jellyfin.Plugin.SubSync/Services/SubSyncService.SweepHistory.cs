@@ -149,10 +149,12 @@ public partial class SubSyncService
         var source = mediaSources[0];
         var languageFilter = Services.SettingsSource.Current()?.SyncLanguages ?? Array.Empty<string>();
 
-        // Image-based tracks (PGS, VobSub, DVB, XSUB) can never be aligned — they are
-        // left out entirely so they cannot be picked and fail. Tracks outside the
-        // configured language filter are hidden too, so the UI only ever offers work
-        // that can actually succeed.
+        // Tracks outside the configured language filter are hidden, so the interface only ever offers work the
+        // user asked to see. Image-based tracks (PGS, VobSub, DVB, XSUB) are NOT hidden here: a track that
+        // cannot be synced is information the file carries, so it is listed with the reason on it and the
+        // queue refuses it (S5, LanguageSupport.ImageBasedRefusal). This comment used to claim they were "left
+        // out entirely", which no version of this method ever did - the filter below is the language filter
+        // and nothing else.
         return source.MediaStreams
             .Where(s => s.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle)
             .Where(s => LanguageSupport.MatchesFilter(s.Language, languageFilter))
@@ -582,6 +584,16 @@ public partial class SubSyncService
 
                 if (!seenTracks.Add((video.Id, track.Index)))
                 {
+                    continue;
+                }
+
+                // A bitmap sidecar (.sup, DVD .sub/.idx) can never be aligned, so the sweep must not queue one
+                // and let it fail: the queue refuses it anyway, and the sweep would spend a failure on it every
+                // pass until its fail streak stopped it. Counted on its own, because "skipped for an image
+                // format" is a different answer from "skipped for another reason" in the summary.
+                if (track.UnsupportedReason is not null)
+                {
+                    result.SkippedUnsupported++;
                     continue;
                 }
 

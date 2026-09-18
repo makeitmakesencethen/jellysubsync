@@ -903,7 +903,11 @@
         new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = true, Language = "eng", Codec = "subrip", Index = 1, Path = svcCachedSource },
         new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = true, Language = "eng", Codec = "subrip", Index = 2, Path = svcFailedSource },
         new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = false, Language = "eng", Codec = "subrip", Index = 3, Path = Path.Combine(svcSweepDir, "Embedded.eng.srt") },
-        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = true, Language = "eng", Codec = "subrip", Index = 4, Path = Path.Combine(svcSweepDir, "Gone.eng.srt") }
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = true, Language = "eng", Codec = "subrip", Index = 4, Path = Path.Combine(svcSweepDir, "Gone.eng.srt") },
+        // G2: a bitmap sidecar (a DVD .sub/.idx pair or a Blu-ray .sup). It exists on disk and has no synced
+        // version, so every other guard in the sweep would let it through and the queue would refuse it at
+        // enqueue - one failed task per sweep, forever, on a track nothing can ever align.
+        new() { Type = MediaBrowser.Model.Entities.MediaStreamType.Subtitle, IsExternal = true, Language = "eng", Codec = "dvd_subtitle", Index = 5, Path = Path.Combine(svcSweepDir, "Bitmap.eng.sub") }
     });
     svcSweepRoot.Children = new List<BaseItem> { svcSweepVideo };
 
@@ -930,12 +934,20 @@
         && svcSweep.SkippedCached == 1
         && svcSweep.SkippedFailed == 1
         && svcSweep.SkippedOther == 1
+        && svcSweep.SkippedUnsupported == 1
         && svcSweep.CandidatesEnqueued == 0
         && svcSweep.Completed == 0
         && svcSweep.FailedOrCancelled == 0
         && svcProgress.Value == 1.0,
         $"scanned={svcSweep.ScannedItems} cached={svcSweep.SkippedCached} failed={svcSweep.SkippedFailed} "
-        + $"other={svcSweep.SkippedOther} queued={svcSweep.CandidatesEnqueued} progress={svcProgress.Value}");
+        + $"other={svcSweep.SkippedOther} image={svcSweep.SkippedUnsupported} "
+        + $"queued={svcSweep.CandidatesEnqueued} progress={svcProgress.Value}");
+
+    // G2: the bitmap sidecar is skipped as an image format rather than queued and refused. The count is what
+    // says which of the two happened: a queued one would show up in CandidatesEnqueued and fail later.
+    Check("G2: the sweep skips an image-based subtitle file instead of queueing it",
+        svcSweep.SkippedUnsupported == 1 && svcSweep.CandidatesEnqueued == 0,
+        $"image={svcSweep.SkippedUnsupported} queued={svcSweep.CandidatesEnqueued}");
 
     // A second sweep of the same library finds the same picture: the cache is what makes a repeat cheap.
     var svcSecond = await svcAccess.SweepLibraryAsync(new ServiceCheckProgress(), CancellationToken.None);

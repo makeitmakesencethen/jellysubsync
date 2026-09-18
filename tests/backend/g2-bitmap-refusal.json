@@ -1,0 +1,24 @@
+{
+ "listing": [
+  {
+   "index": 2,
+   "codec": null,
+   "title": "English - Default - DVDSUB",
+   "unsupportedReason": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+  }
+ ],
+ "tasksPosted": [
+  2
+ ],
+ "batchId": "d8f0d1073a6f4eeca96bd2495a939f2d",
+ "total": 1,
+ "ok": null,
+ "failed": 1,
+ "taskResults": [
+  {
+   "index": 0,
+   "status": "Failed",
+   "error": "This track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first."
+  }
+ ]
+}

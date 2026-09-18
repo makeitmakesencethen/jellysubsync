@@ -340,6 +340,12 @@ public class SweepResult
     /// <summary>Gets or sets how many tracks were skipped for another reason (e.g. synced this session).</summary>
     public int SkippedOther { get; set; }
 
+    /// <summary>
+    /// Gets or sets how many tracks were skipped because they are an image-based format (PGS, VobSub, DVB,
+    /// XSUB), which the engine can never align (G2).
+    /// </summary>
+    public int SkippedUnsupported { get; set; }
+
     /// <summary>Gets or sets how many queued tracks finished successfully.</summary>
     public int Completed { get; set; }
 

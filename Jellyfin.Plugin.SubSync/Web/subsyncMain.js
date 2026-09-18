@@ -280,6 +280,30 @@
         return row;
     }
 
+    // G2: an image-based subtitle track (Blu-ray PGS, DVD VobSub, DVB, XSUB) carries no text, so the engine
+    // can never align it. The server refuses one at enqueue - the refusal deliberately becomes a failed task
+    // of whichever run asked for it, so the run reports what happened instead of silently dropping work - and
+    // this page used to hand it those tracks anyway: the row's track picker listed one as selectable, "All N
+    // tracks" counted it, the language filter offered a language carried only by one, and the button counted
+    // it. Measured on the user's own server before this change: five refusals in one afternoon of testing
+    // ("task 3 failed validation: This track is DVDSUB, an image subtitle format..."), each counted as a
+    // failure of an otherwise fine run, and one of them queued from the library row with no language filter
+    // set. The listing still shows such a track and says why (S5 - hiding it made the list disagree with the
+    // file); what changes is that nothing here can queue it.
+    function trackUnsupported(t) {
+        return !!((t && (t.UnsupportedReason !== undefined ? t.UnsupportedReason : t.unsupportedReason)) || '');
+    }
+
+    /** The tracks of a list that can actually be queued, in the order they were listed. */
+    function syncableTracks(tracks) {
+        return (tracks || []).filter(function (t) { return !trackUnsupported(t); });
+    }
+
+    /** Why a track cannot be synced, for the one place that shows it. */
+    function trackUnsupportedReason(t) {
+        return (t && (t.UnsupportedReason !== undefined ? t.UnsupportedReason : t.unsupportedReason)) || '';
+    }
+
     /** A count with its noun, so the page never prints "1 subtitles". */
     function plural(n, one, many) {
         return n + ' ' + (n === 1 ? one : (many || one + 's'));
@@ -1168,9 +1192,18 @@
     }
 
     function trackOptionsHtml() {
-        var html = '<option value="-1">All ' + movieTracks.length + ' track' + (movieTracks.length === 1 ? '' : 's') + '</option>';
+        var usable = syncableTracks(movieTracks);
+        var html = '<option value="-1">All ' + usable.length + ' track' + (usable.length === 1 ? '' : 's') + '</option>';
         movieTracks.forEach(function (t) {
-            html += '<option value="' + t.Index + '">' + esc(t.Title || ('Track ' + t.Index)) + (t.Language ? ' (' + esc(t.Language) + ')' : '') + '</option>';
+            var label = esc(t.Title || ('Track ' + t.Index)) + (t.Language ? ' (' + esc(t.Language) + ')' : '');
+            if (trackUnsupported(t)) {
+                // Listed, because the file has it, and disabled, because it cannot be synced: an option a
+                // click can reach is an option the plugin has to honour.
+                html += '<option value="' + t.Index + '" disabled title="' + esc(trackUnsupportedReason(t)) + '">'
+                    + label + ' \u2014 image format, cannot be synced</option>';
+            } else {
+                html += '<option value="' + t.Index + '">' + label + '</option>';
+            }
         });
         return html;
     }
@@ -1211,12 +1244,37 @@
     // How many tracks the row's own controls would queue: the movie's picked track (or all of them), or the
     // series scope's tracks for the chosen language. Null until the lists for that scope have been read, which
     // the button then says instead of guessing.
+    /** True when the picked items do carry subtitle tracks, but every one of them is an image format (G2).
+     *  The two empty results are different messages: nothing found, or nothing that can be aligned. */
+    function selectionHasOnlyImageTracks(items) {
+        var sawTrack = false;
+        (items || []).forEach(function (it) {
+            var lists = (it.Type === 'Movie')
+                ? [trackCache[it.Id] || []]
+                : (episodesCache[it.Id] || []).map(function (ep) { return trackCache[ep.id] || []; });
+            lists.forEach(function (list) { if (list.length) sawTrack = true; });
+        });
+        return sawTrack;
+    }
+
+    /** How many of the selected movie's tracks can be queued at all (G2). */
+    function movieSyncableCount() {
+        return syncableTracks(movieTracks).length;
+    }
+
+    /** The reason the selected movie offers nothing to sync, or '' when it does. */
+    function movieUnsupportedReason() {
+        if (movieSyncableCount() > 0) return '';
+        var first = (movieTracks || [])[0];
+        return first ? trackUnsupportedReason(first) : 'no subtitle tracks';
+    }
+
     function movieRowCount() {
         var sel = $('ss-trackpick');
         if (!sel || sel.value === '') {
             return null;
         }
-        return sel.value === '-1' ? movieTracks.length : 1;
+        return sel.value === '-1' ? syncableTracks(movieTracks).length : 1;
     }
 
     function seriesRowCount(only) {
@@ -1391,7 +1449,7 @@
             });
         }
         var byLang = {};
-        (tracks || []).forEach(function (t) {
+        syncableTracks(tracks).forEach(function (t) {
             var k = normLang(t);
             if (want && want.indexOf(k) === -1) return;
             var cur = byLang[k];
@@ -1495,7 +1553,7 @@
     function buildTasksForItem(item) {
         if (item.Type === 'Movie') {
             return cachedTracks(item.Id).then(function (tracks) {
-                var chosen = selLangs.length ? bestPerLanguage(tracks, selLangs) : (tracks || []);
+                var chosen = selLangs.length ? bestPerLanguage(tracks, selLangs) : syncableTracks(tracks);
                 return chosen.map(function (t) {
                     return { itemId: item.Id, index: t.Index, title: item.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) };
                 });
@@ -1529,7 +1587,7 @@
             if (it.Type === 'Movie') {
                 var tracks = trackCache[it.Id];
                 if (!tracks) return;
-                total += (selLangs.length ? bestPerLanguage(tracks, selLangs) : tracks).length;
+                total += (selLangs.length ? bestPerLanguage(tracks, selLangs) : syncableTracks(tracks)).length;
                 return;
             }
             (episodesCache[it.Id] || []).forEach(function (ep) {
@@ -1650,7 +1708,10 @@
 
         seq.then(function () {
             if (!all.length) {
-                diag('No subtitle tracks found for the selected items.', true);
+                diag(selectionHasOnlyImageTracks(items)
+                    ? 'The selected items carry no text subtitle tracks: every track they have is an image '
+                        + 'format (PGS, VobSub), which cannot be aligned. Convert one to srt first.'
+                    : 'No subtitle tracks found for the selected items.', true);
                 startInFlight = false;
                 isBuilding = false;
                 refreshDataline();
@@ -1695,7 +1756,7 @@
                 if (item.Type === 'Movie') {
                     html += '<div class="ss-row-actions">' +
                         '<select is="emby-select" id="ss-trackpick" class="ss-compact" label="Subtitle">' + trackOptionsHtml() + '</select>' +
-                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"><span>' + esc(subtitleButtonLabel(movieTracks.length || null)) + '</span></button>' +
+                        '<button is="emby-button" type="button" id="ss-syncbtn" class="raised button-submit emby-button"' + (movieSyncableCount() ? '' : ' disabled title="' + esc(movieUnsupportedReason()) + '"') + '><span>' + esc(subtitleButtonLabel(movieSyncableCount() || null)) + '</span></button>' +
                         '</div>';
                 } else {
                     html += '<div class="ss-row-actions">' +
@@ -1937,7 +1998,7 @@
             episodes.forEach(function (ep) {
                 seq = seq.then(function () {
                     return listTracks(ep.id).then(function (tracks) {
-                        tracks.forEach(function (t) {
+                        syncableTracks(tracks).forEach(function (t) {
                             // Canonical key: sv / swe / sv-SE / Swedish are
                             // one language, not four rows in the dropdown.
                             var lang = normLang(t);
@@ -2297,7 +2358,10 @@
         episodesInScopeChain(isMovie ? null : scopeId, seasonOnly).then(function (result) {
             var tasks = result ? result.queue : [];
             if (!tasks.length) {
-                diag('No subtitle tracks found in the selected scope.', true);
+                diag(selectionHasOnlyImageTracks([selected])
+                    ? 'This item carries no text subtitle tracks: every track it has is an image format '
+                        + '(PGS, VobSub), which cannot be aligned. Convert one to srt first.'
+                    : 'No subtitle tracks found in the selected scope.', true);
                 startInFlight = false;
                 if (btn) btn.disabled = false;
                 if (idle) busy = false;
@@ -2466,7 +2530,7 @@
         if (!scopeId) {
             // movie with chosen track index
             var chosen = $('ss-trackpick') ? parseInt($('ss-trackpick').value, 10) : -1;
-            return Promise.resolve({ episodeCount: 1, queue: movieTracks.filter(function (t) { return chosen === -1 || t.Index === chosen; })
+            return Promise.resolve({ episodeCount: 1, queue: syncableTracks(movieTracks).filter(function (t) { return chosen === -1 || t.Index === chosen; })
                 .map(function (t) { return { itemId: selected.Id, index: t.Index, title: selected.Name + ' \u2014 ' + (t.Title || ('track ' + t.Index)) }; }) });
         }
         var lang = currentLangFilter();
@@ -2475,7 +2539,7 @@
             episodes.forEach(function (ep) {
                 seq = seq.then(function () {
                     return listTracks(ep.id).then(function (tracks) {
-                        var use = tracks;
+                        var use = syncableTracks(tracks);
                         if (lang && lang !== '*') {
                             use = use.filter(function (t) {
                                 var tl = t.Language && t.Language !== 'und' ? String(t.Language).toLowerCase() : 'und';

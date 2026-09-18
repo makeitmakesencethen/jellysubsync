@@ -54,9 +54,9 @@ public class SubSyncSweepTask : IScheduledTask
         var result = await _service.SweepLibraryAsync(progress, cancellationToken).ConfigureAwait(false);
 
         _logger.LogInformation(
-            "Library sweep completed: {Scanned} items scanned, {Enqueued} queued, {Cached} skipped (already synced), {Failed} skipped (fail streak), {Ok} ok, {Bad} failed/cancelled",
+            "Library sweep completed: {Scanned} items scanned, {Enqueued} queued, {Cached} skipped (already synced), {Failed} skipped (fail streak), {Image} skipped (image subtitle format), {Ok} ok, {Bad} failed/cancelled",
             result.ScannedItems, result.CandidatesEnqueued, result.SkippedCached, result.SkippedFailed,
-            result.Completed, result.FailedOrCancelled);
+            result.SkippedUnsupported, result.Completed, result.FailedOrCancelled);
 
         progress.Report(1.0);
     }
