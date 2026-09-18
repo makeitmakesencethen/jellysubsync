@@ -863,11 +863,20 @@
     }
 
     // ---------------- Multi-select (checkboxes + shift-range) ----------------
+    // C4: the rows the user has picked come first, so a selection stays visible and reachable - including
+    // while the search box is narrowing the list to find the next file to add. The order inside each group is
+    // the library's own. One definition, used by the renderer and by the range selection, so a shift+right-
+    // click range covers the rows in the order they are drawn.
     function visibleItems() {
         var q = ($('ss-search').value || '').toLowerCase().trim();
-        return allItems.filter(function (x) {
+        var shown = allItems.filter(function (x) {
             return !q || (x.Name || '').toLowerCase().indexOf(q) !== -1;
         });
+        var picked = [], rest = [];
+        shown.forEach(function (x) {
+            (selectedIds[x.Id] ? picked : rest).push(x);
+        });
+        return picked.concat(rest);
     }
 
     function pickedCount() {
@@ -1324,10 +1333,7 @@
     }
 
     function render() {
-        var q = ($('ss-search').value || '').toLowerCase().trim();
-        var filtered = allItems.filter(function (x) {
-            return !q || (x.Name || '').toLowerCase().indexOf(q) !== -1;
-        });
+        var filtered = visibleItems();
         $('ss-list').innerHTML = filtered.map(function (item) {
             var meta = item.Type + (item.ProductionYear ? ' \u00b7 ' + item.ProductionYear : '');
             var isSel = selected && selected.Id === item.Id;

@@ -4682,6 +4682,15 @@ def run_page_checks():
            and 'var lastLangCounts = {};' in pages['subsyncMain.js']
            and 'lastLangCounts = langScan.langs;' in pages['subsyncMain.js']
            and "'LOADING '" not in pages['subsyncMain.js'])
+    # C4: the rows a user has picked sort to the top of the library list, so a selection stays visible and
+    # reachable. Measured: rows 4, 5 and 6 picked by right-click, and the list then draws them at positions
+    # 0, 1 and 2 with everything else in the library's own order. One definition of the order, shared by the
+    # renderer and the range selection.
+    report('picked rows sort to the top of the library list (C4)',
+           'function visibleItems()' in pages['subsyncMain.js']
+           and '(selectedIds[x.Id] ? picked : rest).push(x);' in pages['subsyncMain.js']
+           and 'return picked.concat(rest);' in pages['subsyncMain.js']
+           and 'var filtered = visibleItems();' in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source
