@@ -102,6 +102,18 @@ const clipAround = (selector, padTop, padBottom, maxHeight) => {
     out.clips.push({ item: 'E2', file: LABEL + '-e2-cachedata.png', text: e2.text });
   }
 
+  // E4: the whole settings panel, so a rewrite of any of its fields can be checked against the rest
+  const e4 = await page.evaluate(() => {
+    const panel = document.querySelector('#panel-settings .ss-settings-grid');
+    if (!panel) return null;
+    const r = panel.getBoundingClientRect();
+    return { height: Math.round(r.height) };
+  });
+  if (e4) {
+    await page.screenshot({ path: SHOTS + '/' + LABEL + '-e4-settings-full.png', fullPage: true });
+    out.clips.push({ item: 'E4', file: LABEL + '-e4-settings-full.png', text: 'full settings panel (' + e4.height + ' px tall)' });
+  }
+
   fs.writeFileSync(__dirname + '/' + LABEL + '-text.json', JSON.stringify(out, null, 1));
   console.log(JSON.stringify(out, null, 1));
   await browser.close();

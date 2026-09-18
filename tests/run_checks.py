@@ -5930,7 +5930,9 @@ def run_page_checks():
            and page_encodings == server_encodings and len(page_encodings) == 5,
            f'page={sorted(page_encodings)} server={sorted(server_encodings)}')
     report('F11: the encoding field says a typo can no longer be saved',
-           'silently written as UTF-8' in page)
+           # E4 rewrote this field: the claim is the same, in fewer words - the list only offers what the
+           # engine accepts, so an invalid value cannot be typed in and silently written as UTF-8.
+           'Only values the engine accepts are offered' in page)
     report('F11: the chosen encoding is handed to the engine by name',
            '"--output-encoding", outputEncoding' in service
            and 'var outputEncoding = Configuration.SettingsValidation.OutputEncodingOf(config);' in service)
@@ -5945,9 +5947,11 @@ def run_page_checks():
            and 'Correct framerate mismatch</strong> above' in page)
 
     report('F13: the worker field says what the extraction lanes do with the number',
-           'half this number and at most 3' in page
+           # E4 rewrote this field into lines: the lane rule is still stated, with the same two clauses about
+           # when a change takes effect
+           'Extraction has its own lanes (half this number, at most 3)' in page
            and 'applies as soon as you save' in page
-           and 'as the extractions already running finish' in page)
+           and 'as the running extractions finish' in page)
 
     report('F13: a saved configuration is applied to the running scheduler, not the next restart',
            '_syncService.ApplySettingsNow();' in controller
