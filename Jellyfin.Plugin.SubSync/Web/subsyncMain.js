@@ -409,6 +409,50 @@
         box.classList.remove('ss-hidden');
     }
 
+    // C1: one line for the whole run - how many subtitles are left, how far along it is, and roughly how long
+    // is left. Every number comes from the batch view the page is already polling (Total, Completed, Ok,
+    // Failed, Cancelled, CreatedAtUtc); nothing is invented, and the time is said as an estimate because a run
+    // mixes 25-minute episodes with two-hour films.
+    //
+    // The rate is only reported once two subtitles have finished: the first file of a run says nothing about
+    // the second, and a percentage is only ever finished tasks over total tasks, never a moving bar.
+    function runEtaMinutes(view, done, total) {
+        var started = Date.parse(view.CreatedAtUtc || view.createdAtUtc || '');
+        if (!started || done < 2 || total <= done) {
+            return null;
+        }
+        var minutes = (Date.now() - started) / 60000;
+        if (minutes <= 0) {
+            return null;
+        }
+        return Math.max(1, Math.round((minutes / done) * (total - done)));
+    }
+
+    function renderQueueLine(view) {
+        var line = $('ss-queue');
+        if (!line) return;
+        var total = (view && (view.Total != null ? view.Total : view.total)) || 0;
+        if (!total) {
+            line.textContent = '';
+            return;
+        }
+        var done = (view.Completed != null ? view.Completed : view.completed) || 0;
+        var failed = (view.Failed != null ? view.Failed : view.failed) || 0;
+        var cancelled = (view.Cancelled != null ? view.Cancelled : view.cancelled) || 0;
+        var left = Math.max(0, total - done);
+        var bits = [
+            left + ' subtitle' + (left === 1 ? '' : 's') + ' left',
+            done + '/' + total + ' done (' + Math.round((done / total) * 100) + '%)'
+        ];
+        if (failed) bits.push(failed + ' failed');
+        if (cancelled) bits.push(cancelled + ' cancelled');
+        if (left > 0) {
+            var eta = runEtaMinutes(view, done, total);
+            bits.push(eta === null ? 'time left: estimating' : 'about ' + eta + ' min left');
+        }
+        line.textContent = bits.join(' \u00b7 ');
+    }
+
     function showRunBox(show) {
         if (!show) {
             var w = $('ss-workers');
@@ -1783,6 +1827,7 @@
                     bits.push(failed + ' failed');
                 }
                 $('ss-run-label').textContent = bits.join(' \u00b7 ');
+                renderQueueLine(view);
                 runSpinner(true);
 
                 if (current) {
@@ -1858,6 +1903,7 @@
             : '';
         runSpinner((view.Status || view.status) === 'Queued' || runningTasks.length > 0);
         $('ss-progress').style.width = Math.round((total ? pos / total : 0) * 100) + '%';
+        renderQueueLine(view);
         renderWorkerRows(view);
 
         // Finished tasks are logged once each, exactly as a streamed batch does.
@@ -1883,6 +1929,7 @@
             return; // workers are busy elsewhere: keep showing them
         }
         renderWorkerRows(null);
+        renderQueueLine(null);
         $('ss-run-label').textContent = 'Idle';
         $('ss-phase').textContent = mirroredSummary
             ? 'Last run finished at ' + mirroredSummary + '.'

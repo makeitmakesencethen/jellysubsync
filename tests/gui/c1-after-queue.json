@@ -1,0 +1,73 @@
+{
+ "label": "c1-after",
+ "beforeStart": {
+  "queue": "",
+  "runLabel": "Idle",
+  "phase": "Nothing queued.",
+  "progressWidth": "0%",
+  "button": "Sync 5 subtitles",
+  "runBoxShown": false,
+  "logLines": []
+ },
+ "samples": [
+  {
+   "at": 1,
+   "queue": "4 subtitles left · 1/5 done (20%) · 1 failed · time left: estimating",
+   "runLabel": "parallel · 1/64 workers · 1/5 · 1 failed",
+   "phase": "",
+   "progressWidth": "20%",
+   "button": "Sync 5 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 2 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 2 subtitle tracks"
+   ]
+  },
+  {
+   "at": 2,
+   "queue": "3 subtitles left · 2/5 done (40%) · 1 failed · about 1 min left",
+   "runLabel": "parallel · 2/64 workers · 2/5 · 1 failed",
+   "phase": "",
+   "progressWidth": "42%",
+   "button": "Sync 5 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 2 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 2 subtitle tracks"
+   ]
+  },
+  {
+   "at": 3,
+   "queue": "0 subtitles left · 5/5 done (100%) · 2 failed",
+   "runLabel": "Finished: 3/5 succeeded.",
+   "phase": "",
+   "progressWidth": "100%",
+   "button": "Sync 5 subtitles",
+   "runBoxShown": true,
+   "logLines": [
+    "Building queue for 3 picked files…",
+    "  Ass Track: 2 subtitle tracks",
+    "  Bitmap: 1 subtitle track",
+    "  Embedded Test: 2 subtitle tracks"
+   ]
+  }
+ ],
+ "calls": [
+  "GET /SubSync/ClientScript",
+  "GET /SubSync/MainScript",
+  "GET /SubSync/InstallationStatus",
+  "GET /SubSync/Configuration",
+  "GET /SubSync/Batches",
+  "GET /SubSync/Active",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Subtitles/Batch",
+  "POST /SubSync/Batch",
+  "GET /SubSync/Active"
+ ]
+}

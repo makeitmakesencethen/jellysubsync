@@ -4710,6 +4710,19 @@ def run_page_checks():
            and "'Sync series'" not in pages['subsyncMain.js']
            and "'Sync ' + n + ' file'" not in pages['subsyncMain.js']
            and "'Sync again'" not in pages['subsync.js'])
+    # C1: the run box carries one line for the whole run - what is left, how far along it is, and roughly how
+    # long that is. Measured on a five-task run, sampled every second: "4 subtitles left · 1/5 done (20%) ·
+    # 1 failed · time left: estimating", then "3 subtitles left · 2/5 done (40%) · 1 failed · about 1 min
+    # left", then "0 subtitles left · 5/5 done (100%) · 2 failed". The rule: the numbers are the batch view's
+    # own, the time is only stated as an estimate and only once two subtitles have finished.
+    report('the run box states what is left, how far along the run is and the estimate (C1)',
+           'function renderQueueLine(view)' in pages['subsyncMain.js']
+           and 'function runEtaMinutes(view, done, total)' in pages['subsyncMain.js']
+           and 'renderQueueLine(view);' in pages['subsyncMain.js']
+           and 'renderQueueLine(null);' in pages['subsyncMain.js']
+           and 'id="ss-queue"' in pages['subsyncMain.html']
+           and "'time left: estimating'" in pages['subsyncMain.js']
+           and 'done < 2' in pages['subsyncMain.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source
