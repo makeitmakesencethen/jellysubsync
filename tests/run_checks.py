@@ -4663,6 +4663,14 @@ def run_page_checks():
            "api(SYNC_BASE + '/Sync', {" in pages['subsync.js']
            and "body: JSON.stringify({ itemId: meta.id, subtitleIndex: trackIndex(track) })" in pages['subsync.js']
            and "shell.setProgress(1, ['Synced', outcome || 'done']);" in pages['subsync.js'])
+    # B2: the Add-language row lines its two boxes up. The emby-input's own box is 39 px tall and sits 20 px
+    # down inside its field (room the element keeps for a label), so the old top-aligned row left the button
+    # 16 px above the input it belongs to - measured on the rig: input top 492, button top 477, 165 px apart.
+    report('the Add-language button is the input\'s own height and sits level with it (B2)',
+           '.ss-langrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; }' in pages['subsyncMain.html']
+           and '.ss-langrow .emby-button { margin: 0; height: 39px; padding: 0 15px; }' in pages['subsyncMain.html']
+           and 'class="ss-langrow"' in pages['subsyncMain.html']
+           and 'align-items:flex-start;flex-wrap:wrap;margin-top:8px;' not in pages['subsyncMain.html'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

@@ -35,6 +35,13 @@
             }
             @keyframes ss-spin { to { transform: rotate(360deg); } }
             .ss-langfield { position: relative; max-width: 340px; width: 100%; }
+            /* The input is a Jellyfin emby-input: its own box is 39 px tall and sits 20 px down inside the
+               field (the element keeps room for a label), so a row that aligned its items to the top left the
+               Add-language button 16 px higher than the box it belongs to - measured, and the reason the field
+               read as crooked (B2). The row lines its items up on the bottom, and the button is given the
+               input's own height so the two are level boxes rather than two different heights. */
+            .ss-langrow { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; margin-top: 8px; }
+            .ss-langrow .emby-button { margin: 0; height: 39px; padding: 0 15px; }
             .ss-sugg {
                 position: absolute; left: 0; right: 0; top: 100%; z-index: 60;
                 background: #242424; border: 1px solid rgba(255,255,255,.16);
@@ -272,7 +279,7 @@
                                         excluded from the lists entirely, since they cannot be aligned. While a filter is set,
                                         text tracks with no language at all are skipped too, because they cannot be matched.
                                     </div>
-                                    <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;margin-top:8px;">
+                                    <div class="ss-langrow">
                                         <div class="ss-langfield">
                                             <input is="emby-input" type="text" id="ss-langadd" autocomplete="off"
                                                    placeholder="Add a language (Swedish, swe, sv…)" />

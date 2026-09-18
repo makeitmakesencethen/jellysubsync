@@ -1,0 +1,305 @@
+{
+ "label": "b2-after",
+ "measured": {
+  "row": {
+   "x": 479,
+   "y": 460,
+   "w": 620,
+   "h": 59,
+   "right": 1099,
+   "bottom": 520,
+   "alignItems": "flex-end",
+   "display": "flex"
+  },
+  "field": {
+   "x": 479,
+   "y": 460,
+   "w": 340,
+   "h": 59,
+   "right": 819,
+   "bottom": 520,
+   "maxWidth": "340px",
+   "width": "340px"
+  },
+  "input": {
+   "x": 479,
+   "y": 480,
+   "w": 340,
+   "h": 39,
+   "right": 819,
+   "bottom": 520,
+   "cssWidth": "340px",
+   "minHeight": "0px"
+  },
+  "button": {
+   "x": 829,
+   "y": 481,
+   "w": 132,
+   "h": 39,
+   "right": 961,
+   "bottom": 520,
+   "minHeight": "auto",
+   "marginTop": "0px"
+  },
+  "gapInputToButton": 10,
+  "fieldSlack": 0,
+  "topDelta": 0
+ },
+ "survey": [
+  {
+   "tag": "select",
+   "id": "ss-vad",
+   "cls": "emby-select-withcolor emby-select",
+   "is": "emby-select",
+   "size": [
+    620,
+    42
+   ],
+   "bg": "rgb(32, 32, 32)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "8.184px 31.0992px 8.184px 8.184px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-maxoffset",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-maxrefoffset",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-maxsub",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-splitpenalty",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "select",
+   "id": "ss-encoding",
+   "cls": "emby-select-withcolor emby-select",
+   "is": "emby-select",
+   "size": [
+    620,
+    42
+   ],
+   "bg": "rgb(32, 32, 32)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "8.184px 31.0992px 8.184px 8.184px"
+  },
+  {
+   "tag": "select",
+   "id": "ss-multimode",
+   "cls": "emby-select-withcolor emby-select",
+   "is": "emby-select",
+   "size": [
+    620,
+    42
+   ],
+   "bg": "rgb(32, 32, 32)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "8.184px 31.0992px 8.184px 8.184px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-workers-input",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "button",
+   "id": "ss-clearcache",
+   "cls": "raised emby-button",
+   "is": "emby-button",
+   "size": [
+    115,
+    47
+   ],
+   "bg": "rgb(66, 66, 66)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "0px rgba(255, 255, 255, 0.7)",
+   "fontSize": "14.88px",
+   "padding": "13.392px 14.88px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-langadd",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    340,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "button",
+   "id": "ss-langaddbtn",
+   "cls": "raised emby-button",
+   "is": "emby-button",
+   "size": [
+    132,
+    39
+   ],
+   "bg": "rgb(66, 66, 66)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "0px rgba(255, 255, 255, 0.7)",
+   "fontSize": "14.88px",
+   "padding": "0px 15px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-fixfps",
+   "cls": "emby-checkbox",
+   "is": "emby-checkbox",
+   "size": [
+    1,
+    1
+   ],
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(0, 0, 0)",
+   "border": "0px rgb(0, 0, 0)",
+   "fontSize": "13.3333px",
+   "padding": "0px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-gss",
+   "cls": "emby-checkbox",
+   "is": "emby-checkbox",
+   "size": [
+    1,
+    1
+   ],
+   "bg": "rgba(0, 0, 0, 0)",
+   "color": "rgb(84, 84, 84)",
+   "border": "0px rgb(84, 84, 84)",
+   "fontSize": "13.3333px",
+   "padding": "0px"
+  },
+  {
+   "tag": "select",
+   "id": "ss-mode",
+   "cls": "emby-select-withcolor emby-select",
+   "is": "emby-select",
+   "size": [
+    620,
+    42
+   ],
+   "bg": "rgb(32, 32, 32)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "8.184px 31.0992px 8.184px 8.184px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-ffmpeg",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "input",
+   "id": "ss-ffsubsync",
+   "cls": "emby-input",
+   "is": "emby-input",
+   "size": [
+    620,
+    39
+   ],
+   "bg": "rgba(255, 255, 255, 0.09)",
+   "color": "rgba(255, 255, 255, 0.7)",
+   "border": "2px rgba(255, 255, 255, 0.09)",
+   "fontSize": "16.368px",
+   "padding": "6.5472px 4.092px"
+  },
+  {
+   "tag": "button",
+   "id": "ss-save",
+   "cls": "raised button-submit emby-button",
+   "is": "emby-button",
+   "size": [
+    128,
+    47
+   ],
+   "bg": "rgb(0, 164, 220)",
+   "color": "rgba(0, 0, 0, 0.87)",
+   "border": "0px rgba(0, 0, 0, 0.87)",
+   "fontSize": "14.88px",
+   "padding": "13.392px 14.88px"
+  }
+ ]
+}
