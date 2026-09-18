@@ -42,6 +42,11 @@ MARKERS_PRESENT = [
     # no string, so the binary cannot witness it - what the packaged assembly proves there is that it is the
     # same build the suite ran (assembly version + md5), and the behaviour is what the suite's F21 checks drive.
     'DurationGuessed',
+    # 2.0.63: the run-of-one read model (G1) is metadata - a class, a constant and the member that maps a job to
+    # the history record - and the interface changes are embedded resources, whose bytes are in the assembly just
+    # as plainly (the DLL carries the page's own source), so both halves of this batch are witnessable here.
+    'RunId', 'MaxSingleRuns', 'ToHistoryJob',
+    'renderQueueLine', 'buildTaskRow', 'subtitleButtonLabel', 'syncButtonText', 'ss-hist-summary',
 ]
 MARKERS_ABSENT = ['RunCapturedAsync', 'LiveProcessCount']
 

@@ -1,3 +1,67 @@
+## 2.0.63 (beta)
+
+A pass over the interface, worked from a list the user wrote after using it, with every item reproduced before it
+was changed and measured again afterwards. One backend defect came out of the same investigation, because the
+question that started it ("why does a sync from the detail page never show up in History?") turned out to have a
+real answer.
+
+**A sync started from an item's page now appears in History.** The detail page's "Sync Subtitles" posts to
+`/SubSync/Sync`, which queues one job with no batch on purpose - there is no group for a single job to belong to -
+while everything else posts a batch. Both History read models asked for jobs that *carry* a batch, so that run was
+in no history at all: not in the tab, and not in the file a restart reads. The conflict is described in the field as
+three standalone enqueues against 23 batched ones, all three of them detail-page syncs, each logged `completed`,
+with the history file unchanged across the restart that followed. A run of one is now addressed by a derived id
+(`Services/RunId.cs`, `single:<job id>`) rather than by a batch invented at enqueue time, both read models
+enumerate those jobs, the row is titled by the item, and the history file bounds them separately
+(`MaxSingleRuns = 20` beside `MaxBatches = 20`) so a week of one-off syncs cannot rotate the batches out. Measured
+before and after on a test server with the same probe: against the previous build the job ran, logged `completed`
+and was absent from `GET /SubSync/Batches` (21 runs listed) with `GET /SubSync/Batch/single:<job>` answering 404;
+against this one it is listed, its own view answers, the file holds it, and a restart brings it back.
+
+**The single-item dialog is the series dialog's form.** It used to be one row and one "Sync" button per subtitle
+track: on a real episode that measured 59 rows, 59 buttons in the body and a 3 177 px body inside a 900 px card,
+which parked the dialog's own actions row - Close included - some 2 200 px below the viewport. It is now a language
+filter (shown when the file carries more than one language), one subtitle picker, one line describing the pick, one
+line saying what will happen, and a single Sync beside Close. A bitmap track is listed and unselectable with its
+reason, a file the plugin wrote says so, and the picker starts on the media's own track rather than on the plugin's
+own output. One track is still one run of one job, and after a run the form reloads so the picker reports what was
+just written.
+
+**The run box says what is left, and the progress list is no longer a terminal.** The line under the bar reads the
+run's own numbers - `4 subtitles left · 1/5 done (20%) · 1 failed · time left: estimating`, then
+`3 subtitles left · 2/5 done (40%) · 1 failed · about 1 min left` - with the percentage always finished tasks over
+total tasks and the time stated as an estimate only once two subtitles have finished, because a run mixes
+25-minute episodes with two-hour films. The results below it are rows (a state word, the file, the outcome, the
+reader's cost and the path) rather than `OK   Title → /path (-250 ms offset)` lines in a monospace box; nothing
+was dropped, only the shape changed.
+
+**A selection is not destroyed by searching, and the rows that are picked come first.** Clicking a row used to
+clear every pick - measured: three picked, searched, clicked the row the search found, and the count read
+`1 file picked`. A click now adds, the count line says so, clearing is its own control, and picked rows sort to the
+top so a selection stays visible while the search box narrows the list. Every sync button now states a number of
+subtitles - the selection (`Sync 5 subtitles`), a movie row (`Sync 2 subtitles`, or `Sync 1 subtitle`), a series row
+(`Sync 111 subtitles`, and `Sync 2 subtitles` once a language is picked), the detail dialog (`Sync 1 subtitle`) and
+the series dialog (`Sync 61 subtitles`) - where two of them said "files" and two said nothing.
+
+**The language filter is still the same box while the subtitle lists are read.** It used to have its whole option
+list replaced by a single "LOADING" entry and be disabled, which reads as the box being swapped for a line of text;
+it now keeps its box, keeps the languages the last scan found, stays enabled and says `Sorting… 12/40` in its own
+text. The "Add language" button is the same height as its input and sits level with it - it was 16 px above the box
+it belongs to, which is what made that field look crooked.
+
+**History is a list of runs.** Runs are grouped under the day they started (`Today`, then dates), each row carries a
+state chip (`Succeeded`, `Partly failed`, `Failed`, `Cancelled`, `Running`) and a counts line
+(`8 subtitles · 6 synced · 2 failed · 2 s`), and opening one shows a summary, its results as the same rows the live
+progress panel uses, a **Problems only** switch, and **Copy as text** for the old log shape when a run needs to go
+into a bug report. The monospace block is gone from the panel.
+
+**Settings text.** The multi-subtitle mode, the cached-data list, the workers field, the offset window, the
+split penalty, the framerate switch, the output mode, the language filter and the settings preamble were rewritten
+as labelled lines: same information, a line per point, and no instruction the reader already knows. The cached-data
+description also said "Two things are cached" while listing three; it now names all three with their own retention.
+
+Suite: 1 036 checks green (`python3 tests/run_checks.py`), including new pins for each item above.
+
 ## 2.0.62 (beta)
 
 Two defects, both found by reading the shipped code rather than by a bug report, and both with a reproduction
