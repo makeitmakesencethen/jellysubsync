@@ -4491,7 +4491,11 @@ def run_page_checks():
            "if (!watchedBatchTimer && !busy && mirroredBatchId)" in main_html
            and 'showRunBox(false);' in main_html)
     report('the run line counts finished subtitles',
-           "bits.push((pos || 0) + '/' + total)" in main_html and "mirroredSummary" in main_html)
+           # The count of finished subtitles is on the counts line under the bar, not on the workers line (C1
+           # revised): the fraction used to be printed on both. The mirrored run's summary line is still the
+           # mirrored batch's own wording.
+           "bits = [done + '/' + total + ' done ('" in main_html
+           and 'mirroredSummary' in main_html)
     report('the stale queued wording is gone',
            'waiting for earlier runs to finish' not in main_html)
     report('the detail dialog tolerates a failed poll', 'pollFailures' in client)
@@ -4710,19 +4714,28 @@ def run_page_checks():
            and "'Sync series'" not in pages['subsyncMain.js']
            and "'Sync ' + n + ' file'" not in pages['subsyncMain.js']
            and "'Sync again'" not in pages['subsync.js'])
-    # C1: the run box carries one line for the whole run - what is left, how far along it is, and roughly how
-    # long that is. Measured on a five-task run, sampled every second: "4 subtitles left · 1/5 done (20%) ·
-    # 1 failed · time left: estimating", then "3 subtitles left · 2/5 done (40%) · 1 failed · about 1 min
-    # left", then "0 subtitles left · 5/5 done (100%) · 2 failed". The rule: the numbers are the batch view's
-    # own, the time is only stated as an estimate and only once two subtitles have finished.
-    report('the run box states what is left, how far along the run is and the estimate (C1)',
+    # C1: the run box states the run's totals once, in one place, and nothing twice. Measured on the rig
+    # (tests/gui/runbox-lines.js): the workers line and the counts line used to read
+    # "parallel · 1/64 workers · 1/9 · 1 failed" over
+    # "8 subtitles left · 1/9 done (11%) · 1 failed · time left: estimating" - the fraction and the failure
+    # count on both lines, and "8 subtitles left" saying what "1/9" already said. Now the workers line is
+    # "parallel · 1/64 workers" and the counts line is "1/9 done (11%) · 1 failed", which is one line below
+    # the worker rows it belongs to (HTML order: workers, phase, counts).
+    #
+    # The estimate is gone, not fixed: on the user's own 489-task run it read "about 4 min left" at 29% and
+    # "about 10 min left" at 46%, because a run mixes 25-minute episodes with two-hour films and the average
+    # of what has finished says nothing about what is left. A number that moves the wrong way while the run
+    # advances is worse than no number.
+    report('the run box states the run\'s totals once and never an estimate (C1)',
            'function renderQueueLine(view)' in pages['subsyncMain.js']
-           and 'function runEtaMinutes(view, done, total)' in pages['subsyncMain.js']
+           and 'function runEtaMinutes(view, done, total)' not in pages['subsyncMain.js']
+           and 'time left: estimating' not in pages['subsyncMain.js']
+           and "subtitle' + (left" not in pages['subsyncMain.js']
            and 'renderQueueLine(view);' in pages['subsyncMain.js']
            and 'renderQueueLine(null);' in pages['subsyncMain.js']
            and 'id="ss-queue"' in pages['subsyncMain.html']
-           and "'time left: estimating'" in pages['subsyncMain.js']
-           and 'done < 2' in pages['subsyncMain.js'])
+           and pages['subsyncMain.html'].index('id="ss-queue"') > pages['subsyncMain.html'].index('id="ss-workers"')
+           and pages['subsyncMain.html'].index('id="ss-queue"') > pages['subsyncMain.html'].index('id="ss-progress"'))
     # C2: the progress area is a list of results, not a terminal. Measured: #ss-log was a <pre class="ss-log">
     # in ui-monospace printing "OK   Embedded Test — SYNCED - English - SUBRIP - External → /opt/data/…
     # (-250 ms offset)"; it is now a <div class="ss-tasks"> whose rows each read "Synced · <file> · -250 ms

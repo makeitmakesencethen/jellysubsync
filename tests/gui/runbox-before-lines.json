@@ -1,0 +1,143 @@
+{
+ "label": "runbox-before",
+ "samples": [
+  {
+   "at": 1,
+   "key": "parallel · 1/64 workers · 1/9 · 1 failed|8 subtitles left · 1/9 done (11%) · 1 failed · time left: estimating",
+   "runLabel": "parallel · 1/64 workers · 1/9 · 1 failed",
+   "queue": "8 subtitles left · 1/9 done (11%) · 1 failed · time left: estimating",
+   "phase": "",
+   "bar": 122,
+   "workersY": 151,
+   "phaseY": null,
+   "queueY": 129,
+   "workerRows": 1,
+   "resultsArea": true,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": false,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 1/64 workers · 1/9 · 1 failed\nCancel\n8 subtitles left · 1/9 done (11%) · 1 failed · time left: estimating\n1\nAss Track — SYNCED - English - SUBRIP - ExternalPreparing\n0%\nBuilding queue for 3 picked files…\nAss Track: 3 subtitle tracks\nBitmap: 1 subtitle track\nEmbedded Test: 5 subtitle tracks\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSync from your library\nno bundled binary · v2.0.62.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 320.328125
+   }
+  },
+  {
+   "at": 2,
+   "key": "parallel · 2/64 workers · 3/9 · 1 failed|6 subtitles left · 3/9 done (33%) · 1 failed · about 1 min left",
+   "runLabel": "parallel · 2/64 workers · 3/9 · 1 failed",
+   "queue": "6 subtitles left · 3/9 done (33%) · 1 failed · about 1 min left",
+   "phase": "",
+   "bar": 122,
+   "workersY": 151,
+   "phaseY": null,
+   "queueY": 129,
+   "workerRows": 2,
+   "resultsArea": true,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": false,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 2/64 workers · 3/9 · 1 failed\nCancel\n6 subtitles left · 3/9 done (33%) · 1 failed · about 1 min left\n1\nAss Track — English - ASSWriting output\n75%\n2\nEmbedded Test — SYNCED - English - SUBRIP - ExternalSyncing (using another subtitle track)\n10%\nBuilding queue for 3 picked files…\nAss Track: 3 subtitle tracks\nBitmap: 1 subtitle track\nEmbedded Test: 5 subtitle tracks\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nAss Track — SYNCED - English - SUBRIP - External\n-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt\nSYNCED\nAss Track — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSync from your library\nno bundled binary · v2.0.62.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 423.171875
+   }
+  },
+  {
+   "at": 3,
+   "key": "parallel · 1/64 workers · 6/9 · 2 failed|3 subtitles left · 6/9 done (67%) · 2 failed · about 1 min left",
+   "runLabel": "parallel · 1/64 workers · 6/9 · 2 failed",
+   "queue": "3 subtitles left · 6/9 done (67%) · 2 failed · about 1 min left",
+   "phase": "",
+   "bar": 122,
+   "workersY": 151,
+   "phaseY": null,
+   "queueY": 129,
+   "workerRows": 1,
+   "resultsArea": true,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": false,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n parallel · 1/64 workers · 6/9 · 2 failed\nCancel\n3 subtitles left · 6/9 done (67%) · 2 failed · about 1 min left\n1\nEmbedded Test — SYNCED - Swedish - SUBRIP - ExternalWriting output\n75%\nBuilding queue for 3 picked files…\nAss Track: 3 subtitle tracks\nBitmap: 1 subtitle track\nEmbedded Test: 5 subtitle tracks\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nAss Track — SYNCED - English - SUBRIP - External\n-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt\nSYNCED\nAss Track — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nEmbedded Test — SYNCED - English - SUBRIP - External\n-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt\nSYNCED\nEmbedded Test — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nSync from your library\nno bundled binary · v2.0.62.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 378.703125
+   }
+  },
+  {
+   "at": 4,
+   "key": "Finished: 7/9 succeeded.|0 subtitles left · 9/9 done (100%) · 2 failed",
+   "runLabel": "Finished: 7/9 succeeded.",
+   "queue": "0 subtitles left · 9/9 done (100%) · 2 failed",
+   "phase": "",
+   "bar": 86,
+   "workersY": null,
+   "phaseY": null,
+   "queueY": 93,
+   "workerRows": 0,
+   "resultsArea": true,
+   "runBoxShown": true,
+   "runBoxInSyncPanel": false,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n Finished: 7/9 succeeded.\n0 subtitles left · 9/9 done (100%) · 2 failed\nBuilding queue for 3 picked files…\nAss Track: 3 subtitle tracks\nBitmap: 1 subtitle track\nEmbedded Test: 5 subtitle tracks\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nAss Track — SYNCED - English - SUBRIP - External\n-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt\nSYNCED\nAss Track — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nEmbedded Test — SYNCED - English - SUBRIP - External\n-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt\nSYNCED\nEmbedded Test — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nSYNCED\nEmbedded Test — English - Default - SUBRIP\n+250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt\nSYNCED\nEmbedded Test — Swedish - SUBRIP\n-250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt\nFAILED\nAss Track — English - ASS\nunverified: this subtitle was aligned against the audio (+1770 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync it against a subtitle track if the file has one, or run it from an external .srt, where the audio is the reference the plugin is meant to use.\nSYNCED\nEmbedded Test — SYNCED - Swedish - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nDone (Selection (3 files)): 7/9 succeeded.\nSync from your library\nno bundled binary · v2.0.62.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": {
+    "x": 470.875,
+    "y": 40,
+    "width": 922.25,
+    "height": 295.546875
+   }
+  },
+  {
+   "step": "history tab, run still going",
+   "state": {
+    "runLabel": "Finished: 7/9 succeeded.",
+    "queue": "0 subtitles left · 9/9 done (100%) · 2 failed",
+    "phase": "",
+    "bar": 86,
+    "workersY": null,
+    "phaseY": null,
+    "queueY": 93,
+    "workerRows": 0,
+    "resultsArea": true,
+    "runBoxShown": true,
+    "runBoxInSyncPanel": false,
+    "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\n Finished: 7/9 succeeded.\n0 subtitles left · 9/9 done (100%) · 2 failed\nBuilding queue for 3 picked files…\nAss Track: 3 subtitle tracks\nBitmap: 1 subtitle track\nEmbedded Test: 5 subtitle tracks\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nAss Track — SYNCED - English - SUBRIP - External\n-1770 ms offset · wrote /opt/data/jf12test/media-fixtures/Ass Track (2026).SYNCED.srt\nSYNCED\nAss Track — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nFAILED\nBitmap — English - Default - DVDSUB\nThis track is DVDSUB, an image subtitle format: the engine aligns text, so it cannot be re-timed here. Choose a text track (srt, ass, webvtt) for the same language, or convert this one first.\nSYNCED\nEmbedded Test — SYNCED - English - SUBRIP - External\n-250 ms offset · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt\nSYNCED\nEmbedded Test — SYNCED - Undefined - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nSYNCED\nEmbedded Test — English - Default - SUBRIP\n+250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt\nSYNCED\nEmbedded Test — Swedish - SUBRIP\n-250 ms offset · served from the extracted-subtitle cache, no read this run · wrote /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt\nFAILED\nAss Track — English - ASS\nunverified: this subtitle was aligned against the audio (+1770 ms offset) and the file holds no other text track to check that against, so nothing was written. An audio reference on a short file can be out by a second or more. Sync it against a subtitle track if the file has one, or run it from an external .srt, where the audio is the reference the plugin is meant to use.\nSYNCED\nEmbedded Test — SYNCED - Swedish - SUBRIP - External\nalready in sync (+0 ms offset) — nothing written\nDone (Selection (3 files)): 7/9 succeeded.\nSync history\n\nEvery run on this server, shared across tabs and devices. Open a run to see what it did to each subtitle.\n\n27 runs on this server · 19 with a failure · shared across tabs and devices\n\nTODAY\nSelection (3 files)\n05:26 AM\nPartly failed\n9 subtitles · 7 synced · 2 failed · 2 s\nG2 bitmap probe\n05:24 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 1 s\nSelection (3 files)\n04:41 AM\nPartly failed\n8 subtitles · 6 synced · 2 failed · 2 s\nSelection (3 files)\n04:40 AM\nPartly failed\n8 subtitles · 6 synced · 2 failed · 1 s\nSelection (3 files)\n04:39 AM\nPartly failed\n6 subtitles · 4 synced · 2 failed · 1 s\nSelection (3 files)\n04:38 AM\nPartly failed\n5 subtitles · 3 synced · 2 failed · 2 s\nHelikopterrånet S01E01\n04:05 AM\nSucceeded\n1 subtitle · 1 synced · still running\nHelikopterrånet S01E01\n04:04 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:48 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · 1 s\nHelikopterrånet S01E01\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · 1 s\nG1 control batch\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · still running\nHelikopterrånet S01E01\n03:45 AM\nSucceeded\n1 subtitle · 1 synced · still running\nG1 control batch\n03:44 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 1 s\nHelikopterrånet S01E01\n03:44 AM\nFailed\n1 subtitle · 0 synced · 1 failed · 17 s\nSEPTEMBER 16, 2026\nrig-p3-gate\n01:13 PM\nSucceeded\n2 subtitles · 2 synced · still running\nSEPTEMBER 15, 2026\nrig-s7-burst\n11:32 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 821 min\nrig-s7-load\n11:32 PM\nFailed\n27 subtitles · 0 synced · 3 failed · 24 cancelled · 821 min\nrig-s7-burst\n11:30 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 45 s\nrig-s7-load\n11:30 PM\nFailed\n27 subtitles · 0 synced · 3 failed · 24 cancelled · 46 s\nrig-s7-burst\n11:25 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 5 min\nrig-s7-load\n11:25 PM\nFailed\n27 subtitles · 0 synced · 3 failed · 24 cancelled · 5 min\nrig-s7-burst\n11:20 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 4 min\nrig-s7-load\n11:20 PM\nFailed\n27 subtitles · 0 synced · 4 failed · 23 cancelled · 4 min\nrig-s7-burst\n11:18 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 2 min\nrig-s7-load\n11:18 PM\nPartly failed\n27 subtitles · 7 synced · 4 failed · 16 cancelled · 2 min\nrig-s7-burst\n11:17 PM\nCancelled\n27 subtitles · 0 synced · 27 cancelled · 43 s",
+    "tab": "history",
+    "clip": {
+     "x": 470.875,
+     "y": 40,
+     "width": 922.25,
+     "height": 295.546875
+    }
+   }
+  },
+  {
+   "at": 7,
+   "key": "Idle|",
+   "runLabel": "Idle",
+   "queue": "",
+   "phase": "Last run finished at 1/9.",
+   "bar": null,
+   "workersY": null,
+   "phaseY": null,
+   "queueY": null,
+   "workerRows": 0,
+   "resultsArea": true,
+   "runBoxShown": false,
+   "runBoxInSyncPanel": false,
+   "visibleText": "151e4ee8fdb6\n\n12.0\n\nServer\nDashboard\nGeneral\nBranding\nUsers\nLibraries\nPlayback\nDevices\nDevices\nActivity\nLive TV\nLive TV\nDVR\nPlugins\nPlugins\nsubtitles\nSubSync\nAdvanced\nNetworking\nAPI Keys\nBackups\nLogs\nScheduled Tasks\nSubSync\nplaylist_play\nSync\nhistory\nHistory\ntune\nSettings\nSync from your library\nno bundled binary · v2.0.62.0\n\nTwo ways to sync.\nHere — click a movie or series to pick it; its options appear on that row. Movies sync one subtitle or all tracks; series a chosen season or every episode.\nFrom an item page — ⋮ More → Sync Subtitles for a single movie or episode.\n\nAll Libraries\nMovies\nS39 Fast Storage\nS39 Walk Storage\nShows\nSlow Storage\nSubSync Fixtures\n40 items in All Libraries · Select all · 3 files picked\nSync 9 subtitles\nSubtitles\nAll languages\nEnglish (5)\nSwedish (2)\nUnknown (2)\n3 files selected\nAss Track\nMovie · 2026\nchevron_right\nBitmap\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmbedded Test\nMovie · 2026\nchevron_right\nEmpty Track\nMovie · 2026\nchevron_right\nExternal Copy\nMovie · 2026\nchevron_right\nExternal Replace\nMovie · 2026\nchevron_right\nFishmas Season 1\nMovie · 2023\nchevron_right\nThe Helicopter Heist\nSeries · 2024\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nHelikopterrånet S01E01\nMovie\nchevron_right\nJudged Clip 01\nMovie · 2026\nchevron_right\nJudged Clip 02\nMovie · 2026\nchevron_right\nJudged Clip 03\nMovie · 2026\nchevron_right\nMixedPatched\nMovie · 2026\nchevron_right\nMp4 Test\nMovie · 2026\nchevron_right\nNo Index\nMovie · 2026\nchevron_right\nP3 Speech Gate\nMovie · 2026\nchevron_right\ns28-slice\nMovie\nchevron_right\nS31 Wrong Ruler\nMovie · 2026\nchevron_right\nS43 Audio Is Audio\nMovie · 2026\nchevron_right\nSigns Test\nMovie · 2026\nchevron_right\nSingle Track\nMovie · 2026\nchevron_right\nSlow Single Track\nMovie · 2026\nchevron_right\nTest Movie\nMovie · 2026\nchevron_right\nTruncated\nMovie · 2026\nchevron_right\nWalk Reference 01\nMovie · 2026\nchevron_right\nWalk Reference 02\nMovie · 2026\nchevron_right\nWalk Reference 03\nMovie · 2026\nchevron_right\nWalk Reference 04\nMovie · 2026\nchevron_right\nWalk Reference 05\nMovie · 2026\nchevron_right\nWalk Reference 06\nMovie · 2026\nchevron_right\nWalk Reference 07\nMovie · 2026\nchevron_right\nWalk Reference 08\nMovie · 2026\nchevron_right\nWalk Reference 09\nMovie · 2026\nchevron_right\nWalk Reference 10\nMovie · 2026\nchevron_right\nWalk Reference 11\nMovie · 2026\nchevron_right\nWalk Reference 12\nMovie · 2026\nchevron_right\nWide Open in the Shape of an Enormous Fan\nMovie · 2026\nchevron_right",
+   "tab": "sync",
+   "clip": null
+  }
+ ],
+ "sawTimeLeft": true,
+ "sawSubtitlesLeft": true,
+ "historyTabRunBoxShown": true,
+ "historyTabVisibleTextMentionsWorkers": true
+}
