@@ -265,9 +265,13 @@
         style.id = 'subsync-styles';
         style.textContent = [
             '.ss-overlay{position:fixed;inset:0;background:rgba(0,0,0,.72);z-index:99999;display:flex;align-items:center;justify-content:center;padding:16px}',
-            '.ss-card{background:#202020;color:#eee;border-radius:10px;padding:20px 22px;width:100%;max-width:560px;max-height:86vh;overflow-y:auto;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:.95em}',
-            '.ss-card h2{margin:0 0 2px;font-size:1.25em;font-weight:600}',
-            '.ss-sub{color:#9a9a9a;font-size:.85em;margin-bottom:16px}',
+            // The card is a column and only its body scrolls: a dialog whose whole card scrolls puts its own
+            // actions (Close) at the end of the content, which on a long list is thousands of pixels below the
+            // viewport - it exists and cannot be reached (B1, measured).
+            '.ss-card{background:#202020;color:#eee;border-radius:10px;padding:20px 22px;width:100%;max-width:560px;max-height:86vh;display:flex;flex-direction:column;overflow:hidden;box-shadow:0 12px 40px rgba(0,0,0,.5);font-size:.95em}',
+            '.ss-card h2{margin:0 0 2px;font-size:1.25em;font-weight:600;flex:0 0 auto}',
+            '.ss-sub{color:#9a9a9a;font-size:.85em;margin-bottom:16px;flex:0 0 auto}',
+            '.ss-body{flex:1 1 auto;min-height:0;overflow-y:auto}',
             '.ss-field{display:flex;flex-direction:column;gap:4px;margin-bottom:14px}',
             '.ss-field label{font-size:.82em;color:#b9b9b9;text-transform:uppercase;letter-spacing:.04em}',
             '.ss-field select,.ss-field input{background:#2b2b2b;color:#eee;border:1px solid #3c3c3c;border-radius:6px;padding:8px 10px;font-size:.95em;width:100%}',
@@ -278,7 +282,7 @@
             '.ss-row-name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}',
             '.ss-row-meta{color:#8d8d8d;font-size:.8em}',
             '.ss-synced{color:#7fce8f}',
-            '.ss-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px}',
+            '.ss-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:18px;flex:0 0 auto}',
             '.ss-btn{border:none;border-radius:6px;padding:9px 18px;font-size:.95em;cursor:pointer;background:#3a3a3a;color:#eee}',
             '.ss-btn:hover{background:#454545}',
             '.ss-btn-primary{background:#3d7bd6;color:#fff}',
@@ -756,83 +760,277 @@
 
     // ---------------------------------------------------------------- single-item dialog
 
+    // B1. This dialog used to be one row and one "Sync" button per subtitle track. Measured on an episode
+    // that is 59 rows and 59 buttons in a 3 177 px body inside a 900 px card, which parked the dialog's own
+    // actions row - the Close button included - about 2 200 px below the viewport: a different interface
+    // pattern from the series dialog's compact form ("Sync all episodes": two selects, one line of
+    // explanation, one Sync). It is now the same shape: a language filter when the file carries several
+    // languages, one subtitle picker, one line describing the pick, one line saying what will happen, and a
+    // single Sync beside Close. Only the body scrolls, so the actions stay put. One track is still one run
+    // of one job (POST /SubSync/Sync).
+
+    /** Whether a track was already synced by an earlier run. */
+    function trackHasSyncedVersion(t) {
+        return !!(t.HasSyncedVersion !== undefined ? t.HasSyncedVersion : t.hasSyncedVersion);
+    }
+
+    /** Whether a track is a file this plugin wrote (S12). */
+    function trackIsPluginOutput(t) {
+        return !!(t.IsPluginOutput !== undefined ? t.IsPluginOutput : t.isPluginOutput);
+    }
+
+    /** Why a track cannot be synced, or '' when it can (S5: bitmap tracks are listed and say why). */
+    function trackUnsupported(t) {
+        return (t.UnsupportedReason !== undefined ? t.UnsupportedReason : t.unsupportedReason) || '';
+    }
+
+    /** What the picker shows for one track: its own title, plus the states a title cannot carry. */
+    function singleTrackLabel(track) {
+        var label = trackTitle(track) || languageLabel(trackLanguage(track));
+        if (trackUnsupported(track)) {
+            return label + ' \u2014 cannot be synced';
+        }
+        if (trackHasSyncedVersion(track)) {
+            label += ' \u00b7 \u2713 synced before';
+        }
+        if (trackIsPluginOutput(track)) {
+            label += ' \u00b7 written by this plugin';
+        }
+        return label;
+    }
+
+    /** The facts about the picked track that its one-line title leaves out. */
+    function singleTrackDetail(track) {
+        var bits = [
+            languageLabel(trackLanguage(track)),
+            trackIsExternal(track) ? 'external subtitle file' : 'embedded in the video'
+        ];
+        if (trackForced(track)) {
+            bits.push('forced \u2014 on-screen text only');
+        }
+        if (trackHasSyncedVersion(track)) {
+            bits.push('\u2713 synced before');
+        }
+        if (trackIsPluginOutput(track)) {
+            bits.push('written by this plugin');
+        }
+        var unsupported = trackUnsupported(track);
+        if (unsupported) {
+            bits.push(unsupported);
+        }
+        return bits.join(' \u00b7 ');
+    }
+
+    /** The tracks grouped by language, in language-name order, for the filter. */
+    function singleLanguageGroups(tracks) {
+        var byLang = {};
+        tracks.forEach(function (t) {
+            var code = trackLanguage(t);
+            if (!byLang[code]) {
+                byLang[code] = [];
+            }
+            byLang[code].push(t);
+        });
+        return Object.keys(byLang).sort(function (a, b) {
+            return languageLabel(a).localeCompare(languageLabel(b));
+        }).map(function (code) {
+            return { code: code, tracks: byLang[code] };
+        });
+    }
+
+    /**
+     * The track a picker starts on: the best of what is offered, by the same rank the rest of the
+     * plugin uses (a forced track is signs and on-screen text only, so it never wins; an external
+     * file is preferred among equals). A track that cannot be synced is never picked, and a file the
+     * plugin itself wrote comes last - re-syncing the plugin's own output is a thing a user sometimes
+     * wants, but it is not what the picker should land on when the media's own subtitle is there.
+     */
+    function bestOfferedTrack(tracks) {
+        var usable = tracks.filter(function (t) { return !trackUnsupported(t); });
+        var pool = usable.length ? usable : tracks;
+        return pool.slice().sort(function (a, b) {
+            return (trackRank(a) - trackRank(b))
+                || ((trackIsPluginOutput(a) ? 1 : 0) - (trackIsPluginOutput(b) ? 1 : 0));
+        })[0] || null;
+    }
+
     function openSingleDialog(meta) {
         var shell = buildShell('Sync Subtitles', meta.name || '');
-        shell.sub.textContent = 'Reading subtitles\u2026';
-        api(SYNC_BASE + '/Subtitles/' + meta.id).then(function (tracks) {
-            tracks = (tracks || []).filter(function (t) { return typeof trackIndex(t) === 'number'; });
-            if (!tracks.length) {
-                shell.sub.textContent = 'No text subtitles found for this video.';
+        var startBtn = primaryButton('Sync');
+        startBtn.disabled = true;
+        shell.actions.insertBefore(startBtn, shell.actions.firstChild);
+
+        var picked = { language: '*', index: null };
+        var loading = false;
+
+        // The form is rebuilt after a run finishes, so the picker tells the truth about what was just
+        // written ("synced before") instead of repeating what was true when the dialog opened.
+        function load() {
+            if (loading) {
                 return;
             }
-            shell.sub.textContent = 'Pick the subtitle to synchronize. The original is never modified.';
-            tracks.forEach(function (track) {
-                var row = el('div', 'ss-row');
-                var name = el('div', 'ss-row-name');
-                var isExternal = trackIsExternal(track);
-                name.appendChild(el('span', null, trackTitle(track) || languageLabel(trackLanguage(track))));
-                var meta2 = el('div', 'ss-row-meta', (isExternal ? 'external file' : 'embedded')
-                    + (trackForced(track) ? ' \u00b7 forced' : '')
-                    + ' \u00b7 ' + languageLabel(trackLanguage(track)));
-                if (track.HasSyncedVersion !== undefined ? track.HasSyncedVersion : track.hasSyncedVersion) {
-                    meta2.appendChild(el('span', 'ss-synced', '  \u2713 synced before'));
+            loading = true;
+            shell.sub.textContent = 'Reading subtitles\u2026';
+            api(SYNC_BASE + '/Subtitles/' + meta.id).then(function (tracks) {
+                loading = false;
+                tracks = (tracks || []).filter(function (t) { return typeof trackIndex(t) === 'number'; });
+                shell.body.innerHTML = '';
+                if (!tracks.length) {
+                    shell.sub.textContent = meta.name || '';
+                    shell.body.appendChild(el('div', 'ss-note', 'No text subtitles found for this video.'));
+                    startBtn.disabled = true;
+                    return;
                 }
-                name.appendChild(meta2);
-                var button = primaryButton('Sync');
-                button.addEventListener('click', function () {
-                    button.disabled = true;
-                    button.textContent = 'Starting\u2026';
+
+                shell.sub.textContent = (meta.name || '') + ' \u00b7 ' + humanCount(tracks.length, 'subtitle');
+                var groups = singleLanguageGroups(tracks);
+
+                var langSelect = null;
+                if (groups.length > 1) {
+                    var langField = el('div', 'ss-field');
+                    langField.appendChild(el('label', null, 'Language'));
+                    langSelect = el('select');
+                    langSelect.appendChild(new Option('All languages \u2014 ' + humanCount(tracks.length, 'subtitle'), '*'));
+                    groups.forEach(function (group) {
+                        langSelect.appendChild(new Option(
+                            languageLabel(group.code) + ' \u2014 ' + humanCount(group.tracks.length, 'subtitle'),
+                            group.code));
+                    });
+                    langField.appendChild(langSelect);
+                    shell.body.appendChild(langField);
+                }
+
+                var trackField = el('div', 'ss-field');
+                trackField.appendChild(el('label', null, 'Subtitle'));
+                var trackSelect = el('select');
+                trackField.appendChild(trackSelect);
+                shell.body.appendChild(trackField);
+
+                var detail = el('div', 'ss-note', '');
+                var hint = el('div', 'ss-note',
+                    'Runs as one job through the server queue; the video file is never modified. The synced '
+                    + 'subtitle is written beside the original, or replaces it, per the output setting in Settings.');
+                shell.body.appendChild(detail);
+                shell.body.appendChild(hint);
+
+                function offered() {
+                    var wanted = langSelect ? langSelect.value : '*';
+                    return groups.filter(function (g) { return wanted === '*' || g.code === wanted; })
+                        .reduce(function (all, g) { return all.concat(g.tracks); }, []);
+                }
+
+                function trackAt(index) {
+                    return offered().filter(function (t) { return String(trackIndex(t)) === String(index); })[0] || null;
+                }
+
+                function showDetail() {
+                    var track = trackAt(trackSelect.value);
+                    detail.textContent = track ? singleTrackDetail(track) : '';
+                    startBtn.disabled = !track || !!trackUnsupported(track) || !!shell.state.timer;
+                }
+
+                function rebuild(keepIndex) {
+                    var list = offered();
+                    trackSelect.innerHTML = '';
+                    list.forEach(function (track) {
+                        var option = new Option(singleTrackLabel(track), String(trackIndex(track)));
+                        if (trackUnsupported(track)) {
+                            option.disabled = true;
+                        }
+                        trackSelect.appendChild(option);
+                    });
+                    var pick = keepIndex === null ? null : trackAt(keepIndex);
+                    if (!pick) {
+                        pick = bestOfferedTrack(list);
+                    }
+                    if (pick) {
+                        trackSelect.value = String(trackIndex(pick));
+                    }
+                    showDetail();
+                }
+
+                if (langSelect) {
+                    langSelect.value = groups.some(function (g) { return g.code === picked.language; })
+                        ? picked.language
+                        : '*';
+                }
+                rebuild(picked.index);
+                picked.index = trackSelect.value;
+                trackSelect.addEventListener('change', function () {
+                    picked.index = trackSelect.value;
+                    showDetail();
+                });
+                if (langSelect) {
+                    langSelect.addEventListener('change', function () {
+                        picked.language = langSelect.value;
+                        picked.index = null;
+                        rebuild(null);
+                        picked.index = trackSelect.value;
+                    });
+                }
+                startBtn.addEventListener('click', function () {
+                    var track = trackAt(trackSelect.value);
+                    if (!track) {
+                        return;
+                    }
+                    picked.index = trackSelect.value;
+                    startBtn.disabled = true;
+                    startBtn.textContent = 'Starting\u2026';
                     api(SYNC_BASE + '/Sync', {
                         method: 'POST',
                         body: JSON.stringify({ itemId: meta.id, subtitleIndex: trackIndex(track) })
                     }).then(function (job) {
                         var jobId = job.Id || job.id;
-                        button.textContent = 'Syncing\u2026';
                         var started = Date.now();
-                        shell.state.timer = setInterval(function () {
-                            api(SYNC_BASE + '/Jobs/' + jobId).then(function (status) {
-                                var state = status.Status || status.status;
-                                var progress = status.Progress !== undefined ? status.Progress : (status.progress || 0);
-                                var phase = status.Phase || status.phase || 'Working';
-                                var elapsed = Math.round((Date.now() - started) / 1000);
-                                var minutes = Math.floor(elapsed / 60);
-                                var seconds = elapsed % 60;
-                                shell.setProgress(progress, [phase], minutes + ':' + (seconds < 10 ? '0' : '') + seconds);
-                                button.textContent = Math.round(progress * 100) + '%';
-                                if (state === 'Completed' || state === 'Failed' || state === 'Cancelled') {
-                                    clearInterval(shell.state.timer);
-                                    shell.state.timer = null;
-                                    button.textContent = state === 'Completed' ? 'Synced' : state;
-                                    button.disabled = state !== 'Completed';
-                                    var outcome = status.Outcome || status.outcome;
-                                    if (state === 'Completed') {
-                                        shell.setProgress(1, ['Synced', outcome || 'done']);
-                                    } else {
-                                        shell.showError(status.Error || status.error || 'The sync did not finish.');
-                                    }
-                                }
-                            }).catch(function (err) {
-                                clearInterval(shell.state.timer);
-                                shell.state.timer = null;
-                                shell.showError('Lost contact with the job: ' + (err.message || err));
-                                button.disabled = false;
-                                button.textContent = 'Sync';
-                            });
-                        }, 1500);
+                        startBtn.textContent = 'Syncing\u2026';
+                        shell.state.timer = setInterval(function () { poll(jobId, started); }, 1500);
+                        poll(jobId, started);
                     }).catch(function (err) {
-                        button.disabled = false;
-                        button.textContent = 'Sync';
+                        startBtn.disabled = false;
+                        startBtn.textContent = 'Sync';
                         shell.showError('Could not start: ' + (err.message || err));
                     });
                 });
-                row.appendChild(name);
-                row.appendChild(button);
-                shell.body.appendChild(row);
+            }).catch(function (err) {
+                loading = false;
+                shell.sub.textContent = 'Could not read the subtitles.';
+                shell.showError(err.message || String(err));
             });
-        }).catch(function (err) {
-            shell.sub.textContent = 'Could not read the subtitles.';
-            shell.showError(err.message || String(err));
-        });
+        }
+
+        function poll(jobId, started) {
+            api(SYNC_BASE + '/Jobs/' + jobId).then(function (status) {
+                var state = status.Status || status.status;
+                var progress = status.Progress !== undefined ? status.Progress : (status.progress || 0);
+                var phase = status.Phase || status.phase || 'Working';
+                var elapsed = Math.round((Date.now() - started) / 1000);
+                var minutes = Math.floor(elapsed / 60);
+                var seconds = elapsed % 60;
+                shell.setProgress(progress, [phase], minutes + ':' + (seconds < 10 ? '0' : '') + seconds);
+                startBtn.textContent = Math.round(progress * 100) + '%';
+                if (state === 'Completed' || state === 'Failed' || state === 'Cancelled') {
+                    clearInterval(shell.state.timer);
+                    shell.state.timer = null;
+                    startBtn.textContent = state === 'Completed' ? 'Synced' : state;
+                    startBtn.disabled = state !== 'Completed';
+                    var outcome = status.Outcome || status.outcome;
+                    if (state === 'Completed') {
+                        shell.setProgress(1, ['Synced', outcome || 'done']);
+                        load();
+                    } else {
+                        shell.showError(status.Error || status.error || 'The sync did not finish.');
+                    }
+                }
+            }).catch(function (err) {
+                clearInterval(shell.state.timer);
+                shell.state.timer = null;
+                shell.showError('Lost contact with the job: ' + (err.message || err));
+                startBtn.disabled = false;
+                startBtn.textContent = 'Sync';
+            });
+        }
+
+        load();
     }
 
     // ---------------------------------------------------------------- menu injection

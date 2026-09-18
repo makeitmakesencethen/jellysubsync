@@ -1,0 +1,224 @@
+{
+ "movie": {
+  "viewport": 1000,
+  "card": {
+   "rect": [
+    50,
+    950,
+    900
+   ],
+   "scrollHeight": 3177,
+   "clientHeight": 900,
+   "overflowY": "auto"
+  },
+  "body": {
+   "rect": [
+    128,
+    3156,
+    3028
+   ],
+   "scrollHeight": 3028,
+   "clientHeight": 3028
+  },
+  "actions": {
+   "rect": [
+    3174,
+    3207,
+    33
+   ],
+   "visible": false
+  },
+  "closeButtonPresent": true,
+  "closeButtonRect": [
+   3174,
+   3207,
+   33
+  ],
+  "closeButtonInWindow": false,
+  "fields": 0,
+  "selects": 0,
+  "rows": 59,
+  "buttonsInBody": 59,
+  "buttonsInActions": 1,
+  "scrolling": [],
+  "controls": [
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     137,
+     170
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     188,
+     221
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     239,
+     272
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     291,
+     324
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     342,
+     375
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     393,
+     426
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     445,
+     478
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     496,
+     529
+    ],
+    "inWindow": true
+   }
+  ]
+ },
+ "series": {
+  "viewport": 1000,
+  "card": {
+   "rect": [
+    353,
+    647,
+    294
+   ],
+   "scrollHeight": 294,
+   "clientHeight": 294,
+   "overflowY": "auto"
+  },
+  "body": {
+   "rect": [
+    431,
+    576,
+    145
+   ],
+   "scrollHeight": 145,
+   "clientHeight": 145
+  },
+  "actions": {
+   "rect": [
+    594,
+    627,
+    33
+   ],
+   "visible": true
+  },
+  "closeButtonPresent": true,
+  "closeButtonRect": [
+   594,
+   627,
+   33
+  ],
+  "closeButtonInWindow": true,
+  "fields": 2,
+  "selects": 2,
+  "rows": 0,
+  "buttonsInBody": 0,
+  "buttonsInActions": 2,
+  "scrolling": [],
+  "controls": [
+   {
+    "tag": "select",
+    "text": "Whole series — 2 episodesS",
+    "cls": "",
+    "options": 2,
+    "rect": [
+     451,
+     486
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "select",
+    "text": "All languages — 111 tracks",
+    "cls": "",
+    "options": 32,
+    "rect": [
+     519,
+     554
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Sync",
+    "cls": "ss-btn ss-btn-primary",
+    "options": null,
+    "rect": [
+     594,
+     627
+    ],
+    "inWindow": true
+   },
+   {
+    "tag": "button",
+    "text": "Close",
+    "cls": "ss-btn",
+    "options": null,
+    "rect": [
+     594,
+     627
+    ],
+    "inWindow": true
+   }
+  ]
+ }
+}

@@ -4640,6 +4640,29 @@ def run_page_checks():
            and 'URL.createObjectURL(new Blob([src]' in pages['subsync.js'])
     report('the page script does nothing when it is loaded a second time',
            'if (window.__subsyncPageLoaded)' in pages['subsyncMain.js'])
+    # B1: the detail-page dialog is a form, not a list of actions. Measured before this change on a real
+    # episode: 59 rows, 59 "Sync" buttons in the body, a 3 177 px body inside a 900 px card, and the dialog's
+    # own Close button about 2 200 px below the viewport. The rules below are what keeps that from coming
+    # back: one picker and one filter instead of a row per track, exactly one action button, and a card whose
+    # body - not the card itself - scrolls, so the actions row cannot be pushed out of view.
+    report('the single-item dialog is a form with one action, not a row and a button per track (B1)',
+           'function singleTrackLabel(track)' in pages['subsync.js']
+           and 'function singleTrackDetail(track)' in pages['subsync.js']
+           and 'function singleLanguageGroups(tracks)' in pages['subsync.js']
+           and "langField.appendChild(el('label', null, 'Language'))" in pages['subsync.js']
+           and "trackField.appendChild(el('label', null, 'Subtitle'))" in pages['subsync.js']
+           and 'new Option(singleTrackLabel(track), String(trackIndex(track)))' in pages['subsync.js']
+           and 'shell.actions.insertBefore(startBtn, shell.actions.firstChild)' in pages['subsync.js']
+           # a body button per track is the defect itself: the old dialog created one inside the loop
+           and 'shell.body.appendChild(row);' not in pages['subsync.js'])
+    report('only the dialog body scrolls, so its actions stay visible (B1)',
+           '{flex:1 1 auto;min-height:0;overflow-y:auto}' in pages['subsync.js']
+           and 'display:flex;flex-direction:column;overflow:hidden' in pages['subsync.js']
+           and 'margin-top:18px;flex:0 0 auto}' in pages['subsync.js'])
+    report('one track from the detail page is still one run of one job (B1)',
+           "api(SYNC_BASE + '/Sync', {" in pages['subsync.js']
+           and "body: JSON.stringify({ itemId: meta.id, subtitleIndex: trackIndex(track) })" in pages['subsync.js']
+           and "shell.setProgress(1, ['Synced', outcome || 'done']);" in pages['subsync.js'])
     report('shared extraction output outlives every job that reads it',
            'SharedExtractionStore.Acquire(video.Path, job.Id)' in service_source
            and 'SharedExtractionStore.Release(video.Path, job.Id)' in service_source

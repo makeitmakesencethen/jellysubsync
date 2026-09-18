@@ -1,0 +1,150 @@
+{
+ "label": "b1-drive",
+ "steps": [
+  {
+   "step": "dialog as opened",
+   "state": {
+    "sub": "Helikopterrånet S01E01 · 59 subtitles",
+    "fields": [
+     {
+      "label": "Language",
+      "options": 32,
+      "selected": "All languages — 59 subtitles",
+      "selectedValue": "*"
+     },
+     {
+      "label": "Subtitle",
+      "options": 59,
+      "selected": "Swedish - SUBRIP - External · ✓ synced before",
+      "selectedValue": "0"
+     }
+    ],
+    "notes": [
+     "Swedish · external subtitle file · ✓ synced before",
+     "Runs as one job through the server queue; the video file is never modified. The synced subtitle is written beside the original, or replaces it, per the output setting in Settings."
+    ],
+    "rows": 0,
+    "buttonsInBody": 0,
+    "primary": {
+     "label": "Sync",
+     "disabled": false,
+     "inWindow": true
+    },
+    "close": {
+     "present": true,
+     "inWindow": true
+    },
+    "card": {
+     "height": 355,
+     "scrollHeight": 355
+    },
+    "progressLine": "",
+    "error": ""
+   }
+  },
+  {
+   "step": "after choosing a language",
+   "filter": {
+    "chose": "Swedish — 3 subtitles"
+   },
+   "state": {
+    "sub": "Helikopterrånet S01E01 · 59 subtitles",
+    "fields": [
+     {
+      "label": "Language",
+      "options": 32,
+      "selected": "Swedish — 3 subtitles",
+      "selectedValue": "swe"
+     },
+     {
+      "label": "Subtitle",
+      "options": 3,
+      "selected": "Swedish - SUBRIP - External · ✓ synced before",
+      "selectedValue": "0"
+     }
+    ],
+    "notes": [
+     "Swedish · external subtitle file · ✓ synced before",
+     "Runs as one job through the server queue; the video file is never modified. The synced subtitle is written beside the original, or replaces it, per the output setting in Settings."
+    ],
+    "rows": 0,
+    "buttonsInBody": 0,
+    "primary": {
+     "label": "Sync",
+     "disabled": false,
+     "inWindow": true
+    },
+    "close": {
+     "present": true,
+     "inWindow": true
+    },
+    "card": {
+     "height": 355,
+     "scrollHeight": 355
+    },
+    "progressLine": "",
+    "error": ""
+   }
+  },
+  {
+   "step": "after the run",
+   "state": {
+    "sub": "Helikopterrånet S01E01 · 59 subtitles",
+    "fields": [
+     {
+      "label": "Language",
+      "options": 32,
+      "selected": "Swedish — 3 subtitles",
+      "selectedValue": "swe"
+     },
+     {
+      "label": "Subtitle",
+      "options": 3,
+      "selected": "Swedish - SUBRIP - External · ✓ synced before",
+      "selectedValue": "0"
+     }
+    ],
+    "notes": [
+     "Swedish · external subtitle file · ✓ synced before",
+     "Runs as one job through the server queue; the video file is never modified. The synced subtitle is written beside the original, or replaces it, per the output setting in Settings."
+    ],
+    "rows": 0,
+    "buttonsInBody": 0,
+    "primary": {
+     "label": "Synced",
+     "disabled": false,
+     "inWindow": true
+    },
+    "close": {
+     "present": true,
+     "inWindow": true
+    },
+    "card": {
+     "height": 398,
+     "scrollHeight": 398
+    },
+    "progressLine": "Synced·-5000 ms offset",
+    "error": ""
+   }
+  }
+ ],
+ "pressed": {
+  "text": "Swedish - SUBRIP - External · ✓ synced before",
+  "value": "0"
+ },
+ "buttonLabels": [
+  "Synced"
+ ],
+ "pickerAfterRun": {
+  "text": "Swedish - SUBRIP - External · ✓ synced before",
+  "selectedNow": "0"
+ },
+ "calls": [
+  "GET /SubSync/ClientScript",
+  "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "POST /SubSync/Sync",
+  "GET /SubSync/Jobs/90e3181ecd2c41c1b05c76882329bc37",
+  "GET /SubSync/Jobs/90e3181ecd2c41c1b05c76882329bc37",
+  "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2"
+ ]
+}

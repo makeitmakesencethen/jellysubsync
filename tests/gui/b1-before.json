@@ -1,0 +1,817 @@
+{
+ "label": "b1-before",
+ "base": "http://127.0.0.1:8096",
+ "steps": [
+  {
+   "kind": "movie",
+   "item": "7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+   "label": "Helikopterrånet S01E01 (Movie)",
+   "page": {
+    "hash": "#/details?id=7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+    "title": "Please sign in",
+    "buttons": [
+     {
+      "cls": "headerButton headerButtonLeft headerBackButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerHomeButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton mainDrawerButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerSyncButton syncButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerCastButton castButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerSearchButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerUserButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "SyncPlay"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "Cast to Device"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-g99rn3",
+      "text": "",
+      "aria": "User Menu"
+     },
+     {
+      "cls": "raised button-submit block emby-button",
+      "text": "Sign In",
+      "aria": null
+     }
+    ]
+   },
+   "menuItem": {
+    "text": "Sync Subtitles",
+    "cls": "listItem listItem-button actionSheetMenuItem emby-button",
+    "icon": "actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons subtitles",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "fontSize": "14.88px",
+    "padding": "3.72px 3.72px 3.72px 7.44px",
+    "box": [
+     1372,
+     479,
+     206,
+     40
+    ],
+    "siblings": [
+     "Add to collection",
+     "Add to playlist",
+     "Download",
+     "Copy Stream URL",
+     "DIV",
+     "Edit metadata",
+     "Edit images",
+     "Edit subtitles",
+     "Sync Subtitles",
+     "Identify",
+     "Media Info",
+     "Refresh metadata"
+    ]
+   },
+   "dialog": {
+    "overlay": {
+     "tag": "div",
+     "cls": "ss-overlay",
+     "backgroundColor": "rgba(0, 0, 0, 0.72)",
+     "color": "rgba(255, 255, 255, 0.7)",
+     "fontSize": "14.88px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "16px",
+     "borderColor": "rgba(255, 255, 255, 0.7)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgba(255, 255, 255, 0.7)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "20.088px",
+     "display": "flex",
+     "gap": "normal",
+     "box": [
+      0,
+      0,
+      1600,
+      1000
+     ]
+    },
+    "card": {
+     "tag": "div",
+     "cls": "ss-card",
+     "backgroundColor": "rgb(32, 32, 32)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "14.136px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "10px",
+     "padding": "20px 22px",
+     "borderColor": "rgb(238, 238, 238)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(238, 238, 238)",
+     "boxShadow": "rgba(0, 0, 0, 0.5) 0px 12px 40px 0px",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "19.0836px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      498,
+      50,
+      604,
+      900
+     ]
+    },
+    "heading": {
+     "tag": "h2",
+     "cls": "",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "17.67px",
+     "fontWeight": "600",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(238, 238, 238)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(238, 238, 238)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "23.8545px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      70,
+      560,
+      24
+     ]
+    },
+    "sub": {
+     "tag": "div",
+     "cls": "ss-sub",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(154, 154, 154)",
+     "fontSize": "12.0156px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(154, 154, 154)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(154, 154, 154)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "16.2211px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      96,
+      560,
+      16
+     ]
+    },
+    "fieldLabel": null,
+    "select": null,
+    "row": {
+     "tag": "div",
+     "cls": "ss-row",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "14.136px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "8px 0px",
+     "borderColor": "rgb(238, 238, 238) rgb(238, 238, 238) rgb(46, 46, 46)",
+     "borderWidth": "0px 0px 1px",
+     "borderBottomColor": "rgb(46, 46, 46)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "19.0836px",
+     "display": "flex",
+     "gap": "10px",
+     "box": [
+      520,
+      128,
+      560,
+      51
+     ]
+    },
+    "rowName": {
+     "tag": "div",
+     "cls": "ss-row-name",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "14.136px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(238, 238, 238)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(238, 238, 238)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "19.0836px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      136,
+      484,
+      34
+     ]
+    },
+    "rowMeta": {
+     "tag": "div",
+     "cls": "ss-row-meta",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(141, 141, 141)",
+     "fontSize": "11.3088px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(141, 141, 141)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(141, 141, 141)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "15.2669px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      155,
+      484,
+      15
+     ]
+    },
+    "primaryBtn": {
+     "tag": "button",
+     "cls": "ss-btn ss-btn-primary",
+     "backgroundColor": "rgb(61, 123, 214)",
+     "color": "rgb(255, 255, 255)",
+     "fontSize": "13.4292px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "6px",
+     "padding": "9px 18px",
+     "borderColor": "rgb(255, 255, 255)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(255, 255, 255)",
+     "boxShadow": "none",
+     "fontFamily": "Arial",
+     "lineHeight": "normal",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      1014,
+      137,
+      66,
+      33
+     ]
+    },
+    "plainBtn": {
+     "tag": "button",
+     "cls": "ss-btn ss-btn-primary",
+     "backgroundColor": "rgb(61, 123, 214)",
+     "color": "rgb(255, 255, 255)",
+     "fontSize": "13.4292px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "6px",
+     "padding": "9px 18px",
+     "borderColor": "rgb(255, 255, 255)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(255, 255, 255)",
+     "boxShadow": "none",
+     "fontFamily": "Arial",
+     "lineHeight": "normal",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      1014,
+      137,
+      66,
+      33
+     ]
+    },
+    "bodyHtml": "<h2>Sync Subtitles</h2><div class=\"ss-sub\">Pick the subtitle to synchronize. The original is never modified.</div><div class=\"ss-body\"><div class=\"ss-row\"><div class=\"ss-row-name\"><span>Swedish - SUBRIP - External</span><div class=\"ss-row-meta\">external file · Swedish</div></div><button class=\"ss-btn ss-btn-primary\" type=\"button\">Sync</button></div><div class=\"ss-row\"><div class=\"ss-row-name\"><span>SYNCED - Swedish - SUBRIP - External</span><div class=\"ss-row-meta\">external file · Swedish</div></div><button class=\"ss-btn ss-btn-primary\" type=\"button\">Sync</button></div><div class=\"ss-row\"><div class=\"ss-row-name\"><span>SYNCED - English - SUBRIP - External</span><div class=\"ss-row-meta\">external file · English</div></div><button class=\"ss-btn ss-btn-primary\" type=\"button\">Sync</button></div><div class=\"ss-row\"><div class=\"ss-row-name\"><span>SYNCED.SYNCED - English - SUBRIP - External</span><div class=\"ss-row-meta\">external file · English</div></div><button class=\"ss-btn ss-btn-primary\" type=\"button\">Sync</button></div><div class=\"ss-row\"><div class=\"ss-row-name\"><span>SYNCED - Hungarian - SUBRIP - External</span><div class=\"ss-row-meta\">external file · Hungarian</div></div><button class=\"ss-btn ss-btn-primary\" type=\"button\">Sync</button></div><div class=\"ss-row\"><div class=\"ss-row-name\"><span>SYNCED - Polish - SUBRIP - External</span><div class=\"ss-row-meta\">external file · Poli",
+    "rows": 58,
+    "catalogSelect": null
+   },
+   "sheetStillOpen": false
+  },
+  {
+   "kind": "episode",
+   "item": "09ec2bcb5fe2907ba657aff310c07b9e",
+   "label": "The Helicopter Heist S01E01 (Episode)",
+   "page": {
+    "hash": "#/details?id=09ec2bcb5fe2907ba657aff310c07b9e",
+    "title": "Please sign in",
+    "buttons": [
+     {
+      "cls": "headerButton headerButtonLeft headerBackButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerHomeButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton mainDrawerButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerSyncButton syncButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerCastButton castButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerSearchButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerUserButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "SyncPlay"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "Cast to Device"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-g99rn3",
+      "text": "",
+      "aria": "User Menu"
+     },
+     {
+      "cls": "raised button-submit block emby-button",
+      "text": "Sign In",
+      "aria": null
+     }
+    ]
+   },
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable"
+  },
+  {
+   "kind": "series",
+   "item": "cc1c47b175db6e7c4dce31ba124828cc",
+   "label": "The Helicopter Heist (Series)",
+   "page": {
+    "hash": "#/details?id=cc1c47b175db6e7c4dce31ba124828cc",
+    "title": "The Helicopter Heist",
+    "buttons": [
+     {
+      "cls": "headerButton headerButtonLeft headerBackButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerHomeButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton mainDrawerButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerSyncButton syncButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerCastButton castButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerSearchButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerUserButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "SyncPlay"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "Cast to Device"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-g99rn3",
+      "text": "",
+      "aria": "User Menu"
+     },
+     {
+      "cls": "button-flat btnPlay detailButton emby-button",
+      "text": "",
+      "aria": null
+     }
+    ]
+   },
+   "menuItem": {
+    "text": "Sync all episodes",
+    "cls": "listItem listItem-button actionSheetMenuItem emby-button",
+    "icon": "actionsheetMenuItemIcon listItemIcon listItemIcon-transparent material-icons subtitles",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "fontSize": "14.88px",
+    "padding": "3.72px 3.72px 3.72px 7.44px",
+    "box": [
+     1372,
+     539,
+     206,
+     40
+    ],
+    "siblings": [
+     "Add to collection",
+     "Add to playlist",
+     "Download All",
+     "DIV",
+     "Edit metadata",
+     "Edit images",
+     "Identify",
+     "Refresh metadata",
+     "Sync all episodes"
+    ]
+   },
+   "dialog": {
+    "overlay": {
+     "tag": "div",
+     "cls": "ss-overlay",
+     "backgroundColor": "rgba(0, 0, 0, 0.72)",
+     "color": "rgba(255, 255, 255, 0.7)",
+     "fontSize": "14.88px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "16px",
+     "borderColor": "rgba(255, 255, 255, 0.7)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgba(255, 255, 255, 0.7)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "20.088px",
+     "display": "flex",
+     "gap": "normal",
+     "box": [
+      0,
+      0,
+      1600,
+      1000
+     ]
+    },
+    "card": {
+     "tag": "div",
+     "cls": "ss-card",
+     "backgroundColor": "rgb(32, 32, 32)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "14.136px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "10px",
+     "padding": "20px 22px",
+     "borderColor": "rgb(238, 238, 238)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(238, 238, 238)",
+     "boxShadow": "rgba(0, 0, 0, 0.5) 0px 12px 40px 0px",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "19.0836px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      498,
+      353,
+      604,
+      294
+     ]
+    },
+    "heading": {
+     "tag": "h2",
+     "cls": "",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "17.67px",
+     "fontWeight": "600",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(238, 238, 238)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(238, 238, 238)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "23.8545px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      373,
+      560,
+      24
+     ]
+    },
+    "sub": {
+     "tag": "div",
+     "cls": "ss-sub",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(154, 154, 154)",
+     "fontSize": "12.0156px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(154, 154, 154)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(154, 154, 154)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "16.2211px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      399,
+      560,
+      16
+     ]
+    },
+    "fieldLabel": {
+     "tag": "label",
+     "cls": "",
+     "backgroundColor": "rgba(0, 0, 0, 0)",
+     "color": "rgb(185, 185, 185)",
+     "fontSize": "11.5915px",
+     "fontWeight": "400",
+     "textTransform": "uppercase",
+     "letterSpacing": "0.463661px",
+     "borderRadius": "0px",
+     "padding": "0px",
+     "borderColor": "rgb(185, 185, 185)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(185, 185, 185)",
+     "boxShadow": "none",
+     "fontFamily": "\"Noto Sans\", \"Noto Sans HK\", \"Noto Sans JP\", \"Noto Sans KR\", \"Noto Sans SC\", \"Noto Sans TC\", sans-serif",
+     "lineHeight": "15.6486px",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      431,
+      560,
+      16
+     ]
+    },
+    "select": {
+     "tag": "select",
+     "cls": "",
+     "backgroundColor": "rgb(43, 43, 43)",
+     "color": "rgb(238, 238, 238)",
+     "fontSize": "13.4292px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "6px",
+     "padding": "8px 10px",
+     "borderColor": "rgb(60, 60, 60)",
+     "borderWidth": "1px",
+     "borderBottomColor": "rgb(60, 60, 60)",
+     "boxShadow": "none",
+     "fontFamily": "Arial",
+     "lineHeight": "normal",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      520,
+      451,
+      560,
+      35
+     ]
+    },
+    "row": null,
+    "rowName": null,
+    "rowMeta": null,
+    "primaryBtn": {
+     "tag": "button",
+     "cls": "ss-btn ss-btn-primary",
+     "backgroundColor": "rgb(61, 123, 214)",
+     "color": "rgb(255, 255, 255)",
+     "fontSize": "13.4292px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "6px",
+     "padding": "9px 18px",
+     "borderColor": "rgb(255, 255, 255)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(255, 255, 255)",
+     "boxShadow": "none",
+     "fontFamily": "Arial",
+     "lineHeight": "normal",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      934,
+      594,
+      66,
+      33
+     ]
+    },
+    "plainBtn": {
+     "tag": "button",
+     "cls": "ss-btn ss-btn-primary",
+     "backgroundColor": "rgb(61, 123, 214)",
+     "color": "rgb(255, 255, 255)",
+     "fontSize": "13.4292px",
+     "fontWeight": "400",
+     "textTransform": "none",
+     "letterSpacing": "normal",
+     "borderRadius": "6px",
+     "padding": "9px 18px",
+     "borderColor": "rgb(255, 255, 255)",
+     "borderWidth": "0px",
+     "borderBottomColor": "rgb(255, 255, 255)",
+     "boxShadow": "none",
+     "fontFamily": "Arial",
+     "lineHeight": "normal",
+     "display": "block",
+     "gap": "normal",
+     "box": [
+      934,
+      594,
+      66,
+      33
+     ]
+    },
+    "bodyHtml": "<h2>Sync all episodes</h2><div class=\"ss-sub\">The Helicopter Heist — 2 episodes, 1 season</div><div class=\"ss-body\"><div class=\"ss-field\"><label>Scope</label><select><option value=\"cc1c47b175db6e7c4dce31ba124828cc\">Whole series — 2 episodes</option><option value=\"600af5b28e0dde855787d1efe11ac346\">Season 1 — 2 episodes</option></select></div><div class=\"ss-field\"><label>Subtitles to sync</label><select><option value=\"*\">All languages — 111 tracks</option><option value=\"ara\">Arabic — 2 episodes, 2 tracks</option><option value=\"ces\">Czech — 2 episodes, 4 tracks</option><option value=\"dan\">Danish — 2 episodes, 2 tracks</option><option value=\"deu\">German — 2 episodes, 6 tracks</option><option value=\"ell\">Greek — 2 episodes, 2 tracks</option><option value=\"eng\">English — 2 episodes, 10 tracks, 2 forced</option><option value=\"fil\">FIL — 2 episodes, 2 tracks</option><option value=\"fin\">Finnish — 2 episodes, 2 tracks</option><option value=\"fra\">French — 2 episodes, 6 tracks</option><option value=\"heb\">Hebrew — 2 episodes, 2 tracks</option><option value=\"hrv\">HRV — 2 episodes, 2 tracks</option><option value=\"hun\">Hungarian — 2 episodes, 6 tracks</option><option value=\"ind\">Indonesian — 2 episodes, 4 tracks</option><option value=\"ita\">Italian — 2 episodes, 2 tracks</option><option value=\"jpn\">Japanese — 2 episodes, 2 tracks</option><option value=\"kor\">Korean — 2 episodes, 2 tracks</option",
+    "rows": 0,
+    "catalogSelect": null
+   },
+   "sheetStillOpen": false
+  },
+  {
+   "kind": "season",
+   "item": "600af5b28e0dde855787d1efe11ac346",
+   "label": "The Helicopter Heist S1 (Season)",
+   "page": {
+    "hash": "#/details?id=600af5b28e0dde855787d1efe11ac346",
+    "title": "The Helicopter Heist",
+    "buttons": [
+     {
+      "cls": "headerButton headerButtonLeft headerBackButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerHomeButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton mainDrawerButton barsMenuButton headerButtonLeft paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerSyncButton syncButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerAudioPlayerButton audioPlayerButton headerButton headerButtonRight hide paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerCastButton castButton headerButton headerButtonRight paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerSearchButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "headerButton headerButtonRight headerUserButton paper-icon-button-light",
+      "text": "",
+      "aria": null
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "SyncPlay"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-i2hxb6",
+      "text": "",
+      "aria": "Cast to Device"
+     },
+     {
+      "cls": "MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit MuiIconButton-sizeLarge css-g99rn3",
+      "text": "",
+      "aria": "User Menu"
+     },
+     {
+      "cls": "button-flat btnPlay detailButton emby-button",
+      "text": "",
+      "aria": null
+     }
+    ]
+   },
+   "error": "TimeoutError: elementHandle.click: Timeout 30000ms exceeded.\nCall log:\n  - attempting click action\n    2 × waiting for element to be visible, enabled and stable\n      - element is not visible\n    - retrying click action\n    - waiting 20ms\n    2 × waiting for element to be visible, enabled and stable"
+  }
+ ],
+ "user": {
+  "id": "60ecf58257da4f3f8d14edc9d06434cf",
+  "name": "gui-b1-mu6aec2p"
+ },
+ "signed_in": "#/home",
+ "calls": [
+  "GET /SubSync/ClientScript",
+  "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "CONSOLE WebSocket connection to 'ws://127.0.0.1:8096/socket' failed: Error during WebSocket handshake: Unexpected response code: 403",
+  "GET /SubSync/Subtitles/7dffdc11-79c6-0bc0-d778-5db9dbd958f2",
+  "POST /SubSync/Subtitles/Batch"
+ ]
+}
