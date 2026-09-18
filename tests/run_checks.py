@@ -4383,6 +4383,80 @@ def run_page_checks():
     failures = 0
     web = os.path.join(REPO, 'Jellyfin.Plugin.SubSync', 'Web')
 
+    def click_handler_is_passive(source_path):
+        """Lift a page's row click handler out of the shipped source and run it.
+
+        Priority 1 asked that a plain click stop adding to the selection. That is a *behaviour*, and the
+        first version of this check asserted the string "selectedIds[id] = true;" was absent from the whole
+        file - which is wrong twice over: the string legitimately lives in togglePicked (the one function
+        meant to add a pick), and a string pin cannot distinguish a click handler from its helper. So the
+        handler is extracted and called here instead, with a selection object whose writes are counted.
+
+        Returns (found, writes, detail): whether the handler was located, how many times the plain-click
+        path wrote a pick (-1 if it could not be measured), and the reason when it could not. Only
+        subsyncMain.js owns the library row list; the detail-page dialog (subsync.js) has no row list, so
+        it is not probed here.
+        """
+        source = open(source_path, encoding='utf-8').read()
+        marker = "row.addEventListener('click', function (e) {"
+        start = source.find(marker)
+        if start < 0:
+            return False, -1, 'no row click handler'
+        # Walk to the matching close brace of the handler body, so the extent comes from the code and not
+        # from guessing at a terminator: a naive find('});') stops at the handler's own first nested block.
+        cursor = start + len(marker)
+        depth = 1
+        while cursor < len(source) and depth:
+            if source[cursor] == '{':
+                depth += 1
+            elif source[cursor] == '}':
+                depth -= 1
+            cursor += 1
+        body = source[start + len(marker):cursor - 1]
+        # The whole handler runs, with the event reporting shiftKey: false, so the shift branch is skipped by
+        # the code itself. An earlier version of this probe tried to cut the body short at "if (e.shiftKey)"
+        # and was wrong: in this handler the shift test is an early-return *guard* that comes before the
+        # plain-click code, so truncating there removed the very lines being measured - the probe reported
+        # 0 writes and could not be made to fail by any mutation, i.e. it proved nothing.
+        node_bin = node
+        if not node_bin:
+            return False, -1, 'no node'
+        script = (
+            'var writes = 0;\n'
+            'var selectedIds = new Proxy({}, { set: function (t, k, v) { writes++; t[k] = v; return true; },\n'
+            '                                deleteProperty: function (t, k) { writes++; delete t[k]; return true; } });\n'
+            'var anchorId = "seed";\n'
+            # The handler looks its row up in allItems and returns early when it is not there, so the probe
+            # has to hand it a row it can find - otherwise execution never reaches the pick code below the
+            # lookup and the probe would report "no writes" whatever that code said. (Measured: with an empty
+            # allItems a deliberately reintroduced togglePicked() still reported 0 writes.)
+            'var allItems = [{ Id: "abc" }];\n'
+            'function selectItem() {}\n'
+            'function togglePicked() {}\n'
+            'function render() {}\n'
+            'function startLangScan() {}\n'
+            'function visibleItems() { return []; }\n'
+            'function $(id) { return null; }\n'
+            'var row = { getAttribute: function () { return "abc"; } };\n'
+            'function handler(e) {\n' + body + '\n}\n'
+            'try { handler({ shiftKey: false, target: { closest: function () { return null; } } }); }\n'
+            'catch (err) { console.log(JSON.stringify({ error: String(err) })); process.exit(0); }\n'
+            'console.log(JSON.stringify({ writes: writes, anchor: anchorId }));\n'
+        )
+        work = os.path.join(REPO, '.tests-work')
+        os.makedirs(work, exist_ok=True)
+        script_path = os.path.join(work, 'click_probe.js')
+        with open(script_path, 'w', encoding='utf-8') as handle:
+            handle.write(script)
+        run = subprocess.run([node_bin, script_path], capture_output=True, text=True)
+        try:
+            seen = json.loads(run.stdout.strip().splitlines()[-1])
+        except (ValueError, IndexError):
+            return True, -1, (run.stderr or run.stdout or '')[-220:]
+        if 'error' in seen:
+            return True, -1, seen['error'][-220:]
+        return True, seen.get('writes', -1), ''
+
     def report(name, ok, detail=''):
         nonlocal failures
         if not ok:
@@ -4694,18 +4768,38 @@ def run_page_checks():
     # reachable. Measured: rows 4, 5 and 6 picked by right-click, and the list then draws them at positions
     # 0, 1 and 2 with everything else in the library's own order. One definition of the order, shared by the
     # renderer and the range selection.
-    report('picked rows sort to the top of the library list (C4)',
+    # C4, revised 2026-09-18 (user report): picked rows sort to the top so a selection stays visible while
+    # the search box narrows the list - but only once there is a selection to keep together. With one pick the
+    # list keeps the library's own order. Measured before the revision: one left-click put that row at
+    # position 0 of a 41-item list. After: one pick stays where the library put it, and the second pick
+    # brings both to positions 0 and 1.
+    report('picked rows sort to the top of the library list, from the second pick (C4, revised)',
            'function visibleItems()' in pages['subsyncMain.js']
+           and 'var FLOAT_MIN_PICKS = 2;' in pages['subsyncMain.js']
+           and 'if (pickedCount() < FLOAT_MIN_PICKS) {' in pages['subsyncMain.js']
+           and 'return shown;' in pages['subsyncMain.js']
            and '(selectedIds[x.Id] ? picked : rest).push(x);' in pages['subsyncMain.js']
            and 'return picked.concat(rest);' in pages['subsyncMain.js']
            and 'var filtered = visibleItems();' in pages['subsyncMain.js'])
-    # C3: a click adds to the selection instead of replacing it. Measured before: three rows picked, a search,
-    # then a click on the row the search found, and the count read "1 file picked" - the work already picked
-    # was gone. After: "4 files picked".
-    report('a click adds to the selection instead of replacing it (C3)',
-           'selectedIds[id] = true;' in pages['subsyncMain.js']
-           and 'A plain click on an unpicked row starts a fresh' not in pages['subsyncMain.js']
-           and 'click or right-click a row to add it, shift-click removes it' in pages['subsyncMain.js'])
+    # Fix 1 (user report): right-click is the only way to ADD a pick; a plain left-click selects and views the
+    # row without touching the selection. C3 had made a click additive - every left-click grew the sync
+    # selection, so browsing the library accumulated a batch nobody asked for. Measured after: one left-click
+    # leaves the count at zero and reads "right-click a row to pick it", a second left-click still adds
+    # nothing, and only the right-click produces "1 file picked". C3's own fix - the selection surviving a
+    # search - is kept: nothing in the render or search path clears picks.
+    report('a plain click selects and views, and does not add to the selection (fix 1)',
+           'selectItem(match);' in pages['subsyncMain.js']
+           # a plain click no longer writes into selectedIds. The assertion is scoped to the click handler: the
+           # string "selectedIds[id] = true;" must still exist, in togglePicked, which is the one function that
+           # is *meant* to add a pick. Asserting it absent from the file at large failed on that helper.
+           and 'function togglePicked(id) {\n        if (selectedIds[id]) delete selectedIds[id];\n        else selectedIds[id] = true;' in pages['subsyncMain.js']
+           and click_handler_is_passive(os.path.join(web, 'subsyncMain.js'))[1] == 0
+           # the C3 behaviour is gone: no click handler adds to the selection
+           and 'click or right-click a row to add it, shift-click removes it' not in pages['subsyncMain.js']
+           and 'right-click a row to pick it, shift+right-click for a range' in pages['subsyncMain.js']
+           # the range reads the drawn order, because the drawn order now depends on the pick count
+           and "drawnIds.indexOf(anchorId)" in pages['subsyncMain.js']
+           and "$('ss-list').querySelectorAll('.ss-row')" in pages['subsyncMain.js'])
     # C5: one wording for every sync button - a number of subtitle tracks, never a number of files. Measured
     # after the change: three rows selected "Sync 5 subtitles" (was "Sync 3 files" / "Sync 1 file"), a movie
     # row "Sync 2 subtitles" and then "Sync 1 subtitle" (was "Sync movie"), a series row "Sync 111 subtitles"

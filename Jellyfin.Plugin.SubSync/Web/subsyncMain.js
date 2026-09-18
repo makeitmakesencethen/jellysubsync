@@ -39,7 +39,7 @@
     var movieTracks = [];       // subtitle tracks of the selected movie
     var busy = false;
     var startInFlight = false; // a queue-build POST is in flight — prevents double submits
-    var selectedIds = {};      // ids picked via checkboxes (multi-select)
+    var selectedIds = {};      // ids picked by right-click (multi-select)
     var shiftAnchor = -1;      // last checkbox clicked, for shift-range selection
 
     var STATE_KEY = 'subsync.state.v1';
@@ -1128,9 +1128,10 @@
             (allPicked ? 'Clear selection' : 'Select all') + '</a>';
 
         if (n === 0) {
-            html += ' <span style="opacity:.6;">\u00b7 click or right-click a row to add it, shift-click removes it</span>';
+            html += ' <span style="opacity:.6;">\u00b7 right-click a row to pick it, shift+right-click for a range</span>';
         } else {
-            html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked</span>';
+            html += ' <span style="opacity:.6;">\u00b7 ' + n + ' file' + (n === 1 ? '' : 's') + ' picked'
+                + ' \u00b7 right-click to add or remove, shift+right-click for a range</span>';
         }
         if (syncLanguages.length) {
             html += ' <span style="opacity:.6;">\u00b7 language filter: '
@@ -1257,16 +1258,23 @@
         return html;
     }
 
-    // ---------------- Multi-select (checkboxes + shift-range) ----------------
-    // C4: the rows the user has picked come first, so a selection stays visible and reachable - including
-    // while the search box is narrowing the list to find the next file to add. The order inside each group is
-    // the library's own. One definition, used by the renderer and by the range selection, so a shift+right-
-    // click range covers the rows in the order they are drawn.
+    // ---------------- Multi-select (right-click + shift-range) ----------------
+    // C4, revised for the second user report of 2026-09-18: the picked rows come first so a selection stays
+    // visible and reachable while the search box narrows the list - but only once there is a *selection* to
+    // keep visible. With a single pick the list keeps the library's own order, because a one-item selection
+    // is not something the user is tracking as a group and moving the row they just clicked to the top of the
+    // list is motion they did not ask for. Measured before the change: one left-click put that row at
+    // position 0 of a 41-item list. The threshold is the same one that makes the selection controls appear.
+    // The order inside each group is the library's own. One definition, used by the renderer and by the range
+    // selection, so a shift+right-click range covers the rows in the order they are drawn.
     function visibleItems() {
         var q = ($('ss-search').value || '').toLowerCase().trim();
         var shown = allItems.filter(function (x) {
             return !q || (x.Name || '').toLowerCase().indexOf(q) !== -1;
         });
+        if (pickedCount() < FLOAT_MIN_PICKS) {
+            return shown;
+        }
         var picked = [], rest = [];
         shown.forEach(function (x) {
             (selectedIds[x.Id] ? picked : rest).push(x);
@@ -1279,6 +1287,11 @@
         for (var k in selectedIds) { if (Object.prototype.hasOwnProperty.call(selectedIds, k)) n++; }
         return n;
     }
+
+    // How many picks it takes before the list reorders itself. One pick is a row the user clicked; two is a
+    // selection they are building, and only then is keeping it together worth moving rows for (see
+    // visibleItems).
+    var FLOAT_MIN_PICKS = 2;
 
     // C5: every sync button states how many subtitle tracks it will queue, in the same words. A count that is
     // not known yet says the unit without inventing a number, and nothing says "files" any more: what a sync
@@ -1363,10 +1376,12 @@
         span.textContent = subtitleButtonLabel(count);
     }
 
-    // Rows are multi-selected by shift-clicking: a plain click selects
-    // one item (and shows its options), each shift-click adds or removes
-    // that item, so picks do not have to be adjacent. Right-click toggles
-    // one row; shift+right-click selects the range from the anchor.
+    // Rows are multi-selected by right-clicking: a plain click selects one
+    // item and shows its options without touching the selection, each
+    // shift-click adds or removes that item, so picks do not have to be
+    // adjacent. Right-click toggles one row; shift+right-click selects the
+    // range from the anchor. (Shift+left-click is kept as the older way to
+    // add a single pick; right-click is the documented one.)
     var isBuilding = false; // a batch queue is being assembled
     var anchorId = null;    // last plain-clicked row (range anchor)
 
@@ -1846,12 +1861,17 @@
                 e.preventDefault();
                 var id = row.getAttribute('data-id');
                 if (e.shiftKey && anchorId) {
-                    var visIds = visibleItems().map(function (x) { return x.Id; });
-                    var a = visIds.indexOf(anchorId);
-                    var b = visIds.indexOf(id);
+                    // The range covers the rows as they are *drawn*, read straight off the DOM rather than
+                    // recomputed: the drawn order now depends on how many picks there are (see visibleItems),
+                    // and a range computed from a second evaluation could disagree with the list on screen.
+                    var drawnIds = Array.prototype.map.call(
+                        $('ss-list').querySelectorAll('.ss-row'),
+                        function (r) { return r.getAttribute('data-id'); });
+                    var a = drawnIds.indexOf(anchorId);
+                    var b = drawnIds.indexOf(id);
                     if (a >= 0 && b >= 0) {
                         selectedIds = {};
-                        for (var i = Math.min(a, b); i <= Math.max(a, b); i++) selectedIds[visIds[i]] = true;
+                        for (var i = Math.min(a, b); i <= Math.max(a, b); i++) selectedIds[drawnIds[i]] = true;
                         startLangScan();
                         render();
                         return;
@@ -1875,18 +1895,18 @@
                     return;
                 }
 
-                if (!selectedIds[id]) {
-                    // C3: a plain click adds the row to the selection. It used to clear every pick first, which
-                    // is exactly what searching costs: find the next file, click it, and everything already
-                    // picked is gone (measured: three picked, searched, clicked the row the search found, and
-                    // the count read "1 file picked"). Clearing has its own control in the count line, so
-                    // nothing is lost by making a click additive.
-                    selectedIds[id] = true;
-                    anchorId = id;
-                    startLangScan();
-                } else {
-                    anchorId = id;
-                }
+                // Fix 1, 2026-09-18: a plain click does NOT touch the selection. It selects and views the row -
+                // it shows that item's own options - and that is all. Right-click is the only way to add a
+                // pick, which is what this list has always been documented as ("right-click a row to pick it,
+                // shift+right-click for a range"), and what the shift+right-click range is built on.
+                //
+                // C3 had made a plain click additive, on the reasoning that clearing a selection while
+                // searching is costly. The cost it named was real, but the cause was different: nothing here
+                // clears picks any more (searching does not), and the user's own testing of 2.0.64 found the
+                // consequence of the C3 fix - every left-click silently grew the sync selection, so a user
+                // browsing the library accumulated a batch they never asked for. C3 is kept where it belongs:
+                // the selection survives a search, and the count line says how to clear it.
+                anchorId = id;
                 selectItem(match);
             });
         });
