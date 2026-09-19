@@ -64,8 +64,14 @@
             /* Pass 5 (2026-09-19): the row a plain click selects and views - the row you are looking at, as
                opposed to the rows you have picked (`.selected` below). A neutral marker, and declared BEFORE
                `.selected` so a row that is both read as picked. */
-            .ss-row.viewed { background: rgba(255,255,255,.055); box-shadow: inset 3px 0 0 rgba(255,255,255,.3); }
-            .ss-row.viewed .ss-name { font-weight: 600; }
+            /* The row a plain click views carries the same mark a pick carries (user report, 2026-09-19: "the
+               single episode marked look is black which is wrong, selected files should always have the same
+               colour blue we always use"). It was a neutral white tint - grey on a dark theme, which reads as
+               a dead row rather than a marked one - and it is now the theme's own primary colour, exactly as
+               the pick class below uses it. Both rules stay separate, and this one first, so a row that is
+               both viewed and picked is styled by the pick class. */
+            .ss-row.viewed { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 14%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
+            .ss-row.viewed .ss-name { color: var(--theme-primary-color, #00a4dc); font-weight: 600; }
             .ss-row.selected { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 14%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
             .ss-row.selected .ss-name { color: var(--theme-primary-color, #00a4dc); font-weight: 600; }
             .ss-row-main { min-width: 0; flex: 1 1 auto; }

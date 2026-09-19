@@ -4905,11 +4905,21 @@ def run_page_checks():
     # Pass 5 (user report, 2026-09-19): the row a plain click selects and views is marked. Before the
     # right-click-only selection fix the pick class marked it as well (a click picked too); afterwards a click
     # left no mark at all, and a single pick is the one case where the list does not reorder itself, so the
-    # clicked row carried no state a user could see. The two classes are different colours on purpose.
+    # clicked row carried no state a user could see.
     report('the viewed row has its own marker, defined before the pick class (pass 5)',
            "(isSel ? ' viewed' : '')" in pages['subsyncMain.js']
            and '.ss-row.viewed { background:' in main_html
            and main_html.index('.ss-row.viewed {') < main_html.index('.ss-row.selected {'))
+    # And it is the pick's own colour (user report, 2026-09-19: "the single episode marked look is black which
+    # is wrong, selected files should always have the same colour blue we always use"). The first marker was a
+    # neutral white tint, which on the dark theme reads as grey-black - a dead row rather than a marked one. The
+    # rule now names the theme's primary colour, and the neutral string it replaced may not come back.
+    viewed_rule = main_html[main_html.index('.ss-row.viewed {'):main_html.index('.ss-row.selected {')]
+    report('the viewed row wears the theme primary, not a neutral tint (user report, 2026-09-19)',
+           'var(--theme-primary-color' in viewed_rule
+           and 'rgba(255,255,255' not in viewed_rule
+           and 'var(--theme-primary-color' in main_html[main_html.index('.ss-row.selected {'):],
+           viewed_rule.strip()[:160])
     # C2: the progress area is a list of results, not a terminal. Measured: #ss-log was a <pre class="ss-log">
     # in ui-monospace printing "OK   Embedded Test — SYNCED - English - SUBRIP - External → /opt/data/…
     # (-250 ms offset)"; it is now a <div class="ss-tasks"> whose rows each read "Synced · <file> · -250 ms
