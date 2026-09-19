@@ -1,3 +1,33 @@
+## 2.0.68 (beta)
+
+Two things about how a run decides what is expensive, and one about the row you click.
+
+**A volume's speed is now measured from the reads the run is actually making.** The figure that decides how many
+files may be read from one share at the same time was never fed by a real read: the measurement only reaches a
+pass when its reader knows the file's path, and the extractor's reader was built without one, so every
+measurement it took was dropped. The consequence was a decision that could not correct itself - measured on one
+share, the ceiling quoted the same one-off probe (`169,8 ms per read`) all day while that share's own extraction
+passes measured `1,15 ms per read` minutes later, so a share that had recovered stayed held to one file at a time
+until the run ended. The path now goes in with the stream, and the ceiling re-measures itself from the work in
+progress: no extra read, no probe. Measured in the harness, one fixture's volume went from "20 samples before,
+20 after" to 20 -> 28/96/219/236 samples for 17/68/123/17 reads, and the rerun on the test server reports
+`over 16 read(s)` where the field's own log reported `over 3 read(s)`.
+
+**A sidecar subtitle is no longer charged for an audio analysis it never uses.** In a mode that reuses the cached
+speech analysis, an external subtitle was counted as a media reader whenever that analysis was not cached yet -
+so on a share held to one read at a time it waited its turn behind the ceiling for a read it never made. A
+sidecar whose reference can be a sibling subtitle track needs no analysis of the film at all, and that is what
+now decides; a job that does start reading the media mid-run (the framerate rescale check, an audio retry) says
+so, so the ceiling still counts that read. Measured on the test server with the volume held to one read: before,
+two sidecars of one file ran one after the other - the second started only after the first had finished, with the
+ceiling line naming the refusal - and after, both start within 3 ms and finish together. The same change fixes
+what a run reports as a walk: an audio-ruled run whose signal came from the cache no longer claims a walk of the
+whole file.
+
+**The row you click wears the same colour a pick does.** The marker on the row a plain click selects and views
+was a neutral grey, which on the dark theme reads as a dead row; it is now the theme's own primary colour,
+exactly like the rows you have picked.
+
 ## 2.0.67 (beta)
 
 One correctness fix that protects your files, two things about the interface that were reported from live use,
