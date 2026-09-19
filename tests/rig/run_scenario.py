@@ -193,6 +193,44 @@ def prepare_fixtures() -> None:
         log(f'[rig] copied {SMALL_FIXTURE.name} onto the fast volume ({volume_key_of(str(fast_target))})')
 
 
+def prepare_second_slow_fixture() -> None:
+    """Two extra files on the shimmed volume, fresh every run — P5-9's scenario.
+
+    Fresh matters twice. The subtitle cache is keyed on the file's identity, size and mtime, so a copy an
+    earlier run already extracted is answered from cache and the pass reads nothing — the volume would learn
+    nothing and the scenario would measure its own leftovers. And the ceiling line that carries a volume's
+    read count is written only when the ceiling *refuses* a candidate, so at least two jobs have to be ready
+    for that volume at the same moment: two tracks of one freshly extracted file is the shape that gives
+    that, and two files give the scenario a second chance if the first pair is not ready together.
+    """
+    for stale in SLOW_VOLUME_DIR.glob('P5-9 Fixture*.mkv'):
+        stale.unlink()
+    stamp = int(time.time())
+    for letter in ('A', 'B'):
+        target = SLOW_VOLUME_DIR / f'P5-9 Fixture {letter} {stamp}.mkv'
+        shutil.copy2(SMALL_FIXTURE, target)
+        log(f'[rig] copied a fresh fixture onto the slow volume ({target.name})')
+
+
+def ensure_fresh_slow_item(rig, tries: int = 6) -> list:
+    """The freshly copied fixtures, *as the library now sees them*.
+
+    `prepare_second_slow_fixture` deletes the previous run's copies and writes new ones, but the library keeps
+    the deleted paths until a scan has caught up — and a job queued for such a path fails in 10 ms with
+    `FileNotFoundException`, which looks exactly like a scenario that measured nothing (it cost this scenario
+    three runs to see: every batch reported a job `failed` beside the one that had started).
+    """
+    for attempt in range(tries):
+        items = [item for item in rig.items('media-slow')
+                 if (item.get('Name') or '').startswith('P5-9 Fixture')
+                 and item.get('Path') and os.path.exists(item['Path'])]
+        if items:
+            return items
+        rig.refresh_library()
+        time.sleep(10 if attempt == 0 else 15)
+    return []
+
+
 def ensure_items(rig, path_contains: str, name_prefix: str, args, tries: int = 6) -> list:
     """Refreshes the library until the scenario's fixture shows up in it, and returns the items.
 
@@ -1280,6 +1318,78 @@ def scenario_p3_speech_gate(rig, args, ctx):
         rig.post('/SubSync/Configuration', original)
 
 
+def scenario_p59_read_feed(rig, args, ctx):
+    """P5-9: a volume must learn from the reads a pass makes, not keep the one probe it took.
+
+    The field defect (2026-09-18/19): the extraction's ReadPolicy is handed a volume profile only when
+    its reader knows the file it is reading, and the extractor built its BlobReader without a path - so
+    every Observe() a pass made was a silent no-op. Every `walk ceiling:` line of that day, on all four
+    volumes, quotes exactly the probe's count (`169,8 ms per read, over 3 read(s)`), while the same
+    share's own pass measured `1,15 ms per read and 2,7 MB/s (10 read(s) of this pass)`.
+
+    The line that carries the count is only written when the ceiling *refuses* a candidate (Scheduler's
+    HasRoomOnItsVolume), so the shape has to produce a refusal: a share charged 231 ms a read is held to one
+    read at a time (S41's thrash tier), and one batch carrying every embedded track of two freshly copied
+    files gives the plan two ready candidates for that volume the moment the lane has extracted the first
+    file. Against a build that never passes the path, the count stays at the probe's and this FAILS, quoting
+    the defect.
+    """
+    first_file = ensure_items(rig, 'media-slow', 'Embedded Test', args)
+    second_file = ensure_fresh_slow_item(rig)
+    if not first_file or not second_file:
+        return [('two files of the shimmed volume are in the library', False,
+                 f'first={len(first_file)} second={len(second_file)} after a library refresh')]
+
+    slow_key = volume_key_of(str(SLOW_VOLUME_DIR))
+    rig.log_lines()
+    since = rig._log_offset
+
+    # Parallel mode on purpose: an auto batch of a few tasks resolves to "normal", where the limit is 1 and a
+    # ceiling can never refuse anything - so a scenario that wants the refusal has to ask for the wide mode.
+    # Two *tracks of one file*, not two files: the whole file is extracted in one lane pass, so both jobs are
+    # ready at the same moment and the second is a candidate the ceiling has to turn away. (A second *file*
+    # has to be extracted first, and by the time it is, the first job has already finished.)
+    tracks = []
+    for item in second_file:
+        tracks += [{'ItemId': item['Id'], 'SubtitleIndex': int(stream['Index']),
+                    'Title': item.get('Name') or item['Id']}
+                   for stream in (item.get('MediaStreams') or [])
+                   if stream.get('Type') == 'Subtitle' and not stream.get('IsExternal')]
+    if len(tracks) < 2:
+        return [('the fixtures have two embedded text tracks to queue', False, f'tracks={tracks}')]
+
+    # One batch, every track: the lane extracts each file in a single pass, so both of a file's tracks are
+    # ready at the same moment and the plan has to turn one of them away. (A batch per file does not work:
+    # the first job finishes while the second file is still being extracted, and a wave of one is then
+    # legitimate rather than a refusal.)
+    both = rig.post('/SubSync/Batch', {'Tasks': tracks, 'Label': 'rig-p59-refusal', 'Mode': 'parallel'})
+    ctx['batch'] = both.get('BatchId') or both.get('Id')
+    rig.wait_batch(ctx['batch'])
+
+    lines = rig.log_lines(since)
+    wide = [line for line in lines if 'dispatch: starting' in line and 'limit 1,' not in line]
+    held = [line for line in lines if 'walk ceiling:' in line and slow_key in line]
+    counts = []
+    for line in held:
+        match = re.search(r'over (\d+) read\(s\)', line)
+        if match:
+            counts.append(int(match.group(1)))
+    ctx['observations'] = [f'ceiling lines for {slow_key}: {len(held)}, read-count(s) quoted: {counts or "(none)"}',
+                           f'dispatches that ran wide of the limit of 1: {len(wide)}',
+                           'last ceiling line: ' + (held[-1] if held else '(none)')]
+    return [
+        ('the batches ran wide enough for a ceiling to refuse a candidate', bool(wide),
+         f'{len(wide)} dispatch line(s) with a limit above 1'),
+        # The ceiling line is the refusal, reported: it is written only where the ceiling turns a candidate
+        # away, so its presence is the proof that the cap was reached and not merely computed.
+        ('the shimmed volume is held by a ceiling at all', bool(held),
+         f'{len(held)} `walk ceiling:` line(s) for {slow_key}'),
+        ('the volume heard the reads its own pass made',
+         bool(counts) and max(counts) > 3,
+         f'read counts quoted: {counts or "(none)"} - the probe alone leaves 3'),
+    ]
+
+
 SCENARIOS = {
     'smoke': dict(run=scenario_smoke, storage='any',
                   needs='nothing: it is the harness checking itself (2 volumes, fixtures, log)'),
@@ -1307,6 +1417,11 @@ SCENARIOS = {
     's39-ratio': dict(run=scenario_s39_ratio, storage='shim',
                       shim={'MS_PER_CALL': 0.0, 'MS_PER_16K': 12.8},
                       needs='8 walks on one volume, then a slow walk on another: the ratios must decide, not a constant'),
+    'p59-read-feed': dict(run=scenario_p59_read_feed, storage='shim',
+                          shim={'MS_PER_CALL': 231.0, 'MS_PER_16K': 0.0},
+                          needs="S41's thrash tier (231 ms a read, so the volume is held to one read) and two "
+                                "files on the shimmed volume: the refusal the second batch draws quotes the "
+                                "reads the first batch's pass made, not just the probe's three"),
     's41-steady': dict(run=scenario_s41_steady, storage='shim',
                        shim={'MS_PER_CALL': 10.0, 'MS_PER_16K': 1.46},
                        needs="fabji's measured share (10 ms/read, 11 MB/s): two walks, and no ceiling on the fast one"),
@@ -1360,6 +1475,8 @@ def main() -> int:
             shim['MS_PER_16K'] = args.ms_per_16k
 
     prepare_fixtures()
+    if args.scenario == 'p59-read-feed':
+        prepare_second_slow_fixture()
     if args.scenario == 's39-ratio':
         ensure_library(WALK_LIBRARY_NAME, WALK_VOLUME_DIR)
     installed = riglib.install_plugin(

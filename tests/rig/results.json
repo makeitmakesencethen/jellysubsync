@@ -4614,5 +4614,559 @@
       "2026-09-16 11:14:14.580Z INFO  extract lane: started"
     ],
     "seconds": 73.1
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 03:49:55",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 10.0,
+      "MS_PER_16K": 1.46
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the scenario ran at all",
+        "passed": false,
+        "detail": "TimeoutError: the rig did not come up"
+      }
+    ],
+    "passed": false,
+    "observations": [],
+    "log_tail": [
+      "2026-09-19 00:37:51.046Z INFO  [896955ade8cb4839974bb4621b0c841e] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b13c083fdcd6ef19/25d6064bcf26a07b73dcdf23bc43cd0f.ref.srt -i /opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt -o /opt/data/jf12test/cache/subsync/896955ade8cb4839974bb4621b0c841e/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/896955ade8cb4839974bb4621b0c841e",
+      "2026-09-19 00:37:51.046Z INFO  [896955ade8cb4839974bb4621b0c841e] reference is the subtitle s:0, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-19 00:37:51.227Z INFO  [e6b4bcc92ebb476188d8c9f26657a990] ffsubsync exit=0 after 582 ms",
+      "2026-09-19 00:37:51.227Z INFO  [e6b4bcc92ebb476188d8c9f26657a990] ffsubsync alignment: score=11898 offset=0.000 s against reference subtitle s:0",
+      "2026-09-19 00:37:51.229Z INFO  job e6b4bcc92ebb476188d8c9f26657a990 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=n/a",
+      "2026-09-19 00:37:51.383Z INFO  [597237dec2bb4114912dc0eb49f2b61a] ffsubsync exit=0 after 565 ms",
+      "2026-09-19 00:37:51.384Z INFO  [597237dec2bb4114912dc0eb49f2b61a] ffsubsync alignment: score=3738 offset=1.770 s against the audio",
+      "2026-09-19 00:37:51.417Z INFO  [597237dec2bb4114912dc0eb49f2b61a] this walk moved 83.6 MB of /opt/data/jf12test/media-fixtures/Ass Track (2026).mkv in 0.6 s = 155.1 MB/s - the ceiling for that volume is none (this volume measured 0.01 ms per read, which is fast)",
+      "2026-09-19 00:37:51.418Z INFO  job 597237dec2bb4114912dc0eb49f2b61a UNVERIFIED: the audio was the only ruler (+1770 ms offset) and this track has no reference subtitle to check it against; nothing written, source untouched, file=/opt/data/jf12test/media-fixtures/Ass Track (2026).mkv",
+      "2026-09-19 00:37:51.442Z INFO  [945c27b34726449bb48c1db782bea2e0] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b13c083fdcd6ef19/25d6064bcf26a07b73dcdf23bc43cd0f.ref.srt -i /opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt -o /opt/data/jf12test/cache/subsync/945c27b34726449bb48c1db782bea2e0/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/945c27b34726449bb48c1db782bea2e0",
+      "2026-09-19 00:37:51.443Z INFO  [945c27b34726449bb48c1db782bea2e0] reference is the subtitle s:0, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-19 00:37:51.606Z INFO  [896955ade8cb4839974bb4621b0c841e] ffsubsync exit=0 after 559 ms",
+      "2026-09-19 00:37:51.606Z INFO  [896955ade8cb4839974bb4621b0c841e] ffsubsync alignment: score=1652 offset=-0.250 s against reference subtitle s:0",
+      "2026-09-19 00:37:51.608Z INFO  job 896955ade8cb4839974bb4621b0c841e completed: mode=ultimate output=/opt/data/jf12test/media/Embedded Test (2026).SYNCED.srt bytes=408 change=-250 ms offset extraction=n/a",
+      "2026-09-19 00:37:51.849Z INFO  [3286c23260e9444492e95c1028aafd4d] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b13c083fdcd6ef19/25d6064bcf26a07b73dcdf23bc43cd0f.ref.srt -i /opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt -o /opt/data/jf12test/cache/subsync/3286c23260e9444492e95c1028aafd4d/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/3286c23260e9444492e95c1028aafd4d",
+      "2026-09-19 00:37:51.849Z INFO  [3286c23260e9444492e95c1028aafd4d] reference is the subtitle s:0, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-19 00:37:52.028Z INFO  [945c27b34726449bb48c1db782bea2e0] ffsubsync exit=0 after 585 ms",
+      "2026-09-19 00:37:52.028Z INFO  [945c27b34726449bb48c1db782bea2e0] ffsubsync alignment: score=1652 offset=0.000 s against reference subtitle s:0",
+      "2026-09-19 00:37:52.029Z INFO  job 945c27b34726449bb48c1db782bea2e0 completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=n/a",
+      "2026-09-19 00:37:52.284Z INFO  extract: method=cache cues=8 file=/opt/data/jf12test/media/Embedded Test (2026).mkv stream=0 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-19 00:37:52.284Z INFO  reference: method=cache cues=7 file=/opt/data/jf12test/media/Embedded Test (2026).mkv stream=1",
+      "2026-09-19 00:37:52.285Z INFO  [661aedf8818647de860955264739e5a0] reference: method=subtitle cues=7 track=s:1 file=/opt/data/jf12test/media/Embedded Test (2026).mkv",
+      "2026-09-19 00:37:52.285Z INFO  [661aedf8818647de860955264739e5a0] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b13c083fdcd6ef19/6d95c02072db2f703045b154ddd3346b.ref.srt -i /opt/data/jf12test/cache/subsync/shared/48dc414dba11c678/subtitle_5.srt -o /opt/data/jf12test/cache/subsync/661aedf8818647de860955264739e5a0/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/661aedf8818647de860955264739e5a0",
+      "2026-09-19 00:37:52.285Z INFO  [661aedf8818647de860955264739e5a0] reference is the subtitle s:1, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-19 00:37:52.536Z INFO  [3286c23260e9444492e95c1028aafd4d] ffsubsync exit=0 after 685 ms",
+      "2026-09-19 00:37:52.536Z INFO  [3286c23260e9444492e95c1028aafd4d] ffsubsync alignment: score=1452 offset=0.000 s against reference subtitle s:0",
+      "2026-09-19 00:37:52.536Z INFO  job 3286c23260e9444492e95c1028aafd4d completed: mode=ultimate output=(none) bytes=unknown change=already in sync (+0 ms offset) \u2014 nothing written extraction=n/a",
+      "2026-09-19 00:37:52.689Z INFO  extract: method=cache cues=7 file=/opt/data/jf12test/media/Embedded Test (2026).mkv stream=1 (no read: this file's subtitle was extracted on an earlier run)",
+      "2026-09-19 00:37:52.691Z INFO  [2a5c35bca6054b53abfa3fa9a8cdd3d7] ffsubsync start: exe=/opt/data/jf12test/data/data/subsync/venv/bin/ffsubsync cachedSpeech=False reference=(default) args=/opt/data/jf12test/cache/subsync/ref/b13c083fdcd6ef19/25d6064bcf26a07b73dcdf23bc43cd0f.ref.srt -i /opt/data/jf12test/cache/subsync/shared/48dc414dba11c678/subtitle_6.srt -o /opt/data/jf12test/cache/subsync/2a5c35bca6054b53abfa3fa9a8cdd3d7/synced.srt --max-offset-seconds 60 --max-subtitle-seconds 10 --vad subs_then_webrtc --output-encoding utf-8 --ffmpeg-path ffmpeg --no-fix-framerate --skip-infer-framerate-ratio --log-dir-path /opt/data/jf12test/cache/subsync/2a5c35bca6054b53abfa3fa9a8cdd3d7",
+      "2026-09-19 00:37:52.692Z INFO  [2a5c35bca6054b53abfa3fa9a8cdd3d7] reference is the subtitle s:0, so the engine is given --vad webrtc: with the configured 'subs_then_webrtc' it would read the video's own subtitle tracks as its speech signal, and which track that is, is the engine's choice rather than the plugin's",
+      "2026-09-19 00:37:52.940Z INFO  [661aedf8818647de860955264739e5a0] ffsubsync exit=0 after 654 ms",
+      "2026-09-19 00:37:52.940Z INFO  [661aedf8818647de860955264739e5a0] ffsubsync alignment: score=1452 offset=0.250 s against reference subtitle s:1",
+      "2026-09-19 00:37:52.945Z INFO  job 661aedf8818647de860955264739e5a0 completed: mode=ultimate output=/opt/data/jf12test/media/Embedded Test (2026).SYNCED.eng.srt bytes=408 change=+250 ms offset extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-19 00:37:53.364Z INFO  [2a5c35bca6054b53abfa3fa9a8cdd3d7] ffsubsync exit=0 after 672 ms",
+      "2026-09-19 00:37:53.365Z INFO  [2a5c35bca6054b53abfa3fa9a8cdd3d7] ffsubsync alignment: score=1452 offset=-0.250 s against reference subtitle s:0",
+      "2026-09-19 00:37:53.372Z INFO  job 2a5c35bca6054b53abfa3fa9a8cdd3d7 completed: mode=ultimate output=/opt/data/jf12test/media/Embedded Test (2026).SYNCED.swe.srt bytes=357 change=-250 ms offset extraction=served from the extracted-subtitle cache, no read this run",
+      "2026-09-19 00:49:14.125Z INFO  extract lane: stopped",
+      "2026-09-19 00:49:14.158Z INFO  extract lane: stopped",
+      "2026-09-19 00:49:14.344Z INFO  extract lane: stopped",
+      "2026-09-19 00:49:14.347Z INFO  teardown: tracked=0 stopped=0 killedDirect=0 exitedDirect=0 aliveAfter=0 tasksDone=4/4 trackedLeft=0"
+    ],
+    "seconds": 214.8
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 03:56:55",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 10.0,
+      "MS_PER_16K": 1.46
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      },
+      {
+        "check": "no ceiling line still quotes only the probe",
+        "passed": true,
+        "detail": "max 0 read(s)"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "last ceiling line: (none)"
+    ],
+    "batch": "b5ca5c4f465145ddb86da2a35b9aa961",
+    "seconds": 96.9
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 03:59:39",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "last ceiling line: (none)"
+    ],
+    "batch": "15aa6848062b401997e92eb461734547",
+    "seconds": 107.4
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:01:30",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "last ceiling line: (none)"
+    ],
+    "batch": "edb5900d9f274375840df0e6a8d90128",
+    "seconds": 96.9
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:05:50",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "2 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 2",
+      "last ceiling line: (none)"
+    ],
+    "batch": "55b0774518194968a7147acab8248078",
+    "seconds": 107.4
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:07:40",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "3 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 3",
+      "last ceiling line: (none)"
+    ],
+    "batch": "9fc8bfa96ae14940ab632bd3adc0d779",
+    "seconds": 97.2
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:11:02",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "3 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 3",
+      "waves narrower than the queue: 0",
+      "last ceiling line: (none)"
+    ],
+    "batch": "b8ece4a384b04700b94d68114ff3e193",
+    "seconds": 87.5
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:12:33",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "3 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 3",
+      "waves narrower than the queue: 0",
+      "last ceiling line: (none)"
+    ],
+    "batch": "ff5e1b71996b44ab832bb4d01168d743",
+    "seconds": 87.4
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:16:05",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "2 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 2",
+      "waves narrower than the queue: 0",
+      "last ceiling line: (none)"
+    ],
+    "batch": "3aff4dacdb144906ae7e46bb8e21a86b",
+    "seconds": 107.8
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:17:56",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "2 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": false,
+        "detail": "0 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 0, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 2",
+      "waves narrower than the queue: 0",
+      "last ceiling line: (none)"
+    ],
+    "batch": "e08a9fb1eb0a4809a2bf9c5d3198c60f",
+    "seconds": 107.9
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:22:11",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "4 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": true,
+        "detail": "1 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": true,
+        "detail": "read counts quoted: [16] - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 1, read-count(s) quoted: [16]",
+      "dispatches that ran wide of the limit of 1: 4",
+      "waves narrower than the queue: 0",
+      "last ceiling line: 2026-09-19 02:22:36.859Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 1 concurrent media read(s) - this volume measured 231.1 ms per read, over 16 read(s), which is thrashing"
+    ],
+    "batch": "5c435d7e78ef4d1393401eeaea4f4811",
+    "seconds": 32.5
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:22:46",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "3 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "a wave narrower than its queue: something refused a ready candidate",
+        "passed": false,
+        "detail": "0 dispatch line(s) of the \"starting 1 of N\" shape"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": true,
+        "detail": "1 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 1, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 3",
+      "waves narrower than the queue: 0",
+      "last ceiling line: 2026-09-19 02:23:12.186Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - nothing has measured this volume yet, so it is treated as slow until something does"
+    ],
+    "batch": "9fb67389ca544dbea97c6ef998b88acf",
+    "seconds": 32.3
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:27:14",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "4 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": true,
+        "detail": "1 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": true,
+        "detail": "read counts quoted: [16] - the probe alone leaves 3"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 1, read-count(s) quoted: [16]",
+      "dispatches that ran wide of the limit of 1: 4",
+      "last ceiling line: 2026-09-19 02:27:39.367Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 1 concurrent media read(s) - this volume measured 231.1 ms per read, over 16 read(s), which is thrashing"
+    ],
+    "batch": "b8d59c6272104f7c9811bfb58f4e336d",
+    "seconds": 32.7
+  },
+  {
+    "scenario": "p59-read-feed",
+    "when": "2026-09-19 04:27:49",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "26c52a1",
+    "assertions": [
+      {
+        "check": "the batches ran wide enough for a ceiling to refuse a candidate",
+        "passed": true,
+        "detail": "3 dispatch line(s) with a limit above 1"
+      },
+      {
+        "check": "the shimmed volume is held by a ceiling at all",
+        "passed": true,
+        "detail": "1 `walk ceiling:` line(s) for /dev/nvme0n1p2"
+      },
+      {
+        "check": "the volume heard the reads its own pass made",
+        "passed": false,
+        "detail": "read counts quoted: (none) - the probe alone leaves 3"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "ceiling lines for /dev/nvme0n1p2: 1, read-count(s) quoted: (none)",
+      "dispatches that ran wide of the limit of 1: 3",
+      "last ceiling line: 2026-09-19 02:28:14.901Z INFO  walk ceiling: holding /opt/data|/dev/nvme0n1p2 at 2 concurrent media read(s) - nothing has measured this volume yet, so it is treated as slow until something does"
+    ],
+    "batch": "3abd5d0d86914bdfaf02b84e49975c01",
+    "seconds": 32.8
   }
 ]

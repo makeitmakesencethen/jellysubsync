@@ -62,6 +62,20 @@ each assertion with its verdict and the line that decided it, the probe/ceiling 
 batch id, and the log tail. Appended, never rewritten, so an interrupted run still holds its evidence
 and the report is built from the file rather than from memory.
 
+## Two environment traps that look like a broken scenario
+
+Both of these stop the *server*, so the scenario reports only `TimeoutError: the rig did not come up`
+after ~3 minutes and the reason is in `log/stdout-<fast|slow>.log`, never in the scenario's own output:
+
+* **`DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1` must not be inherited.** The test suite sets it (the
+  build runs without ICU), and a shell that exported it for a build then leaks it into `start-server.sh`
+  — where it is fatal: `CultureNotFoundException: en-US is an invalid culture identifier` while Kestrel
+  is already listening. The rig needs the ICU library that `start-server.sh` exports in
+  `LD_LIBRARY_PATH`, so run scenarios with `env -u DOTNET_SYSTEM_GLOBALIZATION_INVARIANT python3
+  tests/rig/run_scenario.py ...`.
+* A stale `jellyfin.dll` still holding 8096 from an earlier run: kill it and check the port before
+  blaming the scenario.
+
 ## Adding a scenario
 
 Write one function `def scenario_x(rig, args, ctx)` that returns a list of `(check, passed, detail)`

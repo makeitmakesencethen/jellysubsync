@@ -283,6 +283,7 @@ var heavyCapped = SubSyncService.SelectWave(heavyQueue, "ultimate", "b", new Sub
 });
 Check("worker count is the only limit for heavy work", heavyCapped.Count == 2, "got " + heavyCapped.Count);
 
+
 // several subtitles of one file: only when its speech analysis is cached
 var sameFileQueue = new List<SyncJob>
 {
@@ -1344,7 +1345,16 @@ foreach (var scenario in mkvScenarios)
         continue;
     }
 
+    // P5-9: the policy the extractor builds must be handed this file's volume, or every Observe() it makes
+    // is a silent no-op and the ceiling goes on deciding from the one probe it took. Pinned at the call site
+    // rather than on a hand-built ReadPolicy, because the wiring from BlobReader to ReadPolicy - a path that
+    // was never passed - is the part that went missing while the check above stayed green.
+    var volumeBefore = VolumeProfiles.For(scenario.Path).SampleCount;
     var extracted = MkvSubtitleExtractor.TryExtract(scenario.Path, 0, out var mkvSrt, out var mkvReason, null, out var mkvStats);
+    var volumeAfter = VolumeProfiles.For(scenario.Path).SampleCount;
+    Check($"the extractor's read policy hears its volume ({scenario.Name})",
+        volumeAfter > volumeBefore,
+        $"volume profile {volumeBefore} -> {volumeAfter} sample(s) for {mkvStats.ReadCalls} read call(s)");
     var readMb = mkvStats.BytesRead / 1e6;
     var fileMb = new FileInfo(scenario.Path).Length / 1e6;
     var found = mkvSrt.Split("\n\n", StringSplitOptions.RemoveEmptyEntries).Length;

@@ -341,7 +341,11 @@ public static class MkvSubtitleExtractor
             // bufferSize 0: every seek must cost the bytes it actually reads, not a 64 KB
             // buffered refill. Without this, a metadata walk of a 60 GB file reads the file.
             using var stream = new FileStream(videoPath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite, 0);
-            reader = new BlobReader(stream);
+            // The path goes in with the stream (P5-9): the ReadPolicy this pass builds is only handed a
+            // volume profile when the reader knows what file it is reading, and without one every read it
+            // measures is dropped - the volume keeps the one probe it took instead of learning from the
+            // reads the pass was making anyway.
+            reader = new BlobReader(stream, videoPath);
             var result = Extract(
                 reader,
                 System.IO.Path.GetFileName(videoPath),
