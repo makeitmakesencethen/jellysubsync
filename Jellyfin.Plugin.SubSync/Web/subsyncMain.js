@@ -1844,7 +1844,14 @@
             var meta = item.Type + (item.ProductionYear ? ' \u00b7 ' + item.ProductionYear : '');
             var isSel = selected && selected.Id === item.Id;
             var isPicked = !!selectedIds[item.Id];
-            var html = '<div class="ss-row' + (isPicked ? ' selected' : '') + '" data-id="' + esc(item.Id) + '">' +
+            // Pass 5 (2026-09-19, user report): the row a plain click selects and views carries a class of its
+            // own. Before the right-click-only selection fix a plain click *picked* the row as well, so the row
+            // a user clicked was marked by the pick's class; afterwards a click marked nothing at all, and since
+            // the list only reorders itself from the second pick, one clicked or one picked row was left with no
+            // marker anywhere in the list. The two classes are deliberately not the same colour: `.viewed` is
+            // neutral - this is the row you are looking at - and `.selected` is the theme's primary, the rows you
+            // have picked.
+            var html = '<div class="ss-row' + (isPicked ? ' selected' : '') + (isSel ? ' viewed' : '') + '" data-id="' + esc(item.Id) + '">' +
                 '<div class="ss-row-main">' +
                 '<div class="ss-name">' + esc(item.Name) + '</div>' +
                 '<div class="ss-meta">' + esc(meta) + '</div>' +

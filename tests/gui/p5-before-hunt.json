@@ -1,0 +1,2138 @@
+{
+ "label": "before",
+ "steps": [
+  {
+   "step": "baseline",
+   "got": {
+    "dataline": "6 libraries available",
+    "picked": [],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "none"
+   }
+  },
+  {
+   "step": "left-clicked row 3, then right-clicked row 3",
+   "got": {
+    "dataline": "41 items in All Libraries · Select all · 1 file picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Embedded Test"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": true
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "right-clicked the first row",
+   "got": {
+    "dataline": "41 items in All Libraries · Select all · 1 file picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Ass Track"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": true
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "right-clicked a Series row (plus the first row still picked)",
+   "got": {
+    "dataline": "41 items in All Libraries · Select all · 2 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Ass Track",
+     "The Helicopter Heist"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "The Helicopter Heist",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Bitmap",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": true
+     },
+     {
+      "i": 5,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Empty Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Copy",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "External Replace",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "typed \"e\" in the search box",
+   "got": {
+    "dataline": "41 items in All Libraries · Select all · 2 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "The Helicopter Heist"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "The Helicopter Heist",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": true
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Empty Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "External Copy",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Replace",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Judged Clip 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Judged Clip 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "MixedPatched",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Mp4 Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "No Index",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "s28-slice",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "Slow Single Track",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Truncated",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Walk Reference 01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Walk Reference 02",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Walk Reference 03",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Walk Reference 04",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 05",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 06",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 07",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 08",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 09",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 10",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 11",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 12",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "changed the library filter",
+   "got": {
+    "dataline": "9 items in Movies · Select all · 2 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "pressed Select all",
+   "got": {
+    "dataline": "9 items in Movies · Clear selection · 8 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Embedded Test",
+     "Fishmas Season 1",
+     "Helikopterrånet S01E01",
+     "P3 Speech Gate",
+     "S31 Wrong Ruler",
+     "Signs Test",
+     "Test Movie",
+     "Wide Open in the Shape of an Enormous Fan"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Fishmas Season 1",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Helikopterrånet S01E01",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "P3 Speech Gate",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "S31 Wrong Ruler",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Signs Test",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Test Movie",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": true,
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "nameColor": "rgb(0, 164, 220)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "flex"
+   }
+  },
+  {
+   "step": "pressed Clear selection",
+   "got": {
+    "dataline": "9 items in Movies · Select all · right-click a row to pick it, shift+right-click for a range",
+    "picked": [],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Fishmas Season 1",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Helikopterrånet S01E01",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "P3 Speech Gate",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "S31 Wrong Ruler",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Signs Test",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Test Movie",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "picked": false,
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "nameColor": "rgb(221, 221, 221)",
+      "hasOptions": false
+     }
+    ],
+    "selBar": "none"
+   }
+  }
+ ],
+ "viewedThenPicked": {
+  "view": "Embedded Test",
+  "pick": "Embedded Test"
+ },
+ "unpick": "Embedded Test",
+ "firstRow": "Ass Track",
+ "series": "The Helicopter Heist",
+ "searched": "e",
+ "selectAll": true,
+ "clear": true
+}

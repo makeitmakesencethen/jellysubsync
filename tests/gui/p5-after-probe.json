@@ -1,0 +1,304 @@
+{
+ "label": "after",
+ "phase": "run",
+ "runSamples": [
+  {
+   "at": 1,
+   "key": "Loading… || ",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase"
+   ],
+   "runLabel": {
+    "text": "Loading…",
+    "top": 57,
+    "height": 22,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "",
+    "top": 58,
+    "height": 0,
+    "fontSize": "14.136px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "Nothing queued.",
+    "top": 140,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 57,
+    "height": 20,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 124,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "",
+    "top": 0,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "none"
+   },
+   "workerRows": 0,
+   "cancelTop": 62,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 141.84375
+   }
+  },
+  {
+   "at": 2,
+   "key": "parallel · 1/64 workers || 5/8 done (63%) · 1 failed · 2 already in sync",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase"
+   ],
+   "runLabel": {
+    "text": "parallel · 1/64 workers",
+    "top": 76,
+    "height": 22,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "5/8 done (63%) · 1 failed · 2 already in sync",
+    "top": 58,
+    "height": 19,
+    "fontSize": "14.136px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "",
+    "top": 183,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 77,
+    "height": 18,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 124,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "1Embedded Test — SYNCED - Swedish - SUBRIP - ExternalSyncing (from cache)10%",
+    "top": 140,
+    "height": 41,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "flex"
+   },
+   "workerRows": 1,
+   "cancelTop": 62,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 165.234375
+   }
+  },
+  {
+   "at": 3,
+   "key": "parallel · 1/64 workers || 7/8 done (88%) · 1 failed · 3 already in sync",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase"
+   ],
+   "runLabel": {
+    "text": "parallel · 1/64 workers",
+    "top": 76,
+    "height": 22,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "7/8 done (88%) · 1 failed · 3 already in sync",
+    "top": 58,
+    "height": 19,
+    "fontSize": "14.136px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "",
+    "top": 183,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 77,
+    "height": 18,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 124,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "1Embedded Test — Swedish - SUBRIPSyncing (from cache)10%",
+    "top": 140,
+    "height": 41,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "flex"
+   },
+   "workerRows": 1,
+   "cancelTop": 62,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 165.234375
+   }
+  },
+  {
+   "at": 4,
+   "key": "Finished || 8/8 done (100%) · 1 failed · 3 already in sync",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase"
+   ],
+   "runLabel": {
+    "text": "Finished",
+    "top": 76,
+    "height": 22,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "8/8 done (100%) · 1 failed · 3 already in sync",
+    "top": 58,
+    "height": 19,
+    "fontSize": "14.136px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "",
+    "top": 124,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 75,
+    "height": 22,
+    "fontSize": "15.624px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 108,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "",
+    "top": 0,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "none"
+   },
+   "workerRows": 0,
+   "cancelTop": 0,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 106.171875
+   }
+  }
+ ],
+ "order": [
+  "DIV",
+  "ss-progress-wrap",
+  "ss-workers",
+  "ss-phase"
+ ]
+}

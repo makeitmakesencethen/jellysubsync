@@ -4840,8 +4840,25 @@ def run_page_checks():
            and 'renderQueueLine(view);' in pages['subsyncMain.js']
            and 'renderQueueLine(null);' in pages['subsyncMain.js']
            and 'id="ss-queue"' in pages['subsyncMain.html']
-           and pages['subsyncMain.html'].index('id="ss-queue"') > pages['subsyncMain.html'].index('id="ss-workers"')
-           and pages['subsyncMain.html'].index('id="ss-queue"') > pages['subsyncMain.html'].index('id="ss-progress"'))
+           and pages['subsyncMain.html'].index('id="ss-queue"') < pages['subsyncMain.html'].index('id="ss-workers"')
+           and pages['subsyncMain.html'].index('id="ss-queue"') < pages['subsyncMain.html'].index('id="ss-progress"'))
+    # Priority 5 (user report, 2026-09-19): the counts line was printed last, under the worker rows ("24/772
+    # done (3%)" below "parallel - 8/8 workers"), and both lines were smaller than the panel around them. The
+    # counts line is now the run box's first line, the workers line follows it, and both are a step larger
+    # (measured in the browser: 12.2 px -> 14.1 px and 14.9 px -> 15.6 px). Every field is unchanged.
+    report('the counts line is the run box\'s first line, above the workers line (priority 5)',
+           pages['subsyncMain.html'].index('id="ss-queue"') < pages['subsyncMain.html'].index('id="ss-run-label"')
+           and pages['subsyncMain.html'].index('id="ss-run-label"') < pages['subsyncMain.html'].index('id="ss-workers"')
+           and '.ss-run-counts { font-size: .95rem; }' in main_html
+           and '.ss-run-workers { font-size: 1.05rem; }' in main_html)
+    # Pass 5 (user report, 2026-09-19): the row a plain click selects and views is marked. Before the
+    # right-click-only selection fix the pick class marked it as well (a click picked too); afterwards a click
+    # left no mark at all, and a single pick is the one case where the list does not reorder itself, so the
+    # clicked row carried no state a user could see. The two classes are different colours on purpose.
+    report('the viewed row has its own marker, defined before the pick class (pass 5)',
+           "(isSel ? ' viewed' : '')" in pages['subsyncMain.js']
+           and '.ss-row.viewed { background:' in main_html
+           and main_html.index('.ss-row.viewed {') < main_html.index('.ss-row.selected {'))
     # C2: the progress area is a list of results, not a terminal. Measured: #ss-log was a <pre class="ss-log">
     # in ui-monospace printing "OK   Embedded Test — SYNCED - English - SUBRIP - External → /opt/data/…
     # (-250 ms offset)"; it is now a <div class="ss-tasks"> whose rows each read "Synced · <file> · -250 ms

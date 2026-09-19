@@ -61,6 +61,11 @@
             .ss-toolbar .emby-input { width: 100%; }
             .ss-list { margin-top: 4px; }
             .ss-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 6px; border-bottom: 1px solid rgba(255,255,255,.07); cursor: pointer; border-radius: 6px; }
+            /* Pass 5 (2026-09-19): the row a plain click selects and views - the row you are looking at, as
+               opposed to the rows you have picked (`.selected` below). A neutral marker, and declared BEFORE
+               `.selected` so a row that is both read as picked. */
+            .ss-row.viewed { background: rgba(255,255,255,.055); box-shadow: inset 3px 0 0 rgba(255,255,255,.3); }
+            .ss-row.viewed .ss-name { font-weight: 600; }
             .ss-row.selected { background: color-mix(in srgb, var(--theme-primary-color, #00a4dc) 14%, transparent); box-shadow: inset 3px 0 0 var(--theme-primary-color, #00a4dc); }
             .ss-row.selected .ss-name { color: var(--theme-primary-color, #00a4dc); font-weight: 600; }
             .ss-row-main { min-width: 0; flex: 1 1 auto; }
@@ -76,6 +81,14 @@
                the bar reads as an object rather than a rule. Measured before: 3 px tall. */
             .ss-progress-wrap { background: rgba(0,0,0,.35); border-radius: 5px; height: 10px; margin: 10px 0 6px; overflow: hidden; box-shadow: inset 0 0 0 1px rgba(255,255,255,.07); }
             .ss-progress-bar { height: 100%; width: 0%; background: var(--theme-primary-color, #00a4dc); border-radius: 5px; box-shadow: inset 0 1px 0 rgba(255,255,255,.25); transition: width .3s ease; }
+            /* Priority 5 (user report, 2026-09-19): the run box's two lines. The counts line - "24/772 done
+               (3%) - 22 already in sync" - now sits ABOVE the workers line ("parallel - 8/8 workers") instead
+               of under the worker rows, and both are a step larger than they were. Measured in the browser:
+               the counts line 12.2 px -> 14.1 px, the workers line 14.9 px -> 15.6 px (this page's rem is
+               14.88 px, so the sizes are stated as the browser reports them). Both keep every field they had -
+               the counts line still names failures and no-ops. */
+            .ss-run-counts { font-size: .95rem; }
+            .ss-run-workers { font-size: 1.05rem; }
             .ss-workers { display: flex; flex-direction: column; gap: 3px; margin: 6px 0 2px; max-height: 420px; overflow-y: auto; }
             .ss-worker {
                 display: grid; grid-template-columns: 20px 1fr auto; gap: 8px; align-items: baseline;
@@ -172,14 +185,16 @@
                     <div class="ss-main">
                         <section id="panel-sync">
                             <div id="ss-runbox" class="ss-hidden" style="margin:0 0 14px;background:rgba(255,255,255,.03);border-radius:8px;padding:10px 12px;">
-                                <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;">
-                                    <div class="ss-muted"><span id="ss-spinner" class="ss-spinner ss-hidden"></span> <span id="ss-run-label"></span></div>
+                                <div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+                                    <div>
+                                        <div id="ss-queue" class="ss-muted ss-run-counts"></div>
+                                        <div class="ss-muted ss-run-workers"><span id="ss-spinner" class="ss-spinner ss-hidden"></span> <span id="ss-run-label"></span></div>
+                                    </div>
                                     <button is="emby-button" type="button" id="ss-cancel" class="raised emby-button ss-hidden"><span>Cancel</span></button>
                                 </div>
                                 <div class="ss-progress-wrap"><div class="ss-progress-bar" id="ss-progress"></div></div>
                                 <div id="ss-workers" class="ss-workers ss-hidden"></div>
                                 <div id="ss-phase" class="ss-muted"></div>
-                                <div id="ss-queue" class="ss-muted" style="font-size:.82rem;"></div>
                             </div>
                             <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;">
                                 <h2 class="sectionTitle" style="margin:0;">Sync from your library</h2>

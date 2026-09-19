@@ -1,0 +1,2088 @@
+{
+ "label": "before",
+ "phase": "both",
+ "firstRightClickOn": "Embedded Test",
+ "secondRightClickOn": "External Copy",
+ "leftClickOn": "The Helicopter Heist",
+ "selectSteps": [
+  {
+   "step": "nothing picked",
+   "state": {
+    "dataline": "41 items in All Libraries · Select all · right-click a row to pick it, shift+right-click for a range",
+    "picked": [],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     }
+    ]
+   }
+  },
+  {
+   "step": "after one right-click",
+   "state": {
+    "dataline": "41 items in All Libraries · Select all · 1 file picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Embedded Test"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Ass Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "Bitmap",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Embedded Test",
+      "cls": "ss-row selected",
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(0, 164, 220)",
+      "nameWeight": "600",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Empty Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "External Copy",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     }
+    ]
+   }
+  },
+  {
+   "step": "after two right-clicks",
+   "state": {
+    "dataline": "41 items in All Libraries · Select all · 2 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Embedded Test",
+     "External Copy"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "cls": "ss-row selected",
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(0, 164, 220)",
+      "nameWeight": "600",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "External Copy",
+      "cls": "ss-row selected",
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(0, 164, 220)",
+      "nameWeight": "600",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Ass Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Bitmap",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Empty Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     }
+    ]
+   }
+  },
+  {
+   "step": "after a plain left-click",
+   "state": {
+    "dataline": "41 items in All Libraries · Select all · 2 files picked · right-click to add or remove, shift+right-click for a range",
+    "picked": [
+     "Embedded Test",
+     "External Copy"
+    ],
+    "rows": [
+     {
+      "i": 0,
+      "name": "Embedded Test",
+      "cls": "ss-row selected",
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(0, 164, 220)",
+      "nameWeight": "600",
+      "hasOptions": false
+     },
+     {
+      "i": 1,
+      "name": "External Copy",
+      "cls": "ss-row selected",
+      "bg": "color(srgb 0 0.643137 0.862745 / 0.14)",
+      "shadow": "rgb(0, 164, 220) 3px 0px 0px 0px inset",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(0, 164, 220)",
+      "nameWeight": "600",
+      "hasOptions": false
+     },
+     {
+      "i": 2,
+      "name": "Ass Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 3,
+      "name": "Bitmap",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 4,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 5,
+      "name": "Embedded Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 6,
+      "name": "Empty Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 7,
+      "name": "External Replace",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 8,
+      "name": "Fishmas Season 1",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 9,
+      "name": "The Helicopter Heist",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": true
+     },
+     {
+      "i": 10,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 11,
+      "name": "Helikopterrånet S01E01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 12,
+      "name": "Judged Clip 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 13,
+      "name": "Judged Clip 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 14,
+      "name": "Judged Clip 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 15,
+      "name": "MixedPatched",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 16,
+      "name": "Mp4 Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 17,
+      "name": "No Index",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 18,
+      "name": "P3 Speech Gate",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 19,
+      "name": "priority-scratch-143251",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 20,
+      "name": "s28-slice",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 21,
+      "name": "S31 Wrong Ruler",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 22,
+      "name": "S43 Audio Is Audio",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 23,
+      "name": "Signs Test",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 24,
+      "name": "Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 25,
+      "name": "Slow Single Track",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 26,
+      "name": "Test Movie",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 27,
+      "name": "Truncated",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 28,
+      "name": "Walk Reference 01",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 29,
+      "name": "Walk Reference 02",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 30,
+      "name": "Walk Reference 03",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 31,
+      "name": "Walk Reference 04",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 32,
+      "name": "Walk Reference 05",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 33,
+      "name": "Walk Reference 06",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 34,
+      "name": "Walk Reference 07",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 35,
+      "name": "Walk Reference 08",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 36,
+      "name": "Walk Reference 09",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 37,
+      "name": "Walk Reference 10",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 38,
+      "name": "Walk Reference 11",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 39,
+      "name": "Walk Reference 12",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     },
+     {
+      "i": 40,
+      "name": "Wide Open in the Shape of an Enormous Fan",
+      "cls": "ss-row",
+      "bg": "rgba(0, 0, 0, 0)",
+      "shadow": "none",
+      "borderLeft": "0px rgba(255, 255, 255, 0.7)",
+      "nameColor": "rgb(221, 221, 221)",
+      "nameWeight": "500",
+      "hasOptions": false
+     }
+    ]
+   }
+  }
+ ],
+ "runSamples": [
+  {
+   "at": 1,
+   "key": "Loading… || ",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase",
+    "ss-queue"
+   ],
+   "runLabel": {
+    "text": "Loading…",
+    "top": 76,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "",
+    "top": 160,
+    "height": 0,
+    "fontSize": "12.2016px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "Nothing queued.",
+    "top": 140,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 76,
+    "height": 18,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 124,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "",
+    "top": 0,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "none"
+   },
+   "workerRows": 0,
+   "cancelTop": 62,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 141.84375
+   }
+  },
+  {
+   "at": 2,
+   "key": "parallel · 1/64 workers || 2/3 done (67%) · 1 already in sync",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase",
+    "ss-queue"
+   ],
+   "runLabel": {
+    "text": "parallel · 1/64 workers",
+    "top": 76,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "2/3 done (67%) · 1 already in sync",
+    "top": 183,
+    "height": 16,
+    "fontSize": "12.2016px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "",
+    "top": 183,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 76,
+    "height": 18,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 124,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "1Ass Track — English - ASSSyncing (analysing the audio)10%",
+    "top": 140,
+    "height": 41,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "flex"
+   },
+   "workerRows": 1,
+   "cancelTop": 62,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 181.703125
+   }
+  },
+  {
+   "at": 4,
+   "key": "Idle || ",
+   "runBoxShown": true,
+   "order": [
+    "DIV",
+    "ss-progress-wrap",
+    "ss-workers",
+    "ss-phase",
+    "ss-queue"
+   ],
+   "runLabel": {
+    "text": "Idle",
+    "top": 58,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline"
+   },
+   "queue": {
+    "text": "",
+    "top": 124,
+    "height": 0,
+    "fontSize": "12.2016px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "phase": {
+    "text": "Nothing queued.",
+    "top": 104,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "spinner": {
+    "text": "",
+    "top": 57,
+    "height": 20,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "inline-block"
+   },
+   "bar": {
+    "text": "",
+    "top": 88,
+    "height": 10,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "block"
+   },
+   "workers": {
+    "text": "",
+    "top": 0,
+    "height": 0,
+    "fontSize": "14.88px",
+    "fontWeight": "400",
+    "color": "rgba(255, 255, 255, 0.7)",
+    "display": "none"
+   },
+   "workerRows": 0,
+   "cancelTop": 0,
+   "clip": {
+    "x": 468.875,
+    "y": 38,
+    "width": 926.25,
+    "height": 106.15625
+   }
+  }
+ ],
+ "order": [
+  "DIV",
+  "ss-progress-wrap",
+  "ss-workers",
+  "ss-phase",
+  "ss-queue"
+ ]
+}
