@@ -518,7 +518,7 @@ public partial class SubSyncService
             // P5: the engine run - the first attempt and, when a cached speech analysis turned out to be
             // unusable, a second one from the audio. Everything it produces is consumed inside it except
             // reference.SerializeSpeech, which its retry can flip.
-            reference.SerializeSpeech = await RunEngineAttemptAsync(
+            var engineAttempt = await RunEngineAttemptAsync(
                 job,
                 config,
                 ffsubsyncExe,
@@ -535,6 +535,21 @@ public partial class SubSyncService
                 reference.SpeechKey,
                 reference.Path,
                 cancellationToken).ConfigureAwait(false);
+            reference.SerializeSpeech = engineAttempt.SerializeSpeech;
+
+            // P5-5: the engine's own answer for this run, in milliseconds. It is the fallback signal for every
+            // guard below, and it exists precisely because the guards used to have only one: the measured change
+            // between what the engine was given and what it wrote (MeasureSyncChange). That measurement needs at
+            // least three cues and an unchanged cue count, so for a forced/signs track - or for the plugin's own
+            // sparse output - it is null, and every guard keyed on it silently did nothing. Measured in the
+            // field on 2026-09-18: job 3a8fbe3d… (Solsidan S09E01) took a −149,99 s answer from a sibling
+            // subtitle ruler with a negative score, reported `change=unknown` and wrote a 98-byte sidecar over
+            // the library's own; job 155dd60e… wrote 124 bytes the same way. Both are the same hole: the answer
+            // was pinned at the ±150 s search window, the documented ceiling for a subtitle ruler is 30 s, and
+            // nothing looked because nothing could be measured.
+            long? engineShiftMs = engineAttempt.OffsetSeconds is { } engineOffset
+                ? (long)Math.Round(engineOffset * 1000.0)
+                : null;
 
 
             // A stretch is a claim about the whole timeline, and only the film's audio can test it: another
@@ -617,9 +632,17 @@ public partial class SubSyncService
             // 198 713). So a subtitle ruler is also refused when its cues did not move together.
             var spreadCeilingMs = referenceCeilingMs * AlignmentMetrics.SubtitleReferenceSpreadFraction;
             var rulerSpreadTooWide = measured is { } spread && AlignmentMetrics.RulerSpreadTooWide(spread, referenceCeilingMs);
+
+            // P5-5: the ruler's demand is judged on the measured change when there is one, and on the engine's
+            // own reported answer when there is not. Before this, a subtitle whose change could not be measured
+            // at all - a forced/signs track, or the plugin's own sparse output - was exempt from this ceiling
+            // entirely, which is how a −149,99 s answer from a sibling ruler and a 98-byte sidecar reached the
+            // library (job 3a8fbe3d…, 2026-09-18).
+            var rulerDemandMs = measured?.ShiftMs ?? engineShiftMs;
+            var rulerDemandFromEngine = measured is null && engineShiftMs is not null;
             if (reference.UsedSubtitleReference
-                && measured is { } fromReference
-                && (Math.Abs(fromReference.ShiftMs) > referenceCeilingMs || rulerSpreadTooWide))
+                && rulerDemandMs is { } fromReference
+                && (Math.Abs(fromReference) > referenceCeilingMs || rulerSpreadTooWide))
             {
                 // The measurement is right and the conclusion was incomplete: a subtitle reference cannot be trusted
                 // for a shift this size (it is very likely from a different cut), but the film's own audio cannot be
@@ -627,12 +650,16 @@ public partial class SubSyncService
                 // aligned against, drop that track as a ruler and align this subtitle against the audio. The track
                 // is discarded so the file's other subtitles do not repeat the same measurement, and the audio
                 // analysis is paid once per file, cached like every other audio path.
-                var detail = Math.Abs(fromReference.ShiftMs) > referenceCeilingMs
-                    ? $"aligned to the reference subtitle {reference.Spec} at {fromReference.ShiftMs} ms"
+                var detail = Math.Abs(fromReference) > referenceCeilingMs
+                    ? $"aligned to the reference subtitle {reference.Spec} at {fromReference} ms"
+                        + (rulerDemandFromEngine
+                            ? " (the engine's own answer — the subtitle is too sparse for the change between it and "
+                                + "its synced output to be measured, so the ruler is judged on what the engine said)"
+                            : string.Empty)
                     : $"the cues did not move together against {reference.Spec}: a spread of "
-                        + $"{fromReference.SpreadMs / 1000.0:0.00} s across the middle half of its cues "
-                        + $"(range {fromReference.RangeMs / 1000.0:0.00} s) while the median was "
-                        + $"{fromReference.ShiftMs} ms";
+                        + $"{measured!.Value.SpreadMs / 1000.0:0.00} s across the middle half of its cues "
+                        + $"(range {measured.Value.RangeMs / 1000.0:0.00} s) while the median was "
+                        + $"{measured.Value.ShiftMs} ms";
                 _logger.LogWarning(
                     "Sync job {JobId}: the reference subtitle is not the same cut ({Detail}) - aligning against the audio instead",
                     job.Id,
@@ -702,9 +729,15 @@ public partial class SubSyncService
                     audioFallback = true;
                     tempOutput = audioOutput;
                     measured = AlignmentMetrics.MeasureSyncChange(subtitleInputPath, tempOutput);
+                    // P5-5: the answer that now matters is the audio run's, so the fallback signal moves with it.
+                    // A leftover offset from the discarded ruler's run would put the window check and the audit
+                    // below back on the answer that was just rejected.
+                    engineShiftMs = audioOffsetSeconds is { } audioOffset
+                        ? (long)Math.Round(audioOffset * 1000.0)
+                        : null;
                     PluginLog.Info(
                         $"[{job.Id}] reference: method=audio why=the reference subtitle was not the same cut "
-                        + $"(it demanded {fromReference.ShiftMs} ms)");
+                        + $"(it demanded {fromReference} ms)");
                 }
                 else
                 {
@@ -720,7 +753,7 @@ public partial class SubSyncService
                         job,
                         "Refused",
                         $"refused: the subtitle was aligned against the file's own subtitle track {reference.Spec}, "
-                            + $"which demanded a {fromReference.ShiftMs} ms shift — that track is not the same cut — and "
+                            + $"which demanded a {fromReference} ms shift — that track is not the same cut — and "
                             + "aligning against the audio instead produced nothing. Nothing was written.",
                         tempOutput);
                     return;
@@ -734,7 +767,12 @@ public partial class SubSyncService
             // against the film's audio as a last check: anything a wide window matched wrongly shows up there as a
             // large remaining shift, and the job refuses with both numbers instead of writing it.
             var ceilingMs = Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 1000.0;
-            if (!wideAllowanceApplied && measured is { } onCeiling && Math.Abs(onCeiling.ShiftMs) >= ceilingMs - 500)
+            // P5-5: the same fallback as the ruler ceiling above - a result pinned at the search window has to be
+            // retried wider even when the change could not be measured, because "the engine's answer sits exactly
+            // on the edge of what it was allowed to look for" is a property of its own answer, not of the
+            // comparison. Before this, a sparse subtitle whose answer was pinned at ±150 s was written as-is.
+            var onCeilingShiftMs = measured?.ShiftMs ?? engineShiftMs;
+            if (!wideAllowanceApplied && onCeilingShiftMs is { } onCeilingShift && Math.Abs(onCeilingShift) >= ceilingMs - 500)
             {
                 var wideSeconds = Math.Max(Configuration.SettingsValidation.MaxOffsetSecondsOf(config) * 2, 300);
                 var wideLimitMs = wideSeconds * 1000.0;
@@ -753,8 +791,9 @@ public partial class SubSyncService
                     wideSeconds);
                 PluginLog.Info(
                     $"[{job.Id}] offsets: the alignment reached the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search window "
-                    + $"(it measured {onCeiling.ShiftMs} ms, which a window that size cannot be trusted to have found) "
-                    + $"\u2014 aligning again with {wideSeconds} s and checking the result against the film's audio");
+                    + $"(it measured {onCeilingShift} ms, which a window that size cannot be trusted to have found"
+                    + (measured is null && engineShiftMs is not null ? ", and this is the engine's own answer - the change could not be measured" : string.Empty)
+                    + $") \u2014 aligning again with {wideSeconds} s and checking the result against the film's audio");
 
                 var wideErrors = new List<string>();
                 var wideExit = await _processes.RunProcessWithStderrCallbackAsync(
@@ -833,14 +872,14 @@ public partial class SubSyncService
                             job.Id,
                             why);
                         PluginLog.Info(
-                            $"job {job.Id} REFUSED: this subtitle needed {onCeiling.ShiftMs} ms with a "
+                            $"job {job.Id} REFUSED: this subtitle needed {onCeilingShift} ms with a "
                             + $"{Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s window and {wider.ShiftMs} ms with {wideSeconds} s, and {why}; "
                             + $"nothing written, source untouched, file={video.Path}");
                         RefuseJob(
                             job,
                             "Refused",
                             $"refused: this subtitle is further out than the {Configuration.SettingsValidation.MaxOffsetSecondsOf(config)} s search "
-                                + $"window ({onCeiling.ShiftMs} ms reached it), the {wideSeconds} s window measured "
+                                + $"window ({onCeilingShift} ms reached it), the {wideSeconds} s window measured "
                                 + $"{wider.ShiftMs} ms, and that did not hold up against the film's audio: {why}. Nothing "
                                 + "was written.",
                             tempOutput);
@@ -1180,14 +1219,31 @@ public partial class SubSyncService
     }
 
     /// <summary>
+    /// What one engine attempt produced: whether the attempt that mattered analysed the speech itself (the caller
+    /// needs that to know which speech-cache entry the run belongs to), and the score and offset the engine itself
+    /// printed.
+    /// </summary>
+    /// <remarks>
+    /// The engine's own offset is carried out of here because it is the only alignment signal a job has when the
+    /// change between the subtitle and its synced output cannot be measured (P5-5): <see
+    /// cref="AlignmentMetrics.MeasureSyncChange"/> needs three cues and an unchanged cue count, so a forced/signs
+    /// track - or the plugin's own sparse output - produces no measurement at all, and every guard that judged
+    /// the ruler from that measurement was silently skipped until this value was available to them.
+    /// </remarks>
+    /// <param name="SerializeSpeech">Whether the attempt that mattered analysed the speech itself.</param>
+    /// <param name="Score">The alignment score the engine printed, when it printed one.</param>
+    /// <param name="OffsetSeconds">The offset the engine printed, when it printed one.</param>
+    internal readonly record struct EngineAttempt(bool SerializeSpeech, double? Score, double? OffsetSeconds);
+
+    /// <summary>
     /// Runs ffsubsync for this job's first attempt and, when a cached speech analysis turned out to be unusable,
     /// a second one from the audio. The stderr callbacks live inside this method on purpose: they mutate only
     /// locals here (the tail of what the engine printed, the score and offset it reported), which is what keeps
     /// the retry safe to read on its own.
     /// </summary>
-    /// <returns>Whether the attempt that mattered analysed the speech itself - the caller needs that to know
-    /// which speech-cache entry the run belongs to.</returns>
-    private async Task<bool> RunEngineAttemptAsync(
+    /// <returns>Whether the attempt that mattered analysed the speech itself, and the score and offset the engine
+    /// printed.</returns>
+    private async Task<EngineAttempt> RunEngineAttemptAsync(
         SyncJob job,
         PluginConfiguration config,
         string ffsubsyncExe,
@@ -1328,11 +1384,26 @@ public partial class SubSyncService
                 engineErrors.Clear();
             }
 
+            // The retry is the run that matters, so its own answer replaces the failed attempt's: a score or an
+            // offset left over from a run that could not read the reference would describe a run nobody used.
+            engineScore = null;
+            engineOffsetSeconds = null;
+
             exitCode = await _processes.RunProcessWithStderrCallbackAsync(
                 ffsubsyncExe, args, tempDir,
                 line =>
                 {
                     ParseFfSubSyncStderr(line, job);
+                    if (TryParseEngineScore(line, out var retryScore))
+                    {
+                        engineScore = retryScore;
+                    }
+
+                    if (TryParseEngineOffset(line, out var retryOffset))
+                    {
+                        engineOffsetSeconds = retryOffset;
+                    }
+
                     lock (engineErrors)
                     {
                         if (!string.IsNullOrWhiteSpace(line))
@@ -1373,7 +1444,7 @@ public partial class SubSyncService
         }
 
         ReleaseSpeechGate(job, videoPath);
-        return serializeSpeech;
+        return new EngineAttempt(serializeSpeech, engineScore, engineOffsetSeconds);
     }
 
     /// <summary>

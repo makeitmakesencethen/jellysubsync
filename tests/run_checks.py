@@ -5610,7 +5610,13 @@ console.log(JSON.stringify(out));
     # wrong file. See AGENTS.md, "Key Patterns & Gotchas".
     report('a reference-derived shift past the limit drops the reference and uses the audio',
            'MaxSubtitleReferenceOffsetSeconds' in service
-           and 'it demanded {fromReference.ShiftMs} ms' in service
+           # P5-5 (2026-09-19): the demand is now the measured change when one exists and the engine's own answer when
+           # none does, so the log line names `fromReference` (the value that decided) rather than the SyncChange's
+           # field. The guard fires on the same shape as before for a measurable subtitle, and now also for a sparse
+           # one, which is what the field's 14 jobs were (see the job check "a sibling ruler pinned at the search
+           # window is discarded even when the subtitle is too sparse to measure").
+           and 'it demanded {fromReference} ms' in service
+           and 'var rulerDemandMs = measured?.ShiftMs ?? engineShiftMs;' in service
            and 'ReferenceStore.Discard(videoPath, reference.Spec);' in service
            and 'worth checking, a shift this size' in service
            and 'refusing a reference-derived shift' not in service)

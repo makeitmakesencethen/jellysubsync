@@ -534,6 +534,37 @@
             $"status={sjStale.Job.Status}/{sjStale.Job.Phase} error='{sjStale.Job.Error}' runs={SjEngineRuns()} "
             + $"sidecar={File.Exists(SjSidecarFor(sjStale.CaseDir, sjStale.Sidecar))}");
 
+        // ---------------- P5-5 (2026-09-19, the field): a ruler is judged even when nothing can be measured ------
+        // 14 jobs on 2026-09-18 wrote a sidecar out of an alignment the engine itself scored negative, pinned at
+        // the ±150 s search window and taken from a sibling subtitle ruler (knowledge/LOG_ANALYSIS_2026-09-18.md
+        // section 7.7). Three of them wrote 1-2 cue files (98 and 124 bytes) over the library's own sidecar and
+        // the rest reported `change=unknown`. The mechanism was one shared precondition: every ruler guard asked
+        // MeasureSyncChange, which needs three cues and an unchanged cue count - so a subtitle that sparse was
+        // guarded by nothing at all, and the documented 30 s ceiling for a subtitle ruler never ran. The engine's
+        // own reported offset is the fallback signal now. This case is that shape: two cues, against a ruler
+        // whose answer is the whole window.
+        var sjSparse = await SjRunCase(
+            "p5-5-sparse-ruler",
+            "payload",
+            SjSubtitle(2, -150),
+            sibling: true,
+            payload2: SjSubtitle(2, 5),
+            stderr: "INFO  score: -41642.0\nINFO  offset seconds: -149.990\n",
+            stderr2: "INFO  score: 50000.0\nINFO  offset seconds: 5.000\n",
+            cues: 2);
+        var sjSparseText = sjSparse.Job.OutputPath is not null && File.Exists(sjSparse.Job.OutputPath)
+            ? File.ReadAllText(sjSparse.Job.OutputPath)
+            : string.Empty;
+        Check("P5-5: a sibling ruler pinned at the search window is discarded even when the subtitle is too sparse to measure",
+            sjSparse.Job.Status == SyncJobStatus.Completed
+            && SjEngineRuns() == 2
+            && !SjArgv(1).Contains("/subsync/ref/", StringComparison.Ordinal)
+            && (sjSparse.Job.Outcome ?? string.Empty).StartsWith("the file's own subtitle track is not the same cut, so this was aligned against the audio", StringComparison.Ordinal)
+            && sjSparseText.Contains("00:10:05,000", StringComparison.Ordinal)     // the audio's answer (+5 s)
+            && !sjSparseText.Contains("00:07:30,000", StringComparison.Ordinal),   // not the pinned ruler's (-150 s)
+            $"status={sjSparse.Job.Status} runs={SjEngineRuns()} outcome='{sjSparse.Job.Outcome}' "
+            + $"written={sjSparseText.Split('\n').Skip(1).FirstOrDefault() ?? "(none)"}");
+
         // ---------------- the reference the engine is actually handed (S43) ----------------
         var sjVad = await SjRunCase("p8-audio-vad", "payload", SjSubtitle(40, 5), sibling: true);
         Check("S43: a vetted subtitle ruler is handed to the engine as a file and the audio VAD is not forced",
