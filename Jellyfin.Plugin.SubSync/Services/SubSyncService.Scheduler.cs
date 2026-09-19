@@ -135,9 +135,46 @@ public partial class SubSyncService
     }
 
     /// <summary>
-    /// True when a job will read a lot from storage: it must extract an embedded subtitle,
-    /// or run a speech analysis whose result is not cached yet.
+    /// Decides whether a job is expected to read the media, and so belongs under its volume's ceiling.
     /// </summary>
+    /// <remarks>
+    /// One function so the decision can be read and pinned on its own, and so the pieces that feed it are
+    /// named: an embedded track is read out of the container; an external sidecar is read only when its ruler
+    /// is the film's own audio and that analysis is not cached yet; and a job that has started a media read
+    /// mid-run says so, because a rescale against the film's own audio is not visible when the job is queued.
+    /// </remarks>
+    /// <param name="readsMediaNow">The job has started a pass over the media (the rescale check, an audio retry).</param>
+    /// <param name="isExternal">The subtitle being fixed is a sidecar file, not a track in the container.</param>
+    /// <param name="usesSpeechCache">The job's mode reuses a cached speech analysis.</param>
+    /// <param name="speechCached">That analysis is on disk already.</param>
+    /// <param name="rulerIsTheAudio">Nothing in the file can serve as a subtitle reference, so the audio is the ruler.</param>
+    /// <returns>True when the job is expected to read the media.</returns>
+    public static bool NeedsHeavyIo(
+        bool readsMediaNow,
+        bool isExternal,
+        bool usesSpeechCache,
+        bool speechCached,
+        bool rulerIsTheAudio)
+        => readsMediaNow
+            || !isExternal
+            || (usesSpeechCache && !speechCached && rulerIsTheAudio);
+
+    /// <summary>
+    /// True when a job will read the media: it must extract an embedded subtitle, run a speech analysis whose
+    /// result is not cached, or it has already started a pass over the film's own audio.
+    /// </summary>
+    /// <remarks>
+    /// The third input is the one this row (P5-10) is about. The rule used to be `usesSpeechCache(mode) &amp;&amp;
+    /// !SpeechIsCached(job)`, which answers "is this file's speech cache cold?" - not "will this job read the
+    /// media". A job whose ruler is a sibling subtitle needs no analysis of the film's audio, and its reference
+    /// is built from text the process already has, so charging it to the volume's ceiling paid for a read it
+    /// never made: measured in the tail of batch 8b8dd2d6 on 2026-09-19, three such jobs of one file - each
+    /// served from the extracted-subtitle cache, each 1,3 s of alignment - ran one per wave on a share held at
+    /// "1 concurrent media read".
+    /// </remarks>
+    /// <param name="job">Job under consideration.</param>
+    /// <param name="mode">The batch's resolved mode.</param>
+    /// <returns>True when the job is expected to read the media.</returns>
     private bool JobNeedsHeavyIo(SyncJob job, string mode)
     {
         if (!_jobContexts.TryGetValue(job.Id, out var ctx))
@@ -145,12 +182,66 @@ public partial class SubSyncService
             return false;
         }
 
-        if (!ctx.Stream.IsExternal)
+        return NeedsHeavyIo(
+            job.ReadsMediaNow,
+            ctx.Stream.IsExternal,
+            SyncJobMode.UsesSpeechCache(mode),
+            SpeechIsCached(job),
+            RulerWillBeTheAudio(job));
+    }
+
+    /// <summary>
+    /// True when this job's ruler will be the film's own audio, because the file carries no embedded text track
+    /// the plugin can build a subtitle reference from (P5-10).
+    /// </summary>
+    /// <remarks>
+    /// The same picker the job path uses, over the same list the pipeline uses for an external sidecar
+    /// (<c>JobPipeline</c>'s external branch), so the scheduler's prediction and the ruler the job ends up using
+    /// cannot drift apart. Memoised per media file: a file's track list does not change while a batch runs, and
+    /// the planner asks this for every queued job on every pass. Anything unknown answers "the audio is the
+    /// ruler", which is the cautious side - that job is counted as a reader.
+    /// </remarks>
+    /// <param name="job">Job under consideration.</param>
+    /// <returns>True when the audio will be the reference.</returns>
+    private bool RulerWillBeTheAudio(SyncJob job)
+    {
+        if (!_jobContexts.TryGetValue(job.Id, out var ctx)
+            || ctx.Video is null
+            || string.IsNullOrEmpty(ctx.Video.Path))
         {
-            return true; // embedded extraction reads the container
+            return true;
         }
 
-        return SyncJobMode.UsesSpeechCache(mode) && !SpeechIsCached(job);
+        var path = ctx.Video.Path;
+        if (_rulerIsTheAudio.TryGetValue(path, out var known))
+        {
+            return known;
+        }
+
+        var answer = true;
+        try
+        {
+            var siblings = ctx.Video.GetMediaSources(true)
+                .SelectMany(source => source.MediaStreams)
+                .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle
+                    && !stream.IsExternal)
+                .ToList();
+            if (siblings.Count > 0)
+            {
+                answer = MediaStreamMap.SelectReferenceStream(
+                    false,
+                    siblings.Select(stream => stream.Codec ?? string.Empty).ToList(),
+                    -1,
+                    siblings.Select(stream => stream.IsForced).ToList()) is null;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Could not work out whether {Video} has a sibling text track to align against", path);
+            answer = true;
+        }
+
+        return _rulerIsTheAudio.GetOrAdd(path, answer);
     }
 
 

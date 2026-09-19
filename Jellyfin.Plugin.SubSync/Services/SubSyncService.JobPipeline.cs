@@ -1265,6 +1265,16 @@ public partial class SubSyncService
             config, referenceArg, engineInput, tempOutput, tempDir, serializeSpeech, referenceStream,
             VadForReference(referenceSpec));
 
+        // P5-10: the engine is about to read the media (an audio reference with nothing cached to stand in for
+        // it), so this job tells the scheduler so. Its volume's ceiling counts it from the next planning pass:
+        // the plan predicted this job's reads when it was queued, and this is the case it cannot predict - the
+        // ruler it will use once the first pass has shown a rescale is needed.
+        var readTheMedia = !usedSubtitleReference && !usingCachedSpeech;
+        if (readTheMedia)
+        {
+            job.ReadsMediaNow = true;
+        }
+
         _logger.LogInformation("Running ffsubsync ({Exe}): {Args}", ffsubsyncExe, args);
         PluginLog.Info($"[{job.Id}] ffsubsync start: exe={ffsubsyncExe} cachedSpeech={usingCachedSpeech} reference={referenceStream ?? "(default)"} args={string.Join(' ', args)}");
         LogVadOverride(
@@ -1324,7 +1334,13 @@ public partial class SubSyncService
         // counts when it is the volume being measured: a walk taken while another volume was being read
         // measures the moment as much as the storage, and believing it held a fast volume to two walks for
         // the rest of a mixed batch on 2026-09-14.
-        if (!usedSubtitleReference)
+        //
+        // S42 (folded in with P5-10): this used to read `!usedSubtitleReference`, which is the *ruler* and not
+        // the read - an audio-referenced run whose speech came from the cache hands the engine the cached .npz,
+        // so the file is never walked, yet the file's whole length was charged to the volume as a walk. The
+        // condition is now the truth about the pass: the engine read the media (an audio ruler with nothing
+        // cached in its place).
+        if (readTheMedia)
         {
             var walked = MediaLengthOf(videoPath);
             if (walked > 0)
@@ -2563,6 +2579,10 @@ public partial class SubSyncService
             "--skip-infer-framerate-ratio",
             "--log-dir-path", tempDir
         };
+
+        // P5-10: this pass reads the media (the video is its reference), so the job says so before it starts - the
+        // plan could not know a rescale was coming, and the volume's ceiling has to count this read while it runs.
+        job.ReadsMediaNow = true;
 
         _logger.LogInformation("Sync job {JobId}: testing the stretch against the film's audio", job.Id);
         PluginLog.Info(

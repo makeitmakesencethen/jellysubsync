@@ -100,6 +100,20 @@ public class SyncJob
     public bool HoldsSpeechGate { get; set; }
 
     /// <summary>
+    /// Gets or sets a value indicating whether this job is reading the media right now (P5-10).
+    /// </summary>
+    /// <remarks>
+    /// The scheduler predicts a job's reads when it is queued: the ruler it will use, and whether the file's
+    /// speech analysis is already cached. A rescale against the film's own audio is decided halfway through a
+    /// run and cannot be seen there. The job says so the moment the engine is started against the media, and
+    /// the volume's ceiling then counts it from the next planning pass - which is what keeps a share that has
+    /// measured itself slow from being handed several media reads because the plan could not know about one.
+    /// Never serialised: it describes the run in progress, not the job.
+    /// </remarks>
+    [JsonIgnore]
+    public bool ReadsMediaNow { get; set; }
+
+    /// <summary>
     /// Gets or sets the account whose request created this job, when one did (F4).
     /// </summary>
     /// <remarks>
@@ -772,6 +786,14 @@ public partial class SubSyncService : IDisposable
     }
 
     private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, DateTime> _ceilingLogged =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether each media file's ruler will be the film's own audio, because no embedded text track can serve
+    /// as a subtitle reference (P5-10). Memoised per file: the planner asks for every queued job on every pass,
+    /// and a file's track list does not change while a batch runs.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> _rulerIsTheAudio =
         new(StringComparer.Ordinal);
 
     private static string NormalizeMode(string? mode) => SyncJobMode.Normalize(mode);

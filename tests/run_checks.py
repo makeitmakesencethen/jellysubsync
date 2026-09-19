@@ -283,6 +283,29 @@ var heavyCapped = SubSyncService.SelectWave(heavyQueue, "ultimate", "b", new Sub
 });
 Check("worker count is the only limit for heavy work", heavyCapped.Count == 2, "got " + heavyCapped.Count);
 
+// P5-10: what makes a job a media reader is the read it makes, not the state of the file's speech cache. The
+// rule used to be `usesSpeechCache(mode) && !SpeechIsCached(job)`, which counted a sidecar whose ruler is a
+// sibling subtitle as a reader of the film's audio - so it was charged to its volume's ceiling for a read it
+// never made (measured in the tail of batch 8b8dd2d6 on 2026-09-19: three 1,3 s jobs, one per wave, on a
+// share held at "1 concurrent media read").
+Check("a sidecar whose ruler is a sibling subtitle is not a media reader",
+    !SubSyncService.NeedsHeavyIo(false, true, true, false, false),
+    "cold speech cache, ruler is a subtitle: no analysis of the audio is needed");
+Check("a sidecar whose ruler is the film's audio is a media reader while nothing stands in for it",
+    SubSyncService.NeedsHeavyIo(false, true, true, false, true),
+    "cold speech cache, ruler is the audio");
+Check("a sidecar whose analysis is already cached is not a media reader",
+    !SubSyncService.NeedsHeavyIo(false, true, true, true, true),
+    "warm speech cache: the engine is handed the cached signal");
+Check("an embedded track is a media reader whatever the cache says",
+    SubSyncService.NeedsHeavyIo(false, false, true, true, false),
+    "embedded extraction reads the container");
+Check("a mode that never reuses an analysis makes no read of a sidecar",
+    !SubSyncService.NeedsHeavyIo(false, true, false, false, true),
+    "nothing cached and nothing to reuse: the ruler is still a subtitle");
+Check("a job that has started a pass over the media is a media reader",
+    SubSyncService.NeedsHeavyIo(true, true, true, true, false),
+    "the rescale check reads the film's audio, and the plan could not know");
 
 // several subtitles of one file: only when its speech analysis is cached
 var sameFileQueue = new List<SyncJob>
@@ -4362,8 +4385,26 @@ def run_gate_source_checks():
     score_at = service.find('var rulerShape = SubtitleRulerShape.Score(')
     context_at = service.find('context only; the audio cross-check runs either way')
     cross_at = service.find('var crossCheckOutput = Path.Combine(tempDir, "audio-cross-check.srt");')
+    # P5-10's wiring, counted once so the checks below read as conditions rather than as arithmetic.
+    reads_media_now = service.count('job.ReadsMediaNow = true;')
     failures = 0
     checks = [
+        # P5-10 / S42: the classification decides which jobs a slow volume's ceiling counts, so its wiring is
+        # pinned here rather than left to the pure-function checks alone: the rule that was replaced answered
+        # "is the file's speech cache cold" and charged sidecar jobs to a ceiling for reads they never made.
+        ('P5-10: a job is counted as a media reader from the read, not from the file\'s speech cache',
+         'RulerWillBeTheAudio(job)' in service
+         and 'SyncJobMode.UsesSpeechCache(mode) && !SpeechIsCached(job)' not in service,
+         'the ruler is asked instead of the cache state'),
+        ('P5-10: the decision is its own function, so it can be read and pinned on its own',
+         'public static bool NeedsHeavyIo(' in service and 'return NeedsHeavyIo(' in service, ''),
+        ('P5-10: a pass that starts reading the media says so (the engine funnel and the rescale check)',
+         reads_media_now >= 2,
+         f'{reads_media_now} assignment(s) of job.ReadsMediaNow'),
+        ('S42: the walk is charged to a media read, not to the ruler that was chosen',
+         'var readTheMedia = !usedSubtitleReference && !usingCachedSpeech;' in service
+         and 'if (readTheMedia)' in service,
+         'the walk block no longer reads !usedSubtitleReference'),
         ('the ruler is still scored, and the score is logged before the cross-check (s31-quality)',
          0 < score_at < cross_at, f'score@{score_at} cross@{cross_at}'),
         ('the score never gates the cross-check: no shape condition wraps it (s31-quality)',
