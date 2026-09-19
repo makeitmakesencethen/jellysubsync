@@ -1125,11 +1125,12 @@ public partial class SubSyncService
                 RefuseJob(
                     job,
                     "Unverified \u2014 audio-only alignment",
-                    $"unverified: this subtitle was aligned against the audio ({detail}) and the file holds "
-                        + "no other text track to check that against, so nothing was written. An audio reference on a "
-                        + "short file can be out by a second or more. Sync it against a subtitle track if the file has "
-                        + "one, or run it from an external .srt, where the audio is the reference the plugin is meant "
-                        + "to use.",
+                    $"unverified: nothing was written. This track sits inside the video file, so the only "
+                        + $"reference for it was the film's audio ({detail}) and there was no subtitle track to "
+                        + "check that answer against. An audio-only alignment has nothing to cross-check it, and "
+                        + "on a short file it can be out by a second or more. Run it again from an external .srt "
+                        + "beside the video: an external subtitle's reference is the audio the plugin is meant to "
+                        + "use, and a synced sidecar is written for it.",
                     tempOutput);
                 return;
             }

@@ -263,11 +263,25 @@
         Check("P13: an embedded track aligned against the audio alone is refused as unverified (terminal G)",
             sjG.Job.Status == SyncJobStatus.Failed
             && sjG.Job.Phase == "Unverified \u2014 audio-only alignment"
-            && (sjG.Job.Error ?? string.Empty).StartsWith("unverified: this subtitle was aligned against the audio", StringComparison.Ordinal)
+            && (sjG.Job.Error ?? string.Empty).StartsWith("unverified: nothing was written.", StringComparison.Ordinal)
             && (sjG.Job.Error ?? string.Empty).Contains("+5000 ms offset", StringComparison.Ordinal)
             && sjG.Job.OutputPath is null
             && !File.Exists(SjSidecarFor(sjG.CaseDir, sjG.Sidecar)),
             $"{sjG.Job.Status}/{sjG.Job.Phase} error='{sjG.Job.Error}'");
+
+        // Pass 5 (2026-09-19): the sentence a user reads when this refusal fires. It used to advise "sync it
+        // against a subtitle track if the file has one" in the same breath as saying the file has no other
+        // text track, and its last sentence did not parse. It must now say what happened, why the answer is
+        // not trusted, and what the user can do - and never name a subtitle track as available, because this
+        // path exists precisely because none was usable.
+        Check("P13: the unverified sentence states what happened, why it is not trusted, and what to do",
+            (sjG.Job.Error ?? string.Empty).Contains("nothing was written", StringComparison.Ordinal)
+            && (sjG.Job.Error ?? string.Empty).Contains("no subtitle track to check that answer against", StringComparison.Ordinal)
+            && (sjG.Job.Error ?? string.Empty).Contains("can be out by a second or more", StringComparison.Ordinal)
+            && (sjG.Job.Error ?? string.Empty).Contains("external .srt", StringComparison.Ordinal)
+            && !(sjG.Job.Error ?? string.Empty).Contains("if the file has", StringComparison.Ordinal)
+            && !(sjG.Job.Error ?? string.Empty).Contains("Sync it against a subtitle track", StringComparison.Ordinal),
+            (sjG.Job.Error ?? string.Empty));
 
         // ---------------- P14: an engine output with no subtitles is refused before the copy ----------------
         var sjEmpty = await SjRunCase("p14-empty-output", "empty", SjSubtitle(40, 5));
