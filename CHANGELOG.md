@@ -1,3 +1,49 @@
+## 2.0.67 (beta)
+
+One correctness fix that protects your files, two things about the interface that were reported from live use,
+one confusing sentence, and the read-outs they came from.
+
+**A subtitle ruler can no longer write its answer when its demand is past the documented limit - this is the one
+that matters.** The plugin has always refused to trust a *sibling subtitle track* for a shift past 30 s: past
+that, that track is not the same cut, so it is dropped as a ruler and your subtitle is aligned against the film's
+audio instead. That guard, and the one that retries an answer pinned at the search window, both read the measured
+difference between your subtitle and what the engine wrote - and that measurement needs at least three cues and an
+unchanged cue count. So for a forced/signs track, or for a sparse sidecar, there was **no** measurement to judge,
+and the guard silently did nothing. In one night of real use that wrote 14 synced subtitles into the library out
+of alignments the engine itself scored negative and pinned at the ±150 s edge of its search window - three of them
+1-2 cue files of 98 and 124 bytes, landing on top of the sidecars already there. The engine's own reported offset
+is now the fallback signal for both guards, so a ruler is judged even when nothing can be measured: it is
+discarded, the audio's answer is written, and if the audio produces nothing the job refuses and says why. Measured
+in the harness with the shape from the field: a 2-cue sidecar against a ruler demanding the whole window used to
+write the ruler's `00:07:30,000` cue; it now writes the audio's `00:10:05,000` and logs that the ruler was judged
+on the engine's own answer because the subtitle is too sparse to measure.
+
+**The row you click is marked again.** The right-click-only selection fix left one gap: a right-click pick is
+marked (that was measured and it never regressed), but the row a plain **click** selects and views carried no
+state of its own - before, a click also picked the row, so it was marked by the pick's class. With one row in play
+the list does not reorder either, so there was nothing on screen at all. The row you are looking at now carries its
+own neutral marker (a 5,5 % white tint, a 3 px neutral bar, a 600-weight name), deliberately not the pick's
+primary colour, so "the row I am looking at" and "the rows I have picked" are told apart at a glance - and a single
+pick still looks exactly like a multi-pick.
+
+**The run box leads with how the run is going.** The counts line ("24/772 done (3%) - 22 already in sync") was
+printed last, under the worker rows and the phase, in the smallest type in the panel; the workers line sat at the
+top. The counts line is now the box's first line, the workers line follows it, and both are a step larger -
+measured in the browser, 12,2 px -> 14,1 px and 14,9 px -> 15,6 px. Every field is kept: failures, cancellations,
+already-in-sync and the percentage are all still on that line.
+
+**The "unverified, nothing written" sentence now says what happened, why it is not trusted, and what to do.** It
+used to advise syncing "against a subtitle track if the file has one" in the same breath as saying the file holds
+no other text track, and its last sentence did not parse. It also claimed more than the plugin knows: the ruler is
+the audio whenever no sibling track could be *built* - a signs track, text that could not be read, or a track
+already discarded as a different cut - which is not the same thing as the file having no other track. The refusal
+itself is unchanged: an audio-only alignment on a track inside the file is still not written.
+
+Two read-outs accompany this release and changed no code: a full analysis of a day's plugin log (extraction split,
+every WARN and ERROR, the read and byte families, the run outcomes, and fourteen findings, all with severities) and
+an investigation of a film reported out of sync after a sync that said "+50 ms", which comes down to three
+measurements that need the media rather than the log.
+
 ## 2.0.66 (beta)
 
 Four things found by using 2.0.64 on a real library: one correctness defect that made a working run look
