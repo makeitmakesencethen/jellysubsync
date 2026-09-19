@@ -226,18 +226,34 @@ public partial class SubSyncService
                 .Where(stream => stream.Type == MediaBrowser.Model.Entities.MediaStreamType.Subtitle
                     && !stream.IsExternal)
                 .ToList();
-            if (siblings.Count > 0)
-            {
-                answer = MediaStreamMap.SelectReferenceStream(
+            var spec = siblings.Count > 0
+                ? MediaStreamMap.SelectReferenceStream(
                     false,
                     siblings.Select(stream => stream.Codec ?? string.Empty).ToList(),
                     -1,
-                    siblings.Select(stream => stream.IsForced).ToList()) is null;
-            }
+                    siblings.Select(stream => stream.IsForced).ToList())
+                : null;
+
+            // The picker answers "a:0" when it finds no usable sibling, and null is its "leave it to the
+            // default": both mean the audio is the ruler, so this is checked as the picker's contract rather
+            // than as a null test, which never fires - the picker always returns a specifier.
+            answer = spec is null || spec.StartsWith("a:", StringComparison.Ordinal);
+
+            // One line per file per process (this is memoised below), and the line the register's P5-10 row is
+            // read against: which way the classification went and what it rested on.
+            _logger.LogInformation(
+                "Heavy-IO prediction for {Video}: {Tracks} embedded text track(s), ruler {Ruler} -> {Verdict}",
+                path,
+                siblings.Count,
+                spec ?? "(none)",
+                answer ? "the audio, so this job is counted as a reader" : "a sibling subtitle, so it is not");
         }
         catch (Exception ex)
         {
-            _logger.LogDebug(ex, "Could not work out whether {Video} has a sibling text track to align against", path);
+            _logger.LogWarning(
+                ex,
+                "Could not work out whether {Video} has a sibling text track to align against; counting its jobs as media readers",
+                path);
             answer = true;
         }
 

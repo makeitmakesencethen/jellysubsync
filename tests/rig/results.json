@@ -5168,5 +5168,375 @@
     ],
     "batch": "3abd5d0d86914bdfaf02b84e49975c01",
     "seconds": 32.8
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 11:59:14",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "2 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs shared one wave on the capped volume",
+        "passed": true,
+        "detail": "dispatch widths [2] - one per wave is the defect, two is the fix"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "dispatch widths in the window: [2]",
+      "queued jobs for the batch: 2",
+      "widest dispatch: 2"
+    ],
+    "batch": "b3d8a26d3d3c4ddd8465d5f991a1cb8c",
+    "seconds": 32.2
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 11:59:54",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "2 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs shared one wave on the capped volume",
+        "passed": true,
+        "detail": "dispatch widths [2] - one per wave is the defect, two is the fix"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "dispatch widths in the window: [2]",
+      "queued jobs for the batch: 2",
+      "widest dispatch: 2"
+    ],
+    "batch": "67c810af6643475ba038fc52f47e2496",
+    "seconds": 32.0
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:02:44",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "3 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs shared one wave on the capped volume",
+        "passed": false,
+        "detail": "dispatch widths [1, 1, 1] - one per wave is the defect, two is the fix"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "dispatch widths in the window: [1, 1, 1]",
+      "queued jobs for the batch: 3",
+      "widest dispatch: 1"
+    ],
+    "batch": "f4d722b5bb77464eb138d889b5bd645b",
+    "seconds": 43.1
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:03:32",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "3 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs shared one wave on the capped volume",
+        "passed": false,
+        "detail": "dispatch widths [1, 1, 1] - one per wave is the defect, two is the fix"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "dispatch widths in the window: [1, 1, 1]",
+      "queued jobs for the batch: 3",
+      "widest dispatch: 1"
+    ],
+    "batch": "6e95399b8e7a4f0bbdb13a3814ac21a5",
+    "seconds": 42.6
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:06:45",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "3 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs shared one wave on the capped volume",
+        "passed": false,
+        "detail": "dispatch widths [1, 1, 1] - one per wave is the defect, two is the fix"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "dispatch widths in the window: [1, 1, 1]",
+      "queued jobs for the batch: 3",
+      "widest dispatch: 1"
+    ],
+    "batch": "c3199ee785b94d69ba014c0708ac1f74",
+    "seconds": 42.8
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:10:19",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "3 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs of one file ran at the same time",
+        "passed": false,
+        "detail": "starts ['2026-09-19 10:10:45.360Z', '2026-09-19 10:10:54.760Z', '2026-09-19 10:10:54.763Z'] against first finish 2026-09-19 10:10:45.946Z - one at a time is the defect"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "jobs in the window: 3",
+      "engine starts: ['2026-09-19 10:10:45.360Z', '2026-09-19 10:10:54.760Z', '2026-09-19 10:10:54.763Z']",
+      "first finish: 2026-09-19 10:10:45.946Z",
+      "they overlapped: False",
+      "ceiling lines (a refusal is what the old classification produced): 0"
+    ],
+    "batch": "a1606a9de06943e298be2c9cf60a62a5",
+    "seconds": 42.9
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:11:05",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "3 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs of one file ran at the same time",
+        "passed": false,
+        "detail": "starts ['2026-09-19 10:11:31.034Z', '2026-09-19 10:11:40.520Z', '2026-09-19 10:11:41.759Z'] against first finish 2026-09-19 10:11:31.618Z - one at a time is the defect"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "jobs in the window: 3",
+      "engine starts: ['2026-09-19 10:11:31.034Z', '2026-09-19 10:11:40.520Z', '2026-09-19 10:11:41.759Z']",
+      "first finish: 2026-09-19 10:11:31.618Z",
+      "they overlapped: False",
+      "ceiling lines (a refusal is what the old classification produced): 1"
+    ],
+    "batch": "22097adfd19f4d78bf15006aebf8011d",
+    "seconds": 42.6
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:14:06",
+    "plugin": "SubSync_2.0.67.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "2 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs of one file ran at the same time",
+        "passed": true,
+        "detail": "starts ['2026-09-19 10:14:41.316Z', '2026-09-19 10:14:41.323Z'] against first finish 2026-09-19 10:14:42.100Z - one at a time is the defect"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "jobs in the window: 2",
+      "engine starts: ['2026-09-19 10:14:41.316Z', '2026-09-19 10:14:41.323Z']",
+      "first finish: 2026-09-19 10:14:42.100Z",
+      "they overlapped: True",
+      "ceiling lines (a refusal is what the old classification produced): 0"
+    ],
+    "batch": "cff94abdb4fb42408702786a80e95ef0",
+    "seconds": 42.9
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:14:53",
+    "plugin": "SubSync_2.0.68.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "2 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs of one file ran at the same time",
+        "passed": false,
+        "detail": "starts ['2026-09-19 10:15:28.142Z', '2026-09-19 10:15:29.381Z'] against first finish 2026-09-19 10:15:28.900Z - one at a time is the defect"
+      }
+    ],
+    "passed": false,
+    "observations": [
+      "jobs in the window: 2",
+      "engine starts: ['2026-09-19 10:15:28.142Z', '2026-09-19 10:15:29.381Z']",
+      "first finish: 2026-09-19 10:15:28.900Z",
+      "they overlapped: False",
+      "ceiling lines (a refusal is what the old classification produced): 1"
+    ],
+    "batch": "6faa2938fa2f4c358082e7769f53487a",
+    "seconds": 42.4
+  },
+  {
+    "scenario": "p510-sibling-wave",
+    "when": "2026-09-19 12:22:30",
+    "plugin": "SubSync_2.0.68.0",
+    "shim": {
+      "MS_PER_CALL": 231.0,
+      "MS_PER_16K": 0.0
+    },
+    "note": "",
+    "repo_head": "c434f0b",
+    "assertions": [
+      {
+        "check": "both sidecars of the one file were queued",
+        "passed": true,
+        "detail": "2 queued job line(s)"
+      },
+      {
+        "check": "the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)",
+        "passed": true,
+        "detail": "the classification only changes for a mode whose analysis is cached"
+      },
+      {
+        "check": "the two sibling-ruled jobs of one file ran at the same time",
+        "passed": true,
+        "detail": "starts ['2026-09-19 10:23:05.451Z', '2026-09-19 10:23:05.457Z'] against first finish 2026-09-19 10:23:06.254Z - one at a time is the defect"
+      }
+    ],
+    "passed": true,
+    "observations": [
+      "jobs in the window: 2",
+      "engine starts: ['2026-09-19 10:23:05.451Z', '2026-09-19 10:23:05.457Z']",
+      "first finish: 2026-09-19 10:23:06.254Z",
+      "they overlapped: True",
+      "ceiling lines (a refusal is what the old classification produced): 0"
+    ],
+    "batch": "1ef0c78139a6487db373730221ec6061",
+    "seconds": 43.0
   }
 ]

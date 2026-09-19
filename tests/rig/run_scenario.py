@@ -212,17 +212,51 @@ def prepare_second_slow_fixture() -> None:
         log(f'[rig] copied a fresh fixture onto the slow volume ({target.name})')
 
 
-def ensure_fresh_slow_item(rig, tries: int = 6) -> list:
-    """The freshly copied fixtures, *as the library now sees them*.
+def prepare_p510_fixture() -> None:
+    """Two fresh files on the shimmed volume — one to measure it, one with three sidecars (P5-10's scenario).
 
-    `prepare_second_slow_fixture` deletes the previous run's copies and writes new ones, but the library keeps
-    the deleted paths until a scan has caught up — and a job queued for such a path fails in 10 ms with
-    `FileNotFoundException`, which looks exactly like a scenario that measured nothing (it cost this scenario
-    three runs to see: every batch reported a job `failed` beside the one that had started).
+    External sidecars are the only jobs P5-10 changes: an embedded track is a media read by definition, while a
+    sidecar whose ruler can be a sibling subtitle the process already holds is not. Two sidecars queued together
+    give the plan two candidates for one file in the same pass, which is what the wave's width shows: with the
+    ceiling counting these jobs as readers, one runs and the other waits; with the ruler deciding, both run.
+
+    The first file exists because the ceiling only *refuses* on a volume that has measured itself: a volume
+    nothing has read is held at UnmeasuredWalkCap (2), and two jobs fit under two - the first version of this
+    scenario measured that, and both classifications looked identical. So one job with an embedded track is run
+    first, whose lane extraction reads the file at the shim's price, which is what P5-9's scenario uses to put a
+    volume at one read. Three sidecars, not two: after the first batch the sidecar it synced is skipped at
+    enqueue, so the measuring batch needs its own pair.
+
+    Fresh every run for the same reason as P5-9's fixture: the subtitle cache is keyed on the file's identity,
+    size and mtime, and a copy an earlier run already processed would be answered from cache.
+    """
+    for stale in SLOW_VOLUME_DIR.glob('P5-10 *'):
+        stale.unlink()
+    stamp = int(time.time())
+    warm = SLOW_VOLUME_DIR / f'P5-10 Warm {stamp}.mkv'
+    shutil.copy2(SMALL_FIXTURE, warm)
+    video = SLOW_VOLUME_DIR / f'P5-10 Fixture {stamp}.mkv'
+    shutil.copy2(SMALL_FIXTURE, video)
+    body = ('1\n00:00:01,000 --> 00:00:03,000\nfirst line of the sidecar\n\n'
+            '2\n00:00:05,000 --> 00:00:07,000\nsecond line of the sidecar\n\n'
+            '3\n00:00:09,000 --> 00:00:11,500\nthird line of the sidecar\n\n'
+            '4\n00:00:13,000 --> 00:00:15,000\nfourth line of the sidecar\n')
+    for language in ('eng', 'swe', 'nor'):
+        (SLOW_VOLUME_DIR / f'P5-10 Fixture {stamp}.{language}.srt').write_text(body)
+    log(f'[rig] copied {warm.name} and {video.name} (eng/swe/nor sidecars) onto the slow volume')
+
+
+def ensure_fresh_slow_item(rig, prefix: str = 'P5-9 Fixture', tries: int = 6) -> list:
+    """The freshly copied fixture, *as the library now sees it*.
+
+    A prepare step deletes the previous run's copy and writes a new one, but the library keeps the deleted path
+    until a scan has caught up — and a job queued for such a path fails in 10 ms with `FileNotFoundException`,
+    which looks exactly like a scenario that measured nothing (it cost the P5-9 scenario three runs to see:
+    every batch reported a job `failed` beside the one that had started).
     """
     for attempt in range(tries):
         items = [item for item in rig.items('media-slow')
-                 if (item.get('Name') or '').startswith('P5-9 Fixture')
+                 if (item.get('Name') or '').startswith(prefix)
                  and item.get('Path') and os.path.exists(item['Path'])]
         if items:
             return items
@@ -1390,6 +1424,100 @@ def scenario_p59_read_feed(rig, args, ctx):
     ]
 
 
+def scenario_p510_sibling_wave(rig, args, ctx):
+    """P5-10: two sidecar jobs of one file, whose ruler is a sibling subtitle, must share one wave.
+
+    The defect: `JobNeedsHeavyIo` answered "is this file's speech cache cold?" for external jobs, so these two
+    jobs were counted as media readers and charged to their volume's ceiling - one per wave on a share held at
+    "1 concurrent media read" - although neither of them needs the film's audio at all: the reference is a
+    sibling text track the process already holds. Measured in the field on 2026-09-19 (The Helicopter Heist
+    S01E06's three jobs, each 1,3 s of alignment, one per wave).
+
+    The scenario is the same shape in miniature: one file with two external sidecars, the S41 thrash tier so
+    the volume is held to one read, mode `ultimate` so the speech cache is in play, and both tasks in one
+    batch so the plan sees both candidates in the same pass. The plan spreads one job per volume in its first
+    pass and fills the wave in its second, so the width of the dispatch line *is* the answer: with the ceiling
+    counting them, `starting 1`; with the ruler deciding, `starting 2`.
+    """
+    items = ensure_fresh_slow_item(rig, 'P5-10 Fixture')
+    warm_items = ensure_fresh_slow_item(rig, 'P5-10 Warm')
+    if not items or not warm_items:
+        return [('the fixtures are in the library', False,
+                 f'fixture={len(items)} warm={len(warm_items)} after a library refresh')]
+
+    item = items[0]
+    external = [int(stream['Index']) for stream in (item.get('MediaStreams') or [])
+                if stream.get('Type') == 'Subtitle' and stream.get('IsExternal')]
+    if len(external) < 3:
+        return [('the fixture exposes three external sidecars', False,
+                 f'external subtitle indexes: {external}')]
+
+    # Measure the volume first: one embedded-track job, whose lane extraction reads the file at the shim's
+    # price, is what puts the ceiling at one read. Without this the volume is unmeasured, its cap is two, and
+    # both classifications look the same - which is what the first version of this scenario measured.
+    warm_track = [int(stream['Index']) for stream in (warm_items[0].get('MediaStreams') or [])
+                  if stream.get('Type') == 'Subtitle' and not stream.get('IsExternal')]
+    if not warm_track:
+        return [('the warm fixture has an embedded text track', False, 'none found')]
+    rig.log_lines()
+    warm = rig.post('/SubSync/Batch', {
+        'Tasks': [{'ItemId': warm_items[0]['Id'], 'SubtitleIndex': warm_track[0],
+                   'Title': warm_items[0].get('Name') or warm_items[0]['Id']}],
+        'Label': 'rig-p510-measure', 'Mode': 'parallel'})
+    ctx['batch'] = warm.get('BatchId') or warm.get('Id')
+    rig.wait_batch(ctx['batch'])
+
+    # The window is opened *after* the measuring job: it is in the log too, and counting its start and finish
+    # as part of the batch under test is what made the first version of this check report "one at a time" for
+    # two jobs that had in fact overlapped.
+    rig.log_lines()
+    since = rig._log_offset
+    batch = rig.post('/SubSync/Batch', {
+        'Tasks': [{'ItemId': item['Id'], 'SubtitleIndex': index,
+                   'Title': item.get('Name') or item['Id']} for index in external[1:3]],
+        'Label': 'rig-p510-wave', 'Mode': 'ultimate'})
+    rig.wait_batch(batch.get('BatchId') or batch.get('Id'))
+
+    lines = rig.log_lines(since)
+    queued = [line for line in lines if 'queued: job=' in line]
+    job_ids = [match.group(1) for line in queued
+               if (match := re.search(r'queued: job=([0-9a-f]{32})', line))]
+    starts, finishes = {}, {}
+    for line in lines:
+        stamp = line[:24]
+        for job_id in job_ids:
+            if job_id not in line:
+                continue
+            if 'ffsubsync start:' in line or 'reference is the subtitle' in line:
+                starts[job_id] = stamp
+            if ' completed:' in line or ' failed:' in line or ' REFUSED' in line:
+                finishes[job_id] = stamp
+
+    # Concurrency, not the width of one dispatch line: the pump plans again the moment it has started a job, so
+    # a wave of two can arrive as `starting 1` twice - measured here at 10:07:16.929/930, with both jobs' engine
+    # lines (10:07:19.976 and 10:07:19.983) landing before either finished (10:07:20.76). Two jobs overlap when
+    # every start precedes the first finish.
+    concurrent = len(starts) >= 2 and bool(finishes) and min(finishes.values()) > max(starts.values())
+    held = [line for line in lines if 'walk ceiling:' in line]
+    ctx['observations'] = [
+        f'jobs in the window: {len(job_ids)}',
+        f'engine starts: {sorted(starts.values())}',
+        f'first finish: {min(finishes.values()) if finishes else "(none)"}',
+        f'they overlapped: {concurrent}',
+        f'ceiling lines (a refusal is what the old classification produced): {len(held)}',
+    ]
+    return [
+        ('both sidecars of the one file were queued', len(queued) >= 2,
+         f'{len(queued)} queued job line(s)'),
+        ('the batch ran in a mode that reuses the speech cache (the rule P5-10 replaced)',
+         any('mode=ultimate' in line for line in queued),
+         'the classification only changes for a mode whose analysis is cached'),
+        ('the two sibling-ruled jobs of one file ran at the same time', concurrent,
+         f'starts {sorted(starts.values())} against first finish '
+         f'{min(finishes.values()) if finishes else "(none)"} - one at a time is the defect'),
+    ]
+
+
 SCENARIOS = {
     'smoke': dict(run=scenario_smoke, storage='any',
                   needs='nothing: it is the harness checking itself (2 volumes, fixtures, log)'),
@@ -1422,6 +1550,11 @@ SCENARIOS = {
                           needs="S41's thrash tier (231 ms a read, so the volume is held to one read) and two "
                                 "files on the shimmed volume: the refusal the second batch draws quotes the "
                                 "reads the first batch's pass made, not just the probe's three"),
+    'p510-sibling-wave': dict(run=scenario_p510_sibling_wave, storage='shim',
+                              shim={'MS_PER_CALL': 231.0, 'MS_PER_16K': 0.0},
+                              needs="S41's thrash tier (one read at a time) and one file with two external "
+                                    "sidecars queued in one batch, mode `ultimate`: both jobs are light once the "
+                                    "ruler is a sibling subtitle, so the wave must take both where it took one"),
     's41-steady': dict(run=scenario_s41_steady, storage='shim',
                        shim={'MS_PER_CALL': 10.0, 'MS_PER_16K': 1.46},
                        needs="fabji's measured share (10 ms/read, 11 MB/s): two walks, and no ceiling on the fast one"),
@@ -1477,6 +1610,8 @@ def main() -> int:
     prepare_fixtures()
     if args.scenario == 'p59-read-feed':
         prepare_second_slow_fixture()
+    if args.scenario == 'p510-sibling-wave':
+        prepare_p510_fixture()
     if args.scenario == 's39-ratio':
         ensure_library(WALK_LIBRARY_NAME, WALK_VOLUME_DIR)
     installed = riglib.install_plugin(
